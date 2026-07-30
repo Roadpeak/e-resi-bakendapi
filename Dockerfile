@@ -20,7 +20,10 @@ RUN npm install -g pnpm@10
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Generate Prisma client for the runtime target (needs OpenSSL present).
-RUN pnpm exec prisma generate
+# NODE_OPTIONS: Prisma 7.8's @prisma/dev transitively require()s an ESM-only
+# module (zeptomatch). Node 22's --experimental-require-module flag lets
+# CJS require ESM, working around the upstream packaging bug.
+RUN NODE_OPTIONS="--experimental-require-module" pnpm exec prisma generate
 RUN pnpm run build
 # Drop dev deps for the runtime image.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
