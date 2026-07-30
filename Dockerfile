@@ -7,7 +7,7 @@ ARG NODE_VERSION=22.11.0-alpine
 FROM node:${NODE_VERSION} AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
-RUN corepack enable && corepack prepare pnpm@10 --activate
+RUN npm install -g pnpm@10
 COPY package.json pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
@@ -16,7 +16,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM node:${NODE_VERSION} AS build
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
-RUN corepack enable && corepack prepare pnpm@10 --activate
+RUN npm install -g pnpm@10
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Generate Prisma client for the runtime target (needs OpenSSL present).
