@@ -1,0 +1,774 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  BUYER
+  INVESTOR
+  TENANT
+  DEVELOPER
+  ADMIN
+}
+
+enum KybStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  OFF_PLAN
+  SOLD_OUT
+  ARCHIVED
+}
+
+enum PropertyCategory {
+  APARTMENT
+  VILLA
+  TOWNHOUSE
+  PENTHOUSE
+  OFFICE
+  COMMERCIAL
+  LAND
+}
+
+enum UnitStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+}
+
+enum FurnishingType {
+  FURNISHED
+  SEMI_FURNISHED
+  UNFURNISHED
+}
+
+enum RentListingStatus {
+  AVAILABLE
+  PARTIALLY_AVAILABLE
+  FULLY_LET
+  ARCHIVED
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  DRONE_PHOTO
+  DRONE_VIDEO
+  FLOOR_PLAN
+  VIRTUAL_TOUR
+  THREE_D_MODEL
+}
+
+enum CinematicSceneCategory {
+  FULL_TOUR
+  AERIAL
+  EXTERIOR
+  LIVING_ROOM
+  KITCHEN
+  BEDROOM
+  BATHROOM
+  AMENITIES
+  UNIT_TYPE
+}
+
+enum TourCameraPreset {
+  AERIAL
+  STREET
+  ROOFTOP
+  INTERIOR
+  LOBBY
+  POOL
+  GYM
+}
+
+enum InquiryStatus {
+  NEW
+  READ
+  REPLIED
+  CLOSED
+}
+
+enum BookingType {
+  PHYSICAL
+  VIRTUAL
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum ReservationStage {
+  RESERVED
+  AGREEMENT_SIGNED
+  DEPOSIT_PAID
+  FINAL_PAYMENT
+  TITLE_TRANSFERRED
+  CANCELLED
+}
+
+enum NotificationType {
+  INQUIRY_RECEIVED
+  INQUIRY_REPLIED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  RESERVATION_UPDATED
+  RESERVATION_EXPIRING
+  PAYMENT_RECEIVED
+  KYB_APPROVED
+  KYB_REJECTED
+  PROPERTY_PUBLISHED
+  GENERAL
+}
+
+enum PaymentMethod {
+  STRIPE_CARD
+  MPESA
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum ProductionTierType {
+  LISTING_ONLY
+  PHOTOGRAPHY
+  PHOTOGRAPHY_VIDEO
+  TOUR_CINEMATIC
+  TOUR_3D
+  TOUR_VR
+  FULL_PRODUCTION
+}
+
+enum AmenityType {
+  SCHOOL
+  HOSPITAL
+  MALL
+  TRANSPORT
+  RESTAURANT
+  PARK
+  BANK
+  AIRPORT
+  GYM
+  SUPERMARKET
+  HOTEL
+}
+
+enum AnalyticsEventType {
+  PAGE_VIEW
+  TOUR_START
+  TOUR_COMPLETE
+  INQUIRY_SUBMITTED
+  BOOKING_SUBMITTED
+  UNIT_VIEWED
+  PROPERTY_SAVED
+  SHARE
+}
+
+// ─────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String?
+  role            UserRole  @default(BUYER)
+  firstName       String
+  lastName        String
+  phone           String?
+  avatarUrl       String?
+  emailVerified   Boolean   @default(false)
+  phoneVerified   Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  oauthProvider        String?
+  oauthId              String?
+  refreshToken         String?
+  emailVerifyToken     String?
+  passwordResetToken   String?
+  passwordResetExpiry  DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  developerProfile  DeveloperProfile?
+  savedProperties   SavedProperty[]
+  inquiries         Inquiry[]
+  inquiryReplies    InquiryReply[]
+  bookings          Booking[]
+  reservations      Reservation[]
+  notifications     Notification[]
+  analyticsEvents   AnalyticsEvent[]
+  payments          Payment[]
+  documents         Document[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ─────────────────────────────────────────────
+// DEVELOPER PROFILE
+// ─────────────────────────────────────────────
+
+model DeveloperProfile {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName       String
+  logoUrl           String?
+  description       String?
+  establishedYear   Int?
+  completedProjects Int       @default(0)
+  website           String?
+  kybStatus         KybStatus @default(NOT_SUBMITTED)
+  kybDocuments      Json?
+  kybReviewedAt     DateTime?
+  kybReviewedBy     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  properties        Property[]
+  rentListings      RentListing[]
+}
+
+// ─────────────────────────────────────────────
+// PROPERTY
+// ─────────────────────────────────────────────
+
+model Property {
+  id                  String            @id @default(cuid())
+  slug                String            @unique
+  name                String
+  tagline             String?
+  description         String?
+  category            PropertyCategory  @default(APARTMENT)
+  status              PropertyStatus    @default(DRAFT)
+  developerId         String
+  developer           DeveloperProfile  @relation(fields: [developerId], references: [id])
+  addressLine         String?
+  neighborhood        String?
+  city                String            @default("Nairobi")
+  county              String?
+  country             String            @default("Kenya")
+  latitude            Float?
+  longitude           Float?
+  heroImageUrl        String?
+  heroVideoUrl        String?
+  priceFrom           Float?
+  priceTo             Float?
+  currency            String            @default("KES")
+  hasCinematicTour    Boolean           @default(false)
+  has3DTour           Boolean           @default(false)
+  hasVRTour           Boolean           @default(false)
+  isFeatured          Boolean           @default(false)
+  tags                String[]
+  completionDate      DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  units               Unit[]
+  floorPlans          FloorPlan[]
+  amenities           Amenity[]
+  constructionUpdates ConstructionUpdate[]
+  media               MediaAsset[]
+  cinematicScenes     CinematicScene[]
+  tourSections3D      TourSection3D[]
+  tourScenesVR        TourSceneVR[]
+  rentListings        RentListing[]
+  savedBy             SavedProperty[]
+  inquiries           Inquiry[]
+  bookings            Booking[]
+  analyticsEvents     AnalyticsEvent[]
+  productionTier      ProductionTier?
+
+  @@index([slug])
+  @@index([status])
+  @@index([developerId])
+  @@index([city])
+  @@index([isFeatured])
+}
+
+// ─────────────────────────────────────────────
+// UNIT
+// ─────────────────────────────────────────────
+
+model Unit {
+  id           String     @id @default(cuid())
+  propertyId   String
+  property     Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name         String
+  floor        Int?
+  bedrooms     Int        @default(1)
+  bathrooms    Int        @default(1)
+  sqm          Float?
+  price        Float
+  currency     String     @default("KES")
+  status       UnitStatus @default(AVAILABLE)
+  floorPlanId  String?
+  features     String[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  reservations Reservation[]
+
+  @@index([propertyId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// RENT LISTING
+// ─────────────────────────────────────────────
+
+model RentListing {
+  id                        String            @id @default(cuid())
+  slug                      String            @unique
+  propertyId                String
+  property                  Property          @relation(fields: [propertyId], references: [id])
+  developerId               String
+  developer                 DeveloperProfile  @relation(fields: [developerId], references: [id])
+  name                      String
+  tagline                   String?
+  description               String?
+  status                    RentListingStatus @default(AVAILABLE)
+  furnishing                FurnishingType    @default(UNFURNISHED)
+  neighborhood              String?
+  city                      String            @default("Nairobi")
+  county                    String?
+  country                   String            @default("Kenya")
+  latitude                  Float?
+  longitude                 Float?
+  heroImageUrl              String?
+  priceFrom                 Float?
+  priceTo                   Float?
+  currency                  String            @default("KES")
+  availableFrom             DateTime?
+  minLeaseTerm              Int               @default(12)
+  show3DTour                Boolean           @default(false)
+  showCinematicTour         Boolean           @default(false)
+  featuredCinematicSceneIds String[]
+  isFeatured                Boolean           @default(false)
+  tags                      String[]
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  rentUnits                 RentUnit[]
+  media                     MediaAsset[]
+  inquiries                 Inquiry[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([developerId])
+  @@index([city])
+}
+
+// ─────────────────────────────────────────────
+// RENT UNIT
+// ─────────────────────────────────────────────
+
+model RentUnit {
+  id                String         @id @default(cuid())
+  rentListingId     String
+  rentListing       RentListing    @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
+  label             String
+  bedrooms          Int            @default(1)
+  bathrooms         Int            @default(1)
+  sqm               Float?
+  pricePerMonth     Float
+  currency          String         @default("KES")
+  available         Int            @default(0)
+  total             Int            @default(1)
+  furnishing        FurnishingType @default(UNFURNISHED)
+  features          String[]
+  cinematicSceneIds String[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([rentListingId])
+}
+
+// ─────────────────────────────────────────────
+// MEDIA ASSET
+// ─────────────────────────────────────────────
+
+model MediaAsset {
+  id              String       @id @default(cuid())
+  type            MediaType
+  url             String
+  thumbnailUrl    String?
+  title           String?
+  order           Int          @default(0)
+  isFeatured      Boolean      @default(false)
+  sizeBytes       Int?
+  mimeType        String?
+  propertyId      String?
+  property        Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rentListingId   String?
+  rentListing     RentListing? @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+
+  @@index([propertyId])
+  @@index([rentListingId])
+}
+
+// ─────────────────────────────────────────────
+// CINEMATIC SCENE
+// ─────────────────────────────────────────────
+
+model CinematicScene {
+  id           String                 @id @default(cuid())
+  propertyId   String
+  property     Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  label        String
+  sublabel     String?
+  category     CinematicSceneCategory @default(FULL_TOUR)
+  videoUrl     String
+  thumbnailUrl String?
+  order        Int                    @default(0)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// 3D TOUR
+// ─────────────────────────────────────────────
+
+model TourSection3D {
+  id         String        @id @default(cuid())
+  propertyId String
+  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  label      String
+  order      Int           @default(0)
+  createdAt  DateTime      @default(now())
+
+  scenes     TourScene3D[]
+
+  @@index([propertyId])
+}
+
+model TourScene3D {
+  id           String           @id @default(cuid())
+  sectionId    String
+  section      TourSection3D    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  label        String
+  description  String?
+  imageUrl     String?
+  videoUrl     String?
+  thumbnailUrl String?
+  cameraPreset TourCameraPreset @default(INTERIOR)
+  order        Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([sectionId])
+}
+
+// ─────────────────────────────────────────────
+// VR TOUR
+// ─────────────────────────────────────────────
+
+model TourSceneVR {
+  id           String           @id @default(cuid())
+  propertyId   String
+  property     Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  label        String
+  description  String?
+  imageUrl     String?
+  videoUrl     String?
+  thumbnailUrl String?
+  cameraPreset TourCameraPreset @default(INTERIOR)
+  order        Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// FLOOR PLAN
+// ─────────────────────────────────────────────
+
+model FloorPlan {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  imageUrl   String
+  bedrooms   Int?
+  bathrooms  Int?
+  sqm        Float?
+  sqft       Float?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// AMENITY
+// ─────────────────────────────────────────────
+
+model Amenity {
+  id         String      @id @default(cuid())
+  propertyId String
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  type       AmenityType
+  distance   String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime    @default(now())
+
+  @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// CONSTRUCTION UPDATE
+// ─────────────────────────────────────────────
+
+model ConstructionUpdate {
+  id              String   @id @default(cuid())
+  propertyId      String
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  percentComplete Int      @default(0)
+  images          String[]
+  date            DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// INQUIRY
+// ─────────────────────────────────────────────
+
+model Inquiry {
+  id              String        @id @default(cuid())
+  propertyId      String?
+  property        Property?     @relation(fields: [propertyId], references: [id])
+  rentListingId   String?
+  rentListing     RentListing?  @relation(fields: [rentListingId], references: [id])
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id])
+  name            String
+  email           String
+  phone           String?
+  message         String
+  interestedUnit  String?
+  status          InquiryStatus @default(NEW)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  replies         InquiryReply[]
+
+  @@index([propertyId])
+  @@index([rentListingId])
+  @@index([userId])
+  @@index([status])
+}
+
+model InquiryReply {
+  id         String   @id @default(cuid())
+  inquiryId  String
+  inquiry    Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  senderId   String
+  sender     User     @relation(fields: [senderId], references: [id])
+  message    String
+  createdAt  DateTime @default(now())
+
+  @@index([inquiryId])
+}
+
+// ─────────────────────────────────────────────
+// BOOKING
+// ─────────────────────────────────────────────
+
+model Booking {
+  id          String        @id @default(cuid())
+  propertyId  String
+  property    Property      @relation(fields: [propertyId], references: [id])
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id])
+  name        String
+  email       String
+  phone       String?
+  date        DateTime
+  time        String
+  type        BookingType   @default(PHYSICAL)
+  status      BookingStatus @default(PENDING)
+  message     String?
+  meetingUrl  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([propertyId])
+  @@index([userId])
+  @@index([status])
+  @@index([date])
+}
+
+// ─────────────────────────────────────────────
+// RESERVATION
+// ─────────────────────────────────────────────
+
+model Reservation {
+  id         String           @id @default(cuid())
+  unitId     String
+  unit       Unit             @relation(fields: [unitId], references: [id])
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  stage      ReservationStage @default(RESERVED)
+  expiresAt  DateTime
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  documents  Document[]
+  payments   Payment[]
+
+  @@index([unitId])
+  @@index([userId])
+  @@index([stage])
+}
+
+// ─────────────────────────────────────────────
+// DOCUMENT
+// ─────────────────────────────────────────────
+
+model Document {
+  id            String       @id @default(cuid())
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  name          String
+  url           String
+  type          String
+  sizeBytes     Int?
+  createdAt     DateTime     @default(now())
+
+  @@index([reservationId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// SAVED PROPERTY
+// ─────────────────────────────────────────────
+
+model SavedProperty {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, propertyId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATION
+// ─────────────────────────────────────────────
+
+model Notification {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         NotificationType
+  title        String
+  body         String
+  read         Boolean          @default(false)
+  resourceId   String?
+  resourceType String?
+  createdAt    DateTime         @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+// ─────────────────────────────────────────────
+// ANALYTICS EVENT
+// ─────────────────────────────────────────────
+
+model AnalyticsEvent {
+  id         String             @id @default(cuid())
+  propertyId String?
+  property   Property?          @relation(fields: [propertyId], references: [id])
+  userId     String?
+  user       User?              @relation(fields: [userId], references: [id])
+  type       AnalyticsEventType
+  sessionId  String?
+  source     String?
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+
+  @@index([propertyId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// PAYMENT
+// ─────────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  reservationId String?
+  reservation   Reservation?  @relation(fields: [reservationId], references: [id])
+  amount        Float
+  currency      String        @default("KES")
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  reference     String?       @unique
+  stripeId      String?
+  mpesaCode     String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([reservationId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTION TIER
+// ─────────────────────────────────────────────
+
+model ProductionTier {
+  id          String             @id @default(cuid())
+  propertyId  String             @unique
+  property    Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tier        ProductionTierType @default(LISTING_ONLY)
+  paidAmount  Float?
+  activatedAt DateTime           @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
