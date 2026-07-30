@@ -46,4 +46,6 @@ RUN chmod +x /entrypoint.sh
 USER app
 EXPOSE 4000
 ENTRYPOINT ["/sbin/tini","--","/entrypoint.sh"]
-CMD ["node","dist/main.js"]
+# TS build lacks rootDir=src, so nest emits dist/src/main.js instead of
+# dist/main.js. Match reality here rather than edit the app's tsconfig.
+CMD ["node","dist/src/main.js"]
