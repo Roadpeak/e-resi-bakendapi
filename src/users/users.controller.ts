@@ -31,6 +31,15 @@ export class UsersController {
     return this.usersService.findAll(pagination, role);
   }
 
+  // ─── Self ─────────────────────────────────────────────────────────────────
+  // Must be declared before ':id' so /users/me never matches the admin route.
+
+  @Get('me')
+  @ApiOperation({ summary: 'Get own user record (any authenticated role)' })
+  getMe(@CurrentUser() user: { id: string }) {
+    return this.usersService.findOne(user.id);
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Admin: get user by ID' })
