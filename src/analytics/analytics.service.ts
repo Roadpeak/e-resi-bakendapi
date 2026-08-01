@@ -131,7 +131,12 @@ export class AnalyticsService {
       }),
     ]);
 
-    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+    // Buckets start at local midnight, so the key must be local too. Using
+    // toISOString() here shifts the date by the UTC offset, which puts events
+    // outside every bucket (and previously threw on the missing entry).
+    const dayKey = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
     const daily: { date: string; views: number; inquiries: number; bookings: number }[] = [];
     for (let i = 0; i < clamped; i++) {
       const d = new Date(since);
@@ -140,12 +145,21 @@ export class AnalyticsService {
     }
     const byDate = new Map(daily.map((row) => [row.date, row]));
 
+    // A row can still be missing if a record lands outside the window (clock
+    // skew, an event written during the query) — skip rather than throw.
     for (const e of events) {
       if (e.type !== 'PAGE_VIEW') continue;
-      byDate.get(dayKey(e.createdAt))!.views += 1;
+      const row = byDate.get(dayKey(e.createdAt));
+      if (row) row.views += 1;
     }
-    for (const i of inquiries) byDate.get(dayKey(i.createdAt))!.inquiries += 1;
-    for (const b of bookings) byDate.get(dayKey(b.createdAt))!.bookings += 1;
+    for (const i of inquiries) {
+      const row = byDate.get(dayKey(i.createdAt));
+      if (row) row.inquiries += 1;
+    }
+    for (const b of bookings) {
+      const row = byDate.get(dayKey(b.createdAt));
+      if (row) row.bookings += 1;
+    }
 
     const sourceCounts = new Map<string, number>();
     for (const e of events) {
