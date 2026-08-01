@@ -10,7 +10,7 @@ RUN apk add --no-cache libc6-compat openssl
 RUN npm install -g pnpm@10
 COPY package.json pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --shamefully-hoist
 
 # ─── build ───────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION} AS build
