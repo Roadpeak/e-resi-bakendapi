@@ -6,7 +6,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
-import { LinkCardDto, LinkMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
+import { LinkCardDto, PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
 
 @ApiTags('Billing')
@@ -48,10 +48,11 @@ export class BillingController {
     return this.service.paypalConfirm(user.id, dto.token);
   }
 
-  @Post('methods/mpesa')
-  @ApiOperation({ summary: 'Link M-Pesa — sends a KES 1 STK verification prompt (reversed)' })
-  linkMpesa(@CurrentUser() user: { id: string }, @Body() dto: LinkMpesaDto) {
-    return this.service.linkMpesa(user.id, dto);
+  @Post('pay/mpesa')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Pay pending bills via M-Pesa STK push (amount in USD, charged in KES)' })
+  payMpesa(@CurrentUser() user: { id: string }, @Body() dto: PayMpesaDto) {
+    return this.service.payWithMpesa(user.id, dto);
   }
 
   @Public()

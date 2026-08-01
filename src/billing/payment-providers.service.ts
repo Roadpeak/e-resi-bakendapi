@@ -212,14 +212,14 @@ export class PaymentProvidersService {
 
   // ─── M-Pesa (Daraja STK push verification) ────────────────────────────────
 
-  async mpesaVerify(phone: string): Promise<{
+  async mpesaStkPush(phone: string, amountKes: number, description: string): Promise<{
     checkoutRequestId: string;
-    verified: boolean;
+    completed: boolean;
     sandbox: boolean;
   }> {
     if (!this.mpesaConfigured) {
-      this.logger.warn('[SANDBOX] Daraja not configured — simulating M-Pesa STK verification');
-      return { checkoutRequestId: `sim_stk_${Date.now()}`, verified: true, sandbox: true };
+      this.logger.warn('[SANDBOX] Daraja not configured — simulating M-Pesa STK payment');
+      return { checkoutRequestId: `sim_stk_${Date.now()}`, completed: true, sandbox: true };
     }
 
     const key = this.config.get('MPESA_CONSUMER_KEY');
@@ -246,13 +246,13 @@ export class PaymentProvidersService {
         Password: password,
         Timestamp: timestamp,
         TransactionType: 'CustomerPayBillOnline',
-        Amount: 1,
+        Amount: Math.max(1, Math.round(amountKes)),
         PartyA: phone,
         PartyB: shortcode,
         PhoneNumber: phone,
         CallBackURL: `${this.config.get('API_PUBLIC_URL', 'http://localhost:4000')}/api/billing/mpesa/callback`,
-        AccountReference: 'e-resi-verify',
-        TransactionDesc: 'e-resi payment method verification (KES 1, reversed)',
+        AccountReference: 'e-resi-billing',
+        TransactionDesc: description.slice(0, 90),
       }),
     });
     if (!stkRes.ok) {
@@ -260,7 +260,7 @@ export class PaymentProvidersService {
       throw new BadRequestException('Could not send the M-Pesa verification prompt');
     }
     const json = (await stkRes.json()) as { CheckoutRequestID: string };
-    // real verification completes via the callback; method stays PENDING until then
-    return { checkoutRequestId: json.CheckoutRequestID, verified: false, sandbox: false };
+    // completion arrives via the callback once the user enters their PIN
+    return { checkoutRequestId: json.CheckoutRequestID, completed: false, sandbox: false };
   }
 }

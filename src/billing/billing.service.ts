@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
-import type { LinkCardDto, LinkMpesaDto } from './dto/link-method.dto.js';
+import type { LinkCardDto, PayMpesaDto } from './dto/link-method.dto.js';
 
 /** Flat monthly fee per live development (USD). */
 export const LISTING_FEE_MONTHLY = 49;
@@ -220,72 +220,79 @@ export class BillingService {
     return { ...method, sandbox: result.sandbox };
   }
 
-  /** Link M-Pesa — sends a KES 1 STK verification prompt (reversed). */
-  async linkMpesa(userId: string, dto: LinkMpesaDto) {
-    const duplicate = await this.prisma.linkedPaymentMethod.findFirst({
-      where: { userId, type: 'MPESA', mpesaPhone: dto.phone },
-    });
-    if (duplicate) throw new BadRequestException('This M-Pesa number is already linked');
+  /**
+   * Pay pending bills with M-Pesa — sends an STK push for the amount.
+   * M-Pesa is pay-per-invoice, not a stored method: nothing is linked.
+   */
+  async payWithMpesa(userId: string, dto: PayMpesaDto) {
+    // never accept paying more than what is actually owed
+    const bill = await this.summary(userId);
+    const payable = bill.production.pendingTotal + bill.monthly.total;
+    if (payable <= 0) throw new BadRequestException('You have no pending bills to pay');
+    if (dto.amountUsd > payable) {
+      throw new BadRequestException(`Amount exceeds your pending balance of $${payable}`);
+    }
 
-    const result = await this.providers.mpesaVerify(dto.phone);
+    const rate = Number.parseFloat(
+      process.env.USD_KES_RATE ?? '130',
+    );
+    const amountKes = Math.ceil(dto.amountUsd * (Number.isFinite(rate) && rate > 0 ? rate : 130));
+    const description = dto.purpose ?? 'e-resi pending bills';
 
-    const isDefault = await this.makeDefaultIfFirst(userId);
-    const method = await this.prisma.linkedPaymentMethod.create({
+    const result = await this.providers.mpesaStkPush(dto.phone, amountKes, description);
+
+    const payment = await this.prisma.payment.create({
       data: {
         userId,
-        type: 'MPESA',
-        mpesaPhone: dto.phone,
-        processorRef: result.checkoutRequestId,
-        verification: result.verified ? 'VERIFIED' : 'PENDING',
-        verifiedAt: result.verified ? new Date() : null,
-        isDefault,
-      },
-    });
-
-    await this.prisma.payment.create({
-      data: {
-        userId,
-        amount: 1,
+        amount: amountKes,
         currency: 'KES',
         method: 'MPESA',
-        status: result.verified ? 'REFUNDED' : 'PENDING',
-        reference: `MPESA-VERIFY-${dto.phone.slice(-4)}-${Date.now()}`,
+        status: result.completed ? 'COMPLETED' : 'PENDING',
+        reference: `MPESA-${dto.phone.slice(-4)}-${Date.now()}`,
+        mpesaCode: result.sandbox ? `SIM${Date.now()}` : undefined,
         metadata: {
-          purpose: 'mpesa_verification',
-          reversed: result.verified,
+          purpose: 'bill_payment',
+          description,
+          usdAmount: dto.amountUsd,
+          rate,
           sandbox: result.sandbox,
-          methodId: method.id,
           checkoutRequestId: result.checkoutRequestId,
         },
       },
     });
 
-    return { ...method, sandbox: result.sandbox };
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      amountKes,
+      amountUsd: dto.amountUsd,
+      checkoutRequestId: result.checkoutRequestId,
+      sandbox: result.sandbox,
+    };
   }
 
-  /** Daraja STK callback — marks the pending M-Pesa method verified. */
+  /** Daraja STK callback — settles the pending bill payment. */
   async mpesaCallback(body: unknown) {
     const stk = (body as {
-      Body?: { stkCallback?: { CheckoutRequestID?: string; ResultCode?: number } };
+      Body?: {
+        stkCallback?: {
+          CheckoutRequestID?: string;
+          ResultCode?: number;
+          CallbackMetadata?: { Item?: { Name: string; Value?: string | number }[] };
+        };
+      };
     })?.Body?.stkCallback;
     if (!stk?.CheckoutRequestID) return { message: 'ignored' };
 
-    const method = await this.prisma.linkedPaymentMethod.findFirst({
-      where: { processorRef: stk.CheckoutRequestID, type: 'MPESA' },
-    });
-    if (!method) return { message: 'no matching method' };
-
     const succeeded = stk.ResultCode === 0;
-    await this.prisma.linkedPaymentMethod.update({
-      where: { id: method.id },
-      data: {
-        verification: succeeded ? 'VERIFIED' : 'FAILED',
-        verifiedAt: succeeded ? new Date() : null,
-      },
-    });
+    const receipt = stk.CallbackMetadata?.Item?.find((i) => i.Name === 'MpesaReceiptNumber')?.Value;
+
     await this.prisma.payment.updateMany({
-      where: { userId: method.userId, metadata: { path: ['checkoutRequestId'], equals: stk.CheckoutRequestID } },
-      data: { status: succeeded ? 'REFUNDED' : 'FAILED' },
+      where: { metadata: { path: ['checkoutRequestId'], equals: stk.CheckoutRequestID } },
+      data: {
+        status: succeeded ? 'COMPLETED' : 'FAILED',
+        ...(receipt && { mpesaCode: String(receipt) }),
+      },
     });
     return { message: 'processed' };
   }

@@ -62,10 +62,22 @@ export class LinkCardDto {
   country: string;
 }
 
-export class LinkMpesaDto {
+export class PayMpesaDto {
   @ApiProperty({ example: '254712345678', description: 'Safaricom number in 2547XXXXXXXX / 2541XXXXXXXX format' })
   @Matches(/^254(7|1)\d{8}$/, { message: 'phone must be in 2547XXXXXXXX or 2541XXXXXXXX format' })
   phone: string;
+
+  @ApiProperty({ example: 49, description: 'Amount to pay in USD (converted to KES for the STK push)' })
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  amountUsd: number;
+
+  @ApiPropertyOptional({ example: 'Monthly listing fees' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(90)
+  purpose?: string;
 }
 
 export class PaypalConfirmDto {
