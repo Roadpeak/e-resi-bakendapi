@@ -66,26 +66,54 @@ export class PropertiesService {
   // ─── Public list ──────────────────────────────────────────────────────────
 
   async findAll(query: QueryPropertiesDto) {
+    // The marketplace sends `search`; `q` is the documented name.
+    const term = query.q ?? query.search;
+    const priceMin = query.priceMin ? Number(query.priceMin) : undefined;
+    const priceMax = query.priceMax ? Number(query.priceMax) : undefined;
+    const bedrooms = query.bedrooms ? Number(query.bedrooms) : undefined;
+
     const where: Record<string, unknown> = {
       status: query.status ?? PropertyStatus.ACTIVE,
       ...(query.category && { category: query.category }),
       ...(query.city && { city: { contains: query.city, mode: 'insensitive' } }),
       ...(query.neighborhood && { neighborhood: { contains: query.neighborhood, mode: 'insensitive' } }),
-      ...(query.q && {
+      ...(query.has3DTour === 'true' && { has3DTour: true }),
+      ...(query.hasVRTour === 'true' && { hasVRTour: true }),
+      // priceFrom is the advertised entry price, so range filters compare against it
+      ...((priceMin !== undefined || priceMax !== undefined) && {
+        priceFrom: {
+          ...(priceMin !== undefined && { gte: priceMin }),
+          ...(priceMax !== undefined && { lte: priceMax }),
+        },
+      }),
+      // match on the units actually offered rather than a property-level field
+      ...(bedrooms !== undefined && { units: { some: { bedrooms: { gte: bedrooms } } } }),
+      ...(term && {
         OR: [
-          { name: { contains: query.q, mode: 'insensitive' } },
-          { tagline: { contains: query.q, mode: 'insensitive' } },
-          { description: { contains: query.q, mode: 'insensitive' } },
+          { name: { contains: term, mode: 'insensitive' } },
+          { tagline: { contains: term, mode: 'insensitive' } },
+          { description: { contains: term, mode: 'insensitive' } },
+          { city: { contains: term, mode: 'insensitive' } },
+          { neighborhood: { contains: term, mode: 'insensitive' } },
         ],
       }),
     };
+
+    const orderBy =
+      query.sortBy === 'newest'
+        ? [{ createdAt: 'desc' as const }]
+        : query.sortBy === 'price_asc'
+          ? [{ priceFrom: 'asc' as const }]
+          : query.sortBy === 'price_desc'
+            ? [{ priceFrom: 'desc' as const }]
+            : [{ isFeatured: 'desc' as const }, { createdAt: 'desc' as const }];
 
     const [data, total] = await Promise.all([
       this.prisma.property.findMany({
         where,
         skip: query.skip,
         take: query.limit,
-        orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         include: {
           developer: { select: { companyName: true, logoUrl: true } },
           _count: { select: { units: true } },
