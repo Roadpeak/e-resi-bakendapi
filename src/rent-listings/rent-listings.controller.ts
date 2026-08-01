@@ -4,11 +4,24 @@ import { RentListingStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
 import { UpdateRentListingDto } from './dto/update-rent-listing.dto.js';
 import { RentListingsService } from './rent-listings.service.js';
+
+class BrowseRentListingsDto extends PaginationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  q?: string;
+}
 
 @ApiTags('Rent Listings')
 @Controller('rent-listings')
@@ -20,12 +33,8 @@ export class RentListingsController {
   @ApiOperation({ summary: 'Public: browse rent listings' })
   @ApiQuery({ name: 'city', required: false })
   @ApiQuery({ name: 'q', required: false })
-  findAll(
-    @Query() pagination: PaginationDto,
-    @Query('city') city?: string,
-    @Query('q') q?: string,
-  ) {
-    return this.service.findAll(pagination, city, q);
+  findAll(@Query() query: BrowseRentListingsDto) {
+    return this.service.findAll(query, query.city, query.q);
   }
 
   @Public()

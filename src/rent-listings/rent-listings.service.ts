@@ -75,9 +75,13 @@ export class RentListingsService {
       status: { not: RentListingStatus.ARCHIVED },
       ...(city && { city: { contains: city, mode: 'insensitive' } }),
       ...(q && {
+        // "search by area, building or listing" — match location too, not just the name
         OR: [
           { name: { contains: q, mode: 'insensitive' } },
           { tagline: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { neighborhood: { contains: q, mode: 'insensitive' } },
+          { city: { contains: q, mode: 'insensitive' } },
         ],
       }),
     };
