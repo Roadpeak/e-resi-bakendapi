@@ -219,9 +219,34 @@ model User {
   analyticsEvents   AnalyticsEvent[]
   payments          Payment[]
   documents         Document[]
+  paymentMethods    LinkedPaymentMethod[]
 
   @@index([email])
   @@index([role])
+}
+
+enum LinkedMethodType {
+  CARD
+  PAYPAL
+}
+
+/// A payment method the user has linked for billing. Card data is never
+/// stored in full — only brand, last4 and expiry for display; charging
+/// happens through the processor once payments go live.
+model LinkedPaymentMethod {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        LinkedMethodType
+  brand       String?
+  last4       String?
+  expMonth    Int?
+  expYear     Int?
+  paypalEmail String?
+  isDefault   Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
