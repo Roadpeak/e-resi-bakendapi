@@ -139,6 +139,7 @@ enum NotificationType {
 enum PaymentMethod {
   STRIPE_CARD
   MPESA
+  PAYPAL
 }
 
 enum PaymentStatus {
@@ -228,23 +229,46 @@ model User {
 enum LinkedMethodType {
   CARD
   PAYPAL
+  MPESA
+}
+
+enum MethodVerification {
+  PENDING
+  VERIFIED
+  FAILED
 }
 
 /// A payment method the user has linked for billing. Card data is never
 /// stored in full — only brand, last4 and expiry for display; charging
 /// happens through the processor once payments go live.
 model LinkedPaymentMethod {
-  id          String           @id @default(cuid())
-  userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        LinkedMethodType
-  brand       String?
-  last4       String?
-  expMonth    Int?
-  expYear     Int?
-  paypalEmail String?
-  isDefault   Boolean          @default(false)
-  createdAt   DateTime         @default(now())
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              LinkedMethodType
+  // card display metadata — the PAN and CVC are never persisted
+  brand             String?
+  last4             String?
+  expMonth          Int?
+  expYear           Int?
+  cardholderName    String?
+  // billing address (Google Payments style)
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  postalCode        String?
+  country           String?
+  // paypal billing agreement (vault for automatic monthly billing)
+  paypalEmail       String?
+  paypalAgreementId String?
+  // m-pesa
+  mpesaPhone        String?
+  // processor references (stripe customer / payment method etc.)
+  processorRef      String?
+  verification      MethodVerification @default(PENDING)
+  verifiedAt        DateTime?
+  isDefault         Boolean            @default(false)
+  createdAt         DateTime           @default(now())
 
   @@index([userId])
 }
