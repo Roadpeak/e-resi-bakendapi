@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -90,4 +91,11 @@ export class CreatePropertyDto {
   @ApiPropertyOptional({ example: '2026-12-01T00:00:00.000Z' })
   @IsOptional()
   completionDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Full development-creation wizard payload (details, media uploads, selected production services) kept for admin review',
+  })
+  @IsOptional()
+  @IsObject()
+  submissionData?: Record<string, unknown>;
 }

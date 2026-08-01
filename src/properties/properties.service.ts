@@ -58,6 +58,7 @@ export class PropertiesService {
         priceTo: dto.priceTo,
         tags: dto.tags ?? [],
         completionDate: dto.completionDate ? new Date(dto.completionDate) : undefined,
+        submissionData: dto.submissionData as object | undefined,
       },
     });
   }

@@ -18,10 +18,12 @@ export class SubmitOnboardingDto {
   @IsObject()
   verificationDocs?: Record<string, unknown>;
 
-  @ApiProperty({ description: 'Development / project details section' })
+  @ApiPropertyOptional({
+    description: 'Legacy development section — developments are now submitted separately via POST /properties',
+  })
+  @IsOptional()
   @IsObject()
-  @IsNotEmptyObject()
-  development: Record<string, unknown>;
+  development?: Record<string, unknown>;
 
   @ApiPropertyOptional({ description: 'Media production & services selection' })
   @IsOptional()

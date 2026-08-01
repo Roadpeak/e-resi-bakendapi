@@ -283,6 +283,7 @@ model Property {
   isFeatured          Boolean           @default(false)
   tags                String[]
   completionDate      DateTime?
+  submissionData      Json?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
