@@ -14,7 +14,7 @@ export class DocumentsController {
   constructor(private readonly service: DocumentsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Upload a document record (after uploading file to S3)' })
+  @ApiOperation({ summary: 'Upload a document record (after uploading the file to Cloudinary)' })
   create(
     @CurrentUser() user: { id: string },
     @Body() dto: CreateDocumentDto,

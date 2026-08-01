@@ -126,10 +126,9 @@ export class MediaService {
       throw new ForbiddenException('You do not own this media asset');
     }
 
-    // Extract S3 key from URL for deletion
-    const cdnBase = process.env.CDN_BASE_URL ?? '';
-    const key = asset.url.replace(`${cdnBase}/`, '');
-    await this.storage.delete(key);
+    // Derive the Cloudinary key from the delivery URL for deletion
+    const key = this.storage.keyFromUrl(asset.url);
+    if (key) await this.storage.delete(key);
 
     await this.prisma.mediaAsset.delete({ where: { id } });
     return { message: 'Media asset deleted' };

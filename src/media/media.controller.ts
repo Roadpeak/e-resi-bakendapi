@@ -26,12 +26,12 @@ import type { UploadFolder } from './storage.service.js';
 export class MediaController {
   constructor(private readonly service: MediaService) {}
 
-  // ─── Presigned URL (client uploads directly to S3) ────────────────────────
+  // ─── Presigned URL (client uploads directly to Cloudinary) ────────────────────────
 
   @Post('presign')
   @ApiBearerAuth()
   @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get a presigned S3 upload URL' })
+  @ApiOperation({ summary: 'Get signed Cloudinary direct-upload parameters' })
   getPresignedUrl(@Body() dto: PresignUploadDto) {
     return this.service.getPresignedUrl(dto);
   }
@@ -44,7 +44,7 @@ export class MediaController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, folder: { type: 'string' } } } })
-  @ApiOperation({ summary: 'Upload a file directly to S3 (max 50MB)' })
+  @ApiOperation({ summary: 'Upload a file to Cloudinary via the API (max 50MB)' })
   upload(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder?: string,

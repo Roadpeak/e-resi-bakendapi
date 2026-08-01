@@ -1,52 +1,57 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import { randomBytes } from 'crypto';
-import { extname } from 'path';
 
 export type UploadFolder = 'properties' | 'rentals' | 'avatars' | 'logos' | 'documents' | 'tours';
 
+type CloudinaryResourceType = 'image' | 'video' | 'raw';
+
+/**
+ * Media storage on Cloudinary.
+ *
+ * - Images and videos are stored with `resource_type` inferred from the mime
+ *   type (everything else goes to `raw`), under `<CLOUDINARY_FOLDER>/<folder>/`.
+ * - The `key` we return/accept is `<resourceType>:<publicId>` so deletion
+ *   knows which Cloudinary namespace to target.
+ * - Delivery URLs are Cloudinary `secure_url`s (CDN-backed, transformable).
+ */
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private readonly client: S3Client;
-  private readonly bucket: string;
-  private readonly cdnBase: string;
+  private readonly baseFolder: string;
+  private readonly cloudName: string;
 
   constructor(private readonly config: ConfigService) {
-    this.bucket = config.get<string>('AWS_S3_BUCKET', 'homvr-media');
-    this.cdnBase = config.get<string>('CDN_BASE_URL', '');
+    this.cloudName = config.get<string>('CLOUDINARY_CLOUD_NAME', '');
+    this.baseFolder = config.get<string>('CLOUDINARY_FOLDER', 'e-resi');
 
-    this.client = new S3Client({
-      region: config.get<string>('AWS_REGION', 'us-east-1'),
-      credentials: {
-        accessKeyId: config.get<string>('AWS_ACCESS_KEY_ID', ''),
-        secretAccessKey: config.get<string>('AWS_SECRET_ACCESS_KEY', ''),
-      },
-      // Cloudflare R2 support — set endpoint if provided
-      ...(config.get<string>('AWS_ENDPOINT') && {
-        endpoint: config.get<string>('AWS_ENDPOINT'),
-        forcePathStyle: true,
-      }),
+    cloudinary.config({
+      cloud_name: this.cloudName,
+      api_key: config.get<string>('CLOUDINARY_API_KEY', ''),
+      api_secret: config.get<string>('CLOUDINARY_API_SECRET', ''),
+      secure: true,
     });
   }
 
-  private buildKey(folder: UploadFolder, originalName: string): string {
-    const ext = extname(originalName).toLowerCase() || '.bin';
-    const id = randomBytes(12).toString('hex');
-    return `${folder}/${id}${ext}`;
+  private resourceTypeFor(mimeType: string): CloudinaryResourceType {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    return 'raw';
   }
 
-  private buildUrl(key: string): string {
-    return this.cdnBase
-      ? `${this.cdnBase}/${key}`
-      : `https://${this.bucket}.s3.amazonaws.com/${key}`;
+  private buildPublicId(folder: UploadFolder): string {
+    return `${this.baseFolder}/${folder}/${randomBytes(12).toString('hex')}`;
+  }
+
+  /** Reconstruct our `<resourceType>:<publicId>` key from a Cloudinary delivery URL. */
+  keyFromUrl(url: string): string | null {
+    // https://res.cloudinary.com/<cloud>/<resource>/upload/[transforms/]v123/<publicId>.<ext>
+    const match = url.match(
+      /res\.cloudinary\.com\/[^/]+\/(image|video|raw)\/upload\/(?:[^/]+\/)*?(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/,
+    );
+    if (!match) return null;
+    return `${match[1]}:${match[2]}`;
   }
 
   async upload(
@@ -55,49 +60,83 @@ export class StorageService {
     buffer: Buffer,
     mimeType: string,
   ): Promise<{ url: string; key: string; sizeBytes: number }> {
-    const key = this.buildKey(folder, originalName);
+    const resourceType = this.resourceTypeFor(mimeType);
+    const publicId = this.buildPublicId(folder);
 
     try {
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: buffer,
-          ContentType: mimeType,
-          CacheControl: 'public, max-age=31536000, immutable',
-        }),
-      );
+      const result = await new Promise<UploadApiResponse>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            public_id: publicId,
+            resource_type: resourceType,
+            // keep the original filename as context for the media library
+            context: { original_name: originalName },
+            overwrite: false,
+          },
+          (err, res) => (err || !res ? reject(err ?? new Error('Empty upload response')) : resolve(res)),
+        );
+        stream.end(buffer);
+      });
+
+      return {
+        url: result.secure_url,
+        key: `${resourceType}:${result.public_id}`,
+        sizeBytes: result.bytes ?? buffer.byteLength,
+      };
     } catch (err) {
-      this.logger.error(`S3 upload failed: ${key}`, err);
+      this.logger.error(`Cloudinary upload failed: ${publicId}`, err as Error);
       throw new InternalServerErrorException('File upload failed');
     }
-
-    return { url: this.buildUrl(key), key, sizeBytes: buffer.byteLength };
   }
 
   async delete(key: string): Promise<void> {
+    const [resourceType, publicId] = key.includes(':')
+      ? (key.split(/:(.+)/) as [CloudinaryResourceType, string])
+      : (['image', key] as [CloudinaryResourceType, string]);
+
     try {
-      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+      await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
     } catch (err) {
       // Log but don't throw — deletion failures shouldn't block the response
-      this.logger.warn(`S3 delete failed: ${key}`, err);
+      this.logger.warn(`Cloudinary delete failed: ${key}`, err as Error);
     }
   }
 
+  /**
+   * Signed direct-upload parameters — the client POSTs multipart form-data to
+   * `uploadUrl` with the returned `fields` plus its `file`. Cloudinary infers
+   * image/video automatically (`auto` endpoint).
+   */
   async presignedUploadUrl(
     folder: UploadFolder,
-    originalName: string,
-    mimeType: string,
-    expiresIn = 300,
-  ): Promise<{ uploadUrl: string; key: string; fileUrl: string }> {
-    const key = this.buildKey(folder, originalName);
-    const command = new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      ContentType: mimeType,
-    });
+    _originalName: string,
+    _mimeType: string,
+    _expiresIn = 300,
+  ): Promise<{
+    uploadUrl: string;
+    key: string;
+    fileUrl: string;
+    fields: Record<string, string | number>;
+  }> {
+    const publicId = this.buildPublicId(folder);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const apiSecret = this.config.get<string>('CLOUDINARY_API_SECRET', '');
+    const signature = cloudinary.utils.api_sign_request(
+      { public_id: publicId, timestamp },
+      apiSecret,
+    );
 
-    const uploadUrl = await getSignedUrl(this.client, command, { expiresIn });
-    return { uploadUrl, key, fileUrl: this.buildUrl(key) };
+    return {
+      uploadUrl: `https://api.cloudinary.com/v1_1/${this.cloudName}/auto/upload`,
+      key: publicId,
+      // final URL depends on the detected resource type — image is the common case
+      fileUrl: `https://res.cloudinary.com/${this.cloudName}/image/upload/${publicId}`,
+      fields: {
+        public_id: publicId,
+        timestamp,
+        signature,
+        api_key: this.config.get<string>('CLOUDINARY_API_KEY', ''),
+      },
+    };
   }
 }
