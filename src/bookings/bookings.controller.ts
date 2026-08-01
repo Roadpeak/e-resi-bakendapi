@@ -4,9 +4,16 @@ import { BookingStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { IsEnum, IsOptional } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
 import { BookingsService } from './bookings.service.js';
+
+class BookingQueryDto extends PaginationDto {
+  @IsOptional()
+  @IsEnum(BookingStatus)
+  status?: BookingStatus;
+}
 
 @ApiTags('Bookings')
 @Controller('bookings')
@@ -26,10 +33,9 @@ export class BookingsController {
   @ApiOperation({ summary: 'Admin: list all bookings' })
   @ApiQuery({ name: 'status', enum: BookingStatus, required: false })
   findAll(
-    @Query() pagination: PaginationDto,
-    @Query('status') status?: BookingStatus,
+    @Query() query: BookingQueryDto,
   ) {
-    return this.service.findAll(pagination, status);
+    return this.service.findAll(query, query.status);
   }
 
   @Get('mine')
@@ -49,10 +55,9 @@ export class BookingsController {
   @ApiQuery({ name: 'status', enum: BookingStatus, required: false })
   findForDeveloper(
     @CurrentUser() user: { id: string },
-    @Query() pagination: PaginationDto,
-    @Query('status') status?: BookingStatus,
+    @Query() query: BookingQueryDto,
   ) {
-    return this.service.findForDeveloper(user.id, pagination, status);
+    return this.service.findForDeveloper(user.id, query, query.status);
   }
 
   @Patch(':id/status')

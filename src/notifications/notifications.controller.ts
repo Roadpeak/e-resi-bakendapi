@@ -1,8 +1,15 @@
 import { Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { IsIn, IsOptional } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { NotificationsService } from './notifications.service.js';
+
+class NotificationQueryDto extends PaginationDto {
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  unreadOnly?: string;
+}
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
@@ -15,10 +22,9 @@ export class NotificationsController {
   @ApiQuery({ name: 'unreadOnly', required: false, type: Boolean })
   findMine(
     @CurrentUser() user: { id: string },
-    @Query() pagination: PaginationDto,
-    @Query('unreadOnly') unreadOnly?: string,
+    @Query() query: NotificationQueryDto,
   ) {
-    return this.service.findMine(user.id, pagination, unreadOnly === 'true');
+    return this.service.findMine(user.id, query, query.unreadOnly === 'true');
   }
 
   @Get('unread-count')

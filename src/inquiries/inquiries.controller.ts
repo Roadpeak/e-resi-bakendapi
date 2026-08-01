@@ -4,8 +4,15 @@ import { InquiryStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
+import { IsEnum, IsOptional } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { CreateInquiryDto } from './dto/create-inquiry.dto.js';
+
+class InquiryQueryDto extends PaginationDto {
+  @IsOptional()
+  @IsEnum(InquiryStatus)
+  status?: InquiryStatus;
+}
 import { ReplyInquiryDto } from './dto/reply-inquiry.dto.js';
 import { InquiriesService } from './inquiries.service.js';
 
@@ -31,10 +38,9 @@ export class InquiriesController {
   @ApiOperation({ summary: 'Admin: list all inquiries' })
   @ApiQuery({ name: 'status', enum: InquiryStatus, required: false })
   findAll(
-    @Query() pagination: PaginationDto,
-    @Query('status') status?: InquiryStatus,
+    @Query() query: InquiryQueryDto,
   ) {
-    return this.service.findAll(pagination, status);
+    return this.service.findAll(query, query.status);
   }
 
   @Get('mine')
@@ -54,10 +60,9 @@ export class InquiriesController {
   @ApiQuery({ name: 'status', enum: InquiryStatus, required: false })
   findForDeveloper(
     @CurrentUser() user: { id: string },
-    @Query() pagination: PaginationDto,
-    @Query('status') status?: InquiryStatus,
+    @Query() query: InquiryQueryDto,
   ) {
-    return this.service.findForDeveloper(user.id, pagination, status);
+    return this.service.findForDeveloper(user.id, query, query.status);
   }
 
   @Get(':id')
