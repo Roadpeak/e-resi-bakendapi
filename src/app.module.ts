@@ -20,6 +20,7 @@ import { DocumentsModule } from './documents/documents.module.js';
 import { SavedPropertiesModule } from './saved-properties/saved-properties.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { BillingModule } from './billing/billing.module.js';
+import { ChatModule } from './chat/chat.module.js';
 import { AnalyticsModule } from './analytics/analytics.module.js';
 import { ProductionTiersModule } from './production-tiers/production-tiers.module.js';
 import { AppController } from './app.controller.js';
@@ -48,6 +49,7 @@ import { AppService } from './app.service.js';
     SavedPropertiesModule,
     NotificationsModule,
     BillingModule,
+    ChatModule,
     AnalyticsModule,
     ProductionTiersModule,
   ],

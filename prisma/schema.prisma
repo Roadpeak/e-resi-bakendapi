@@ -221,6 +221,9 @@ model User {
   payments          Payment[]
   documents         Document[]
   paymentMethods    LinkedPaymentMethod[]
+  conversationsStarted Conversation[] @relation("ConversationCustomer")
+  conversationsReceived Conversation[] @relation("ConversationDeveloper")
+  chatMessages      ChatMessage[]
 
   @@index([email])
   @@index([role])
@@ -823,4 +826,45 @@ model ProductionTier {
   expiresAt   DateTime?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+}
+
+
+// ─────────────────────────────────────────────
+// CHAT
+// ─────────────────────────────────────────────
+
+/// A conversation between a customer (investor/tenant/buyer) and a developer,
+/// anchored to the property or rent listing it started from.
+model Conversation {
+  id            String    @id @default(cuid())
+  customerId    String
+  customer      User      @relation("ConversationCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  developerId   String
+  developer     User      @relation("ConversationDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
+  propertyId    String?
+  rentListingId String?
+  subject       String?
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  messages      ChatMessage[]
+
+  @@unique([customerId, developerId, propertyId, rentListingId])
+  @@index([customerId])
+  @@index([developerId])
+  @@index([lastMessageAt])
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
 }
