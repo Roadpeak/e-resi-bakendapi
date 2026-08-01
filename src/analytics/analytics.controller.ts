@@ -47,6 +47,18 @@ export class AnalyticsController {
     return this.service.developerStats(user.id);
   }
 
+  @Get('developer/engagement')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer: daily engagement series + traffic sources' })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  developerEngagement(
+    @CurrentUser() user: { id: string },
+    @Query('days') days?: string,
+  ) {
+    return this.service.developerEngagement(user.id, days ? Number.parseInt(days, 10) : 7);
+  }
+
   @Get('admin/platform')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()

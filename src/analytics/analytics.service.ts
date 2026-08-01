@@ -100,6 +100,66 @@ export class AnalyticsService {
     };
   }
 
+  // ─── Developer: daily engagement + traffic sources ────────────────────────
+
+  async developerEngagement(userId: string, days = 7) {
+    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
+    if (!developer) return null;
+
+    const clamped = Math.max(1, Math.min(days, 90));
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    since.setDate(since.getDate() - (clamped - 1));
+
+    const propertyFilter = { property: { developerId: developer.id } };
+
+    const [events, inquiries, bookings] = await Promise.all([
+      this.prisma.analyticsEvent.findMany({
+        where: { ...propertyFilter, createdAt: { gte: since } },
+        select: { type: true, source: true, createdAt: true },
+      }),
+      this.prisma.inquiry.findMany({
+        where: {
+          OR: [propertyFilter, { rentListing: { developerId: developer.id } }],
+          createdAt: { gte: since },
+        },
+        select: { createdAt: true },
+      }),
+      this.prisma.booking.findMany({
+        where: { ...propertyFilter, createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+    const daily: { date: string; views: number; inquiries: number; bookings: number }[] = [];
+    for (let i = 0; i < clamped; i++) {
+      const d = new Date(since);
+      d.setDate(since.getDate() + i);
+      daily.push({ date: dayKey(d), views: 0, inquiries: 0, bookings: 0 });
+    }
+    const byDate = new Map(daily.map((row) => [row.date, row]));
+
+    for (const e of events) {
+      if (e.type !== 'PAGE_VIEW') continue;
+      byDate.get(dayKey(e.createdAt))!.views += 1;
+    }
+    for (const i of inquiries) byDate.get(dayKey(i.createdAt))!.inquiries += 1;
+    for (const b of bookings) byDate.get(dayKey(b.createdAt))!.bookings += 1;
+
+    const sourceCounts = new Map<string, number>();
+    for (const e of events) {
+      const src = e.source?.trim() || 'Direct';
+      sourceCounts.set(src, (sourceCounts.get(src) ?? 0) + 1);
+    }
+    const sources = [...sourceCounts.entries()]
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    return { daily, sources };
+  }
+
   // ─── Admin: platform overview ─────────────────────────────────────────────
 
   async platformStats() {
