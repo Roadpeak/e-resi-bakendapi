@@ -19,8 +19,22 @@ async function bootstrap() {
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cookieParser());
 
-  // Local uploads (sandbox storage fallback when Cloudinary is not configured)
-  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+  // Local uploads (sandbox storage fallback when Cloudinary is not configured).
+  // Served before enableCors(), so set the headers here — <video> and WebGL
+  // textures issue cross-origin requests and fail without them.
+  app.use(
+    '/uploads',
+    (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Range,Content-Type');
+      // Range headers must be readable for a browser to seek within a video
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Accept-Ranges');
+      if (req.method === 'OPTIONS') return res.sendStatus(204);
+      next();
+    },
+    express.static(join(process.cwd(), 'uploads'), { acceptRanges: true }),
+  );
 
   // CORS
   const rawOrigin = config.get<string>('FRONTEND_URL', 'http://localhost:3000');

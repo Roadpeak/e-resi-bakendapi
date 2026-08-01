@@ -51,6 +51,27 @@ export class ToursService {
     });
   }
 
+  /**
+   * Recompute the has*Tour flags from the scenes that actually exist.
+   * Adding a scene flips a flag on; without this, deleting the last scene
+   * would leave the flag stranded and the public tour page would 404 or crash.
+   */
+  private async syncTourFlags(propertyId: string) {
+    const [cinematic, sections3D, vr] = await Promise.all([
+      this.prisma.cinematicScene.count({ where: { propertyId } }),
+      this.prisma.tourScene3D.count({ where: { section: { propertyId } } }),
+      this.prisma.tourSceneVR.count({ where: { propertyId } }),
+    ]);
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        hasCinematicTour: cinematic > 0,
+        has3DTour: sections3D > 0,
+        hasVRTour: vr > 0,
+      },
+    });
+  }
+
   async removeCinematicScene(id: string, userId: string, userRole: UserRole) {
     const scene = await this.prisma.cinematicScene.findUnique({
       where: { id },
@@ -61,6 +82,7 @@ export class ToursService {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.cinematicScene.delete({ where: { id } });
+    await this.syncTourFlags(scene.propertyId);
     return { message: 'Scene deleted' };
   }
 
@@ -120,6 +142,7 @@ export class ToursService {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourSection3D.delete({ where: { id } });
+    await this.syncTourFlags(section.propertyId);
     return { message: 'Section and its scenes deleted' };
   }
 
@@ -134,6 +157,7 @@ export class ToursService {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourScene3D.delete({ where: { id } });
+    await this.syncTourFlags(scene.section.propertyId);
     return { message: 'Scene deleted' };
   }
 
@@ -178,6 +202,7 @@ export class ToursService {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourSceneVR.delete({ where: { id } });
+    await this.syncTourFlags(scene.propertyId);
     return { message: 'VR scene deleted' };
   }
 
