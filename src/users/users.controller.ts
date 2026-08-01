@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
@@ -12,6 +13,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import { UpdateDeveloperProfileDto } from './dto/update-developer-profile.dto.js';
 import { UsersService } from './users.service.js';
 
@@ -81,6 +83,16 @@ export class UsersController {
     @Body() dto: UpdateDeveloperProfileDto,
   ) {
     return this.usersService.updateMyDeveloperProfile(user.id, dto);
+  }
+
+  @Post('developers/me/onboarding')
+  @Roles(UserRole.DEVELOPER)
+  @ApiOperation({ summary: 'Developer: submit the onboarding wizard for review' })
+  submitOnboarding(
+    @CurrentUser() user: { id: string },
+    @Body() dto: SubmitOnboardingDto,
+  ) {
+    return this.usersService.submitOnboarding(user.id, dto);
   }
 
   // ─── Public ───────────────────────────────────────────────────────────────

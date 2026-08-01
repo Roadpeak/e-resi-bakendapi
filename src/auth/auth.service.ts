@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import type { Response } from 'express';
 import { MailService } from '../mail/mail.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -186,6 +186,55 @@ export class AuthService {
     const hashed = this.sha256(token);
     const user = await this.prisma.user.findFirst({ where: { emailVerifyToken: hashed } });
     if (!user) throw new BadRequestException('Invalid or expired verification token');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true, emailVerifyToken: null },
+    });
+
+    return { message: 'Email verified successfully' };
+  }
+
+  // ─── Verification Code (OTP) ─────────────────────────────────────────────────
+
+  async sendVerificationCode(email: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    // Do not reveal whether the email exists
+    if (!user) return { message: 'If that email is registered, a code has been sent.' };
+    if (user.emailVerified) return { message: 'Email is already verified. You can log in.' };
+
+    const code = randomInt(100000, 1000000).toString();
+    // Store as "hash.expiryMs" so no schema change is needed
+    const expiry = Date.now() + 15 * 60 * 1000;
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerifyToken: `${this.sha256(code)}.${expiry}` },
+    });
+
+    await this.mail.sendVerificationCode(user.email, code);
+
+    return { message: 'If that email is registered, a code has been sent.' };
+  }
+
+  async verifyCode(email: string, code: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !user.emailVerifyToken) {
+      throw new BadRequestException('Invalid or expired verification code');
+    }
+    if (user.emailVerified) return { message: 'Email is already verified. You can log in.' };
+
+    const dotIndex = user.emailVerifyToken.indexOf('.');
+    if (dotIndex === -1) throw new BadRequestException('Invalid or expired verification code');
+
+    const storedHash = user.emailVerifyToken.slice(0, dotIndex);
+    const expiry = Number(user.emailVerifyToken.slice(dotIndex + 1));
+
+    if (Number.isNaN(expiry) || Date.now() > expiry) {
+      throw new BadRequestException('Verification code has expired. Request a new one.');
+    }
+    if (this.sha256(code) !== storedHash) {
+      throw new BadRequestException('Invalid or expired verification code');
+    }
 
     await this.prisma.user.update({
       where: { id: user.id },

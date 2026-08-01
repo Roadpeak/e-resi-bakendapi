@@ -18,6 +18,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
+import { SendVerificationCodeDto, VerifyCodeDto } from './dto/verify-code.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
 @ApiTags('Auth')
@@ -75,6 +76,22 @@ export class AuthController {
   @ApiOperation({ summary: 'Verify email address with token from email link' })
   verifyEmail(@Query('token') token: string) {
     return this.authService.verifyEmail(token);
+  }
+
+  @Public()
+  @Post('send-verification-code')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Send a 6-digit email verification code' })
+  sendVerificationCode(@Body() dto: SendVerificationCodeDto) {
+    return this.authService.sendVerificationCode(dto.email);
+  }
+
+  @Public()
+  @Post('verify-code')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Verify email address with a 6-digit code' })
+  verifyCode(@Body() dto: VerifyCodeDto) {
+    return this.authService.verifyCode(dto.email, dto.code);
   }
 
   @Public()

@@ -7,6 +7,7 @@ import {
 import { KybStatus, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
+import type { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import type { UpdateDeveloperProfileDto } from './dto/update-developer-profile.dto.js';
 
 @Injectable()
@@ -104,6 +105,36 @@ export class UsersService {
         ...(dto.establishedYear !== undefined && { establishedYear: dto.establishedYear }),
         ...(dto.website !== undefined && { website: dto.website }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
+      },
+    });
+  }
+
+  async submitOnboarding(userId: string, dto: SubmitOnboardingDto) {
+    const profile = await this.prisma.developerProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Developer profile not found');
+
+    const company = dto.company as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const year = Number.parseInt(String(company.yearEstablished ?? ''), 10);
+    const projects = Number.parseInt(String(company.projectsCompleted ?? ''), 10);
+
+    return this.prisma.developerProfile.update({
+      where: { userId },
+      data: {
+        // promote known company fields onto the profile columns
+        ...(str(company.companyName) && { companyName: str(company.companyName)! }),
+        ...(str(company.longDescription ?? company.shortDescription) && {
+          description: str(company.longDescription ?? company.shortDescription)!,
+        }),
+        ...(Number.isFinite(year) && year >= 1900 && { establishedYear: year }),
+        ...(Number.isFinite(projects) && projects >= 0 && { completedProjects: projects }),
+        ...(str(company.website) && { website: str(company.website)! }),
+        // full wizard payload for admin review
+        onboarding: dto as unknown as object,
+        onboardingSubmittedAt: new Date(),
+        ...(dto.verificationDocs && { kybDocuments: dto.verificationDocs as object }),
+        // (re)enter the KYB review queue unless already approved
+        ...(profile.kybStatus !== KybStatus.APPROVED && { kybStatus: KybStatus.PENDING }),
       },
     });
   }

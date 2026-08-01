@@ -242,6 +242,8 @@ model DeveloperProfile {
   kybDocuments      Json?
   kybReviewedAt     DateTime?
   kybReviewedBy     String?
+  onboarding        Json?
+  onboardingSubmittedAt DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

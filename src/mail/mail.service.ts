@@ -53,6 +53,33 @@ export class MailService {
     }
   }
 
+  async sendVerificationCode(to: string, code: string): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject: `${code} is your e-resi verification code`,
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;">
+            <h2 style="color:#0f172a;">Verify your email</h2>
+            <p>Enter this code to verify your e-resi account. It expires in 15 minutes.</p>
+            <p style="font-size:32px;font-weight:700;letter-spacing:8px;color:#0f172a;">${code}</p>
+            <p style="margin-top:24px;color:#64748b;font-size:13px;">
+              If you didn't request this, you can safely ignore this email.
+            </p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send verification code to ${to}`, err);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(`[DEV] Verification code for ${to}: ${code}`);
+        return;
+      }
+      throw new InternalServerErrorException('Failed to send verification code');
+    }
+  }
+
   async sendPasswordResetEmail(to: string, token: string): Promise<void> {
     const link = `${this.frontendUrl}/reset-password?token=${token}`;
     try {
