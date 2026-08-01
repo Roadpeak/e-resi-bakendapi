@@ -46,10 +46,34 @@ export class UnitsService {
     });
   }
 
+  /**
+   * Public unit detail — enriched with the parent property, its gallery
+   * images, cinematic scenes and the unit's floor plan so the unit page can
+   * stand on its own.
+   */
   async findOne(id: string) {
-    const unit = await this.prisma.unit.findUnique({ where: { id } });
+    const unit = await this.prisma.unit.findUnique({
+      where: { id },
+      include: {
+        property: {
+          select: {
+            id: true, slug: true, name: true, tagline: true, city: true,
+            neighborhood: true, county: true, heroImageUrl: true, currency: true,
+            hasCinematicTour: true, has3DTour: true, hasVRTour: true,
+            developer: { select: { companyName: true, logoUrl: true } },
+            media: { orderBy: { order: 'asc' } },
+            cinematicScenes: { orderBy: { order: 'asc' } },
+          },
+        },
+      },
+    });
     if (!unit) throw new NotFoundException('Unit not found');
-    return unit;
+
+    const floorPlan = unit.floorPlanId
+      ? await this.prisma.floorPlan.findUnique({ where: { id: unit.floorPlanId } })
+      : null;
+
+    return { ...unit, floorPlan };
   }
 
   async update(id: string, userId: string, userRole: UserRole, dto: UpdateUnitDto) {
