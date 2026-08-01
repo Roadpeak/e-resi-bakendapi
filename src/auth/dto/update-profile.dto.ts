@@ -31,6 +31,6 @@ export class UpdateProfileDto {
 
   @ApiPropertyOptional({ example: 'https://cdn.e-resi.co.ke/avatars/xyz.jpg' })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   avatarUrl?: string;
 }

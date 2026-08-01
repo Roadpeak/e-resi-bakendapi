@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -50,6 +51,26 @@ export class MediaController {
     @Body('folder') folder?: string,
   ) {
     return this.service.uploadFile((folder ?? 'properties') as UploadFolder, file);
+  }
+
+  /**
+   * Avatar upload for any signed-in user. The generic /upload above is
+   * developer-only, which left tenants and investors unable to set a profile
+   * photo. Folder is fixed to 'avatars' so this can't be used as a general
+   * upload channel.
+   */
+  @Post('avatar')
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({ summary: 'Upload your own profile photo (max 5MB)' })
+  uploadAvatar(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Profile photo must be an image');
+    }
+    return this.service.uploadFile('avatars' as UploadFolder, file);
   }
 
   // ─── Property media ────────────────────────────────────────────────────────
