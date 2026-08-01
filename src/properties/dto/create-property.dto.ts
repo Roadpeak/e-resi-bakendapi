@@ -62,12 +62,12 @@ export class CreatePropertyDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false }, { message: 'heroImageUrl must be a valid URL' })
   heroImageUrl?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false }, { message: 'heroVideoUrl must be a valid URL' })
   heroVideoUrl?: string;
 
   @ApiPropertyOptional({ example: 8500000 })

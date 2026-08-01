@@ -180,7 +180,7 @@ export class PropertiesService {
       throw new ForbiddenException('You do not own this property');
     }
 
-    return this.prisma.property.update({
+    const updated = await this.prisma.property.update({
       where: { slug },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -200,6 +200,17 @@ export class PropertiesService {
         ...(dto.completionDate !== undefined && { completionDate: new Date(dto.completionDate) }),
       },
     });
+
+    // the property photo is the face of everything listed under it — keep
+    // its rent listings in sync when it changes
+    if (dto.heroImageUrl !== undefined) {
+      await this.prisma.rentListing.updateMany({
+        where: { propertyId: property.id },
+        data: { heroImageUrl: dto.heroImageUrl },
+      });
+    }
+
+    return updated;
   }
 
   // ─── Publish / Unpublish ──────────────────────────────────────────────────

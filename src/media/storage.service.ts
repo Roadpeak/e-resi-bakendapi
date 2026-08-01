@@ -2,6 +2,8 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import { randomBytes } from 'crypto';
+import { mkdir, writeFile, unlink } from 'fs/promises';
+import { extname, join } from 'path';
 
 export type UploadFolder = 'properties' | 'rentals' | 'avatars' | 'logos' | 'documents' | 'tours';
 
@@ -21,10 +23,13 @@ export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly baseFolder: string;
   private readonly cloudName: string;
+  /** True when no real Cloudinary credentials exist — files go to local disk. */
+  private readonly localMode: boolean;
 
   constructor(private readonly config: ConfigService) {
     this.cloudName = config.get<string>('CLOUDINARY_CLOUD_NAME', '');
     this.baseFolder = config.get<string>('CLOUDINARY_FOLDER', 'e-resi');
+    this.localMode = !this.cloudName || this.cloudName.startsWith('your_');
 
     cloudinary.config({
       cloud_name: this.cloudName,
@@ -60,6 +65,8 @@ export class StorageService {
     buffer: Buffer,
     mimeType: string,
   ): Promise<{ url: string; key: string; sizeBytes: number }> {
+    if (this.localMode) return this.uploadLocal(folder, originalName, buffer);
+
     const resourceType = this.resourceTypeFor(mimeType);
     const publicId = this.buildPublicId(folder);
 
@@ -89,7 +96,28 @@ export class StorageService {
     }
   }
 
+  /** [SANDBOX] Cloudinary not configured — persist to ./uploads and serve statically. */
+  private async uploadLocal(
+    folder: UploadFolder,
+    originalName: string,
+    buffer: Buffer,
+  ): Promise<{ url: string; key: string; sizeBytes: number }> {
+    const ext = (extname(originalName) || '.bin').toLowerCase();
+    const id = randomBytes(12).toString('hex');
+    const rel = join(folder, `${id}${ext}`);
+    const dir = join(process.cwd(), 'uploads', folder);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(process.cwd(), 'uploads', rel), buffer);
+    const base = this.config.get<string>('API_PUBLIC_URL', 'http://localhost:4000');
+    this.logger.warn(`[SANDBOX] Cloudinary not configured — stored ${rel} on local disk`);
+    return { url: `${base}/uploads/${folder}/${id}${ext}`, key: `local:${rel}`, sizeBytes: buffer.byteLength };
+  }
+
   async delete(key: string): Promise<void> {
+    if (key.startsWith('local:')) {
+      await unlink(join(process.cwd(), 'uploads', key.slice(6))).catch(() => {});
+      return;
+    }
     const [resourceType, publicId] = key.includes(':')
       ? (key.split(/:(.+)/) as [CloudinaryResourceType, string])
       : (['image', key] as [CloudinaryResourceType, string]);

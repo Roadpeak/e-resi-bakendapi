@@ -4,6 +4,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import express from 'express';
+import { join } from 'path';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -14,8 +16,11 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   // Security
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cookieParser());
+
+  // Local uploads (sandbox storage fallback when Cloudinary is not configured)
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   // CORS
   const rawOrigin = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
