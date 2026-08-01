@@ -9,7 +9,7 @@ export class CreateDocumentDto {
   name: string;
 
   @ApiProperty({ example: 'https://cdn.e-resi.co.ke/docs/spa-cmr7abc.pdf' })
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   url: string;
 
   @ApiProperty({ example: 'application/pdf', description: 'MIME type of the document' })

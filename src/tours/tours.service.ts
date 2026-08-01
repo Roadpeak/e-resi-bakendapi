@@ -123,6 +123,20 @@ export class ToursService {
     return { message: 'Section and its scenes deleted' };
   }
 
+  /** Remove a single 3D scene (leaving its section intact). */
+  async remove3DScene(id: string, userId: string, userRole: UserRole) {
+    const scene = await this.prisma.tourScene3D.findUnique({
+      where: { id },
+      include: { section: { include: { property: { include: { developer: true } } } } },
+    });
+    if (!scene) throw new NotFoundException('Scene not found');
+    if (userRole !== UserRole.ADMIN && scene.section.property.developer.userId !== userId) {
+      throw new ForbiddenException('Access denied');
+    }
+    await this.prisma.tourScene3D.delete({ where: { id } });
+    return { message: 'Scene deleted' };
+  }
+
   // ─── VR Tour Scenes ───────────────────────────────────────────────────────
 
   async addVRScene(slug: string, userId: string, userRole: UserRole, dto: CreateTourSceneDto) {

@@ -90,6 +90,17 @@ export class ToursController {
     return this.service.removeTourSection(id, user.id, user.role);
   }
 
+  @Delete('3d/scenes/:id')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer: remove a single 3D tour scene' })
+  remove3DScene(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.service.remove3DScene(id, user.id, user.role);
+  }
+
   // ─── VR Tour ──────────────────────────────────────────────────────────────
 
   @Public()

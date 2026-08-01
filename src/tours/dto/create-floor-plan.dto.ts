@@ -9,7 +9,7 @@ export class CreateFloorPlanDto {
   name: string;
 
   @ApiProperty({ example: 'https://cdn.e-resi.co.ke/floorplans/2br-a.png' })
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   imageUrl: string;
 
   @ApiPropertyOptional({ example: 2 })

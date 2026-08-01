@@ -20,12 +20,12 @@ export class CreateCinematicSceneDto {
   category: CinematicSceneCategory;
 
   @ApiProperty({ example: 'https://cdn.e-resi.co.ke/tours/aerial.mp4' })
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   videoUrl: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   thumbnailUrl?: string;
 
   @ApiPropertyOptional({ example: 0 })

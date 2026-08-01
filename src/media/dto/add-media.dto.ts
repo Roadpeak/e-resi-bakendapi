@@ -8,12 +8,12 @@ export class AddMediaDto {
   type: MediaType;
 
   @ApiProperty({ description: 'Public URL of the uploaded file' })
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   url: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   thumbnailUrl?: string;
 
   @ApiPropertyOptional({ example: 'Living Room — Golden Hour' })
