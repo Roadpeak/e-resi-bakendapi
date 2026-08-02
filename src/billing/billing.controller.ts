@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Headers, Param, Patch, Post,
+  Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query,
   Req, UnauthorizedException,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
@@ -11,6 +11,7 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
+import { InvoicesService } from './invoices.service.js';
 import { ListingFeeService } from './listing-fee.service.js';
 import { PaystackService } from './paystack.service.js';
 
@@ -22,7 +23,49 @@ export class BillingController {
     private readonly service: BillingService,
     private readonly paystack: PaystackService,
     private readonly listingFees: ListingFeeService,
+    private readonly invoices: InvoicesService,
   ) {}
+
+  // ─── Invoices & receipts ────────────────────────────────────────────────
+
+  @Get('invoices')
+  @ApiOperation({ summary: 'Invoices and receipts for the signed-in account' })
+  myInvoices(@CurrentUser() user: { id: string }) {
+    return this.invoices.listMine(user.id);
+  }
+
+  @Get('invoices/all')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: every invoice, filterable by status, kind or search' })
+  allInvoices(@Query() query: { status?: string; kind?: string; q?: string }) {
+    return this.invoices.listAll(query);
+  }
+
+  @Get('invoices/:id')
+  @ApiOperation({ summary: 'One invoice. Non-admins only see their own.' })
+  invoice(@Param('id') id: string, @CurrentUser() user: { id: string; role: UserRole }) {
+    return this.invoices.getOne(id, user.role === UserRole.ADMIN ? undefined : user.id);
+  }
+
+  @Post('invoices/dispatch')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Admin: release invoices falling due within the lead window and '
+      + 'flag overdue ones. Runs daily; this forces it.',
+  })
+  dispatchInvoices() {
+    return this.invoices.dispatchDue();
+  }
+
+  @Post('invoices/:id/remind')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Admin: chase an unpaid invoice. The reminder carries a '
+      + 'termination warning dated five days out.',
+  })
+  remind(@Param('id') id: string) {
+    return this.invoices.sendReminder(id);
+  }
 
   // ─── Listing-fee billing runs (admin) ───────────────────────────────────
 

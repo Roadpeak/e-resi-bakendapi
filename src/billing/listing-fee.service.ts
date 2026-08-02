@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PaystackService } from './paystack.service.js';
+import { InvoicesService } from './invoices.service.js';
 
 export interface ListingFeeRunSummary {
   period: string;
@@ -32,6 +33,7 @@ export class ListingFeeService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly paystack: PaystackService,
+    private readonly invoices: InvoicesService,
   ) {}
 
   /** Periods are used as identifiers, so reject anything that is not YYYY-MM. */
@@ -155,6 +157,14 @@ export class ListingFeeService {
       }
 
       const run = await this.upsertRun(dev.id, period, listingCount, amount, cfg.currency, 'PENDING');
+
+      // Raise the invoice before charging. It is created as a draft and the
+      // dispatch cron releases it three days before the due date, so the
+      // developer always sees the bill before the money moves.
+      await this.invoices.invoiceListingFeeRun(run.id).catch((err) => {
+        this.logger.error(`Could not invoice run ${run.id}: ${(err as Error).message}`);
+      });
+
       const ok = await this.chargeRun(run.id, dev.user.id, dev.user.email, amount, cfg.currency);
 
       if (ok) {
@@ -269,6 +279,23 @@ export class ListingFeeService {
           attempts: { increment: 1 },
         },
       });
+
+      // Settle the invoice this run raised, which issues the receipt.
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { listingFeeRunId: runId },
+        select: { id: true },
+      });
+      if (invoice) {
+        await this.invoices.markPaid({
+          invoiceId: invoice.id,
+          method: 'Card',
+          reference: result.reference,
+          paymentId: payment.id,
+        }).catch((err) => {
+          // The money is collected; a failed receipt must not undo that.
+          this.logger.error(`Could not receipt invoice ${invoice.id}: ${(err as Error).message}`);
+        });
+      }
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

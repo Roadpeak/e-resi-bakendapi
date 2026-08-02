@@ -4,6 +4,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
+import { MailService } from '../mail/mail.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { resolveAppUrl } from '../common/app-url.js';
+import { ConfigService } from '@nestjs/config';
 import type { PayMpesaDto } from './dto/link-method.dto.js';
 
 /** Flat monthly fee per live development (USD). */
@@ -12,12 +16,18 @@ export const LISTING_FEE_MONTHLY = 49;
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
+  private readonly appUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly providers: PaymentProvidersService,
     private readonly paystack: PaystackService,
-  ) {}
+    private readonly mail: MailService,
+    private readonly notifications: NotificationsService,
+    config: ConfigService,
+  ) {
+    this.appUrl = resolveAppUrl(config);
+  }
 
   // ─── Developer billing summary ──────────────────────────────────────────
 
@@ -176,14 +186,48 @@ export class BillingService {
         userId,
         amount: result.amount / 100,
         currency: result.currency,
-        method: 'STRIPE_CARD',
+        method: 'PAYSTACK_CARD',
         status: 'REFUNDED',
         reference,
         metadata: { purpose: 'card_verification', provider: 'paystack' },
       },
     });
 
+    await this.announceCardLinked(userId, user.email, method, result.amount / 100, result.currency);
+
     return method;
+  }
+
+  /**
+   * Tell the customer their card is on file and that the verification charge
+   * has been returned. Both facts land in one message deliberately — a card
+   * charge the customer did not expect, with no explanation, reads as fraud.
+   */
+  private async announceCardLinked(
+    userId: string,
+    email: string,
+    method: { brand: string | null; last4: string | null },
+    verifiedAmount: number,
+    currency: string,
+  ): Promise<void> {
+    const label = `${method.brand ?? 'Card'} ending ${method.last4 ?? '••••'}`;
+    const reversal = `The ${currency} ${verifiedAmount.toLocaleString()} verification charge has been reversed `
+      + 'and will drop off your statement within a few working days.';
+
+    await this.notifications.createNotification(
+      userId,
+      'PAYMENT_METHOD_UPDATED',
+      'Card linked',
+      `${label} is now your payment method. ${reversal}`,
+    );
+
+    await this.mail.sendNotice(
+      email,
+      'Your card is linked to e-resi',
+      'Card linked',
+      `${label} has been saved for your listing fees. ${reversal}`,
+      { label: 'Manage payment methods', url: `${this.appUrl}/dashboard/billing` },
+    );
   }
 
   /**
