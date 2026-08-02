@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
+import { PaystackService } from './paystack.service.js';
 import type { LinkCardDto, PayMpesaDto } from './dto/link-method.dto.js';
 
 /** Flat monthly fee per live development (USD). */
@@ -36,6 +37,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly providers: PaymentProvidersService,
+    private readonly paystack: PaystackService,
   ) {}
 
   // ─── Developer billing summary ──────────────────────────────────────────
@@ -120,6 +122,69 @@ export class BillingService {
    * Link a card: verify with a $1 authorization (reversed automatically),
    * then store display metadata + billing address. PAN/CVC are discarded.
    */
+  /**
+   * Start card linking via Paystack's hosted checkout. The customer enters
+   * their card on Paystack's page, not ours, so no card data reaches this API.
+   */
+  async startPaystackCardLink(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    return this.paystack.startCardLink(user.email, userId);
+  }
+
+  /**
+   * Finish linking once the customer returns. Verifies the transaction, stores
+   * the reusable authorization, and refunds the verification charge.
+   */
+  async confirmPaystackCardLink(userId: string, reference: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const result = await this.paystack.verifyTransaction(reference);
+    if (!result.successful || !result.authorization) {
+      throw new BadRequestException('That card could not be verified');
+    }
+    const auth = result.authorization;
+    if (!auth.reusable) {
+      throw new BadRequestException('That card cannot be saved for future payments');
+    }
+
+    const isDefault = await this.makeDefaultIfFirst(userId);
+    const method = await this.prisma.linkedPaymentMethod.create({
+      data: {
+        userId,
+        type: 'CARD',
+        brand: auth.brand ?? auth.card_type,
+        last4: auth.last4,
+        expMonth: Number.parseInt(auth.exp_month, 10),
+        expYear: Number.parseInt(auth.exp_year, 10),
+        cardholderName: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email,
+        country: auth.country_code ?? 'KE',
+        processorRef: auth.authorization_code,
+        verification: 'VERIFIED',
+        verifiedAt: new Date(),
+        isDefault,
+      },
+    });
+
+    // The charge existed only to prove the card is live — give it back.
+    await this.paystack.refund(reference);
+
+    await this.prisma.payment.create({
+      data: {
+        userId,
+        amount: result.amount / 100,
+        currency: result.currency,
+        method: 'STRIPE_CARD',
+        status: 'REFUNDED',
+        reference,
+        metadata: { purpose: 'card_verification', provider: 'paystack' },
+      },
+    });
+
+    return method;
+  }
+
   async linkCard(userId: string, dto: LinkCardDto) {
     if (!luhnValid(dto.cardNumber)) {
       throw new BadRequestException('That card number is not valid');

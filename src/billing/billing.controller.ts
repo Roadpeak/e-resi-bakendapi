@@ -36,6 +36,21 @@ export class BillingController {
     return this.service.linkCard(user.id, dto);
   }
 
+  @Post('methods/paystack/start')
+  @ApiOperation({ summary: 'Start card linking — returns Paystack checkout URL (card data never reaches this API)' })
+  paystackStart(@CurrentUser() user: { id: string }) {
+    return this.service.startPaystackCardLink(user.id);
+  }
+
+  @Post('methods/paystack/confirm')
+  @ApiOperation({ summary: 'Confirm a Paystack card link and store the reusable authorization' })
+  paystackConfirm(
+    @CurrentUser() user: { id: string },
+    @Body('reference') reference: string,
+  ) {
+    return this.service.confirmPaystackCardLink(user.id, reference);
+  }
+
   @Post('methods/paypal/start')
   @ApiOperation({ summary: 'Start PayPal linking — returns the approval URL (billing agreement for automatic monthly billing)' })
   paypalStart() {
