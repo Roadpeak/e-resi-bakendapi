@@ -94,8 +94,6 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const rawVerifyToken = this.generateToken();
-    const hashedVerifyToken = this.sha256(rawVerifyToken);
 
     const user = await this.prisma.user.create({
       data: {
@@ -105,7 +103,6 @@ export class AuthService {
         lastName: dto.lastName,
         phone: dto.phone,
         role: dto.role,
-        emailVerifyToken: hashedVerifyToken,
       },
     });
 
@@ -115,9 +112,12 @@ export class AuthService {
       });
     }
 
-    await this.mail.sendVerificationEmail(user.email, rawVerifyToken);
+    // Signup verifies with a one-time code, which the client requests straight
+    // after registering. Sending the link email here as well produced two
+    // emails per signup for a flow that only ever uses the code.
+    await this.sendVerificationCode(user.email);
 
-    return { message: 'Registration successful. Check your email to verify your account.' };
+    return { message: 'Registration successful. Check your email for the verification code.' };
   }
 
   // ─── Login ──────────────────────────────────────────────────────────────────
