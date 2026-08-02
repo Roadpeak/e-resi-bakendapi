@@ -7,6 +7,8 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { SetProductionTierDto } from './dto/set-tier.dto.js';
 import { ProductionTiersService } from './production-tiers.service.js';
 import { PricingService } from '../admin/pricing.service.js';
+import { ProductionOrdersService } from './production-orders.service.js';
+import { OrderServicesDto } from './dto/order-services.dto.js';
 
 @ApiTags('Production Tiers')
 @Controller('production-tiers')
@@ -14,6 +16,7 @@ export class ProductionTiersController {
   constructor(
     private readonly service: ProductionTiersService,
     private readonly pricing: PricingService,
+    private readonly orders: ProductionOrdersService,
   ) {}
 
   @Public()
@@ -59,6 +62,32 @@ export class ProductionTiersController {
     @CurrentUser() user: { id: string; role: UserRole },
   ) {
     return this.service.setTier(dto, user.id, user.role);
+  }
+
+  @Post('properties/:slug/services')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Developer: order additional production services for a development '
+      + 'that already exists. Priced from the catalog at the time of ordering.',
+  })
+  orderServices(
+    @Param('slug') slug: string,
+    @Body() dto: OrderServicesDto,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.orders.orderServices(slug, user.id, user.role, dto.services);
+  }
+
+  @Get('properties/:slug/services')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer: production orders for one of your developments' })
+  propertyOrders(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.orders.forProperty(slug, user.id, user.role);
   }
 
   @Get('my')

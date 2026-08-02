@@ -1,5 +1,8 @@
-import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { ProductionOrderStatus } from '@prisma/client';
+import {
+  BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { UserRole, type ProductionOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
@@ -141,6 +144,144 @@ export class ProductionOrdersService {
 
     this.logger.log(`Backfill: ${created} orders across ${touched} properties`);
     return { properties: touched, created };
+  }
+
+  /**
+   * Order additional services for a development that already exists.
+   *
+   * Production is not a one-shot decision made during submission: a developer
+   * who launches with photography often wants a cinematic tour once units start
+   * moving. Prices are taken from the catalog at the moment of ordering, not
+   * from whatever they were when the property was created.
+   *
+   * The submission JSON is updated alongside the order rows so the two do not
+   * drift — syncFromSubmission would otherwise cancel anything absent from it.
+   */
+  async orderServices(
+    slug: string,
+    userId: string,
+    userRole: UserRole,
+    items: { serviceKey: string; preferredDate?: string; instructions?: string; accessInfo?: string }[],
+  ) {
+    if (!items.length) throw new BadRequestException('Choose at least one service');
+
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      include: { developer: { select: { userId: true, companyName: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+
+    const catalog = await this.pricing.listServices();
+    const byKey = new Map(
+      catalog.map((c: { key: string; label: string; price: number; currency: string }) => [c.key, c]),
+    );
+
+    const unknown = items.filter((i) => !byKey.has(i.serviceKey));
+    if (unknown.length) {
+      throw new BadRequestException(
+        `Not in the catalog: ${unknown.map((u) => u.serviceKey).join(', ')}`,
+      );
+    }
+
+    // Re-ordering a service already in production would double-bill it. Only a
+    // cancelled one may be raised again.
+    const existing = await this.prisma.productionOrder.findMany({
+      where: { propertyId: property.id, serviceKey: { in: items.map((i) => i.serviceKey) } },
+    });
+    const blocked = existing.filter((o) => o.status !== 'CANCELLED');
+    if (blocked.length) {
+      throw new BadRequestException(
+        `Already ordered: ${blocked.map((b) => b.label).join(', ')}`,
+      );
+    }
+
+    const created = [];
+    for (const item of items) {
+      const cat = byKey.get(item.serviceKey)!;
+      const prior = existing.find((o) => o.serviceKey === item.serviceKey);
+
+      const data = {
+        label: cat.label,
+        amount: cat.price,
+        currency: cat.currency,
+        status: 'ORDERED' as const,
+        preferredDate: item.preferredDate || null,
+        instructions: item.instructions || null,
+        accessInfo: item.accessInfo || null,
+        // A re-order is new work: clear the schedule and invoice of the
+        // cancelled attempt so it cannot be mistaken for already billed.
+        scheduledAt: null,
+        deliveredAt: null,
+        invoiceId: null,
+      };
+
+      created.push(prior
+        ? await this.prisma.productionOrder.update({ where: { id: prior.id }, data })
+        : await this.prisma.productionOrder.create({
+          data: { propertyId: property.id, serviceKey: item.serviceKey, ...data },
+        }));
+    }
+
+    await this.mergeIntoSubmission(property.id, items);
+
+    await this.events.productionOrdered(
+      property.name,
+      property.developer.companyName,
+      created.map((o) => ({ label: o.label, amount: o.amount, currency: o.currency })),
+    );
+
+    return created;
+  }
+
+  /**
+   * Fold newly ordered services back into submissionData. Without this the next
+   * syncFromSubmission would see them missing and cancel them.
+   */
+  private async mergeIntoSubmission(
+    propertyId: string,
+    items: { serviceKey: string; preferredDate?: string; instructions?: string; accessInfo?: string }[],
+  ): Promise<void> {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { submissionData: true },
+    });
+    const submission = (property?.submissionData ?? {}) as Record<string, unknown>;
+    const media = (submission.media ?? {}) as Record<string, unknown>;
+    const services = (media.services ?? {}) as Record<string, unknown>;
+
+    for (const item of items) {
+      services[item.serviceKey] = {
+        preferredDate: item.preferredDate ?? '',
+        instructions: item.instructions ?? '',
+        accessInfo: item.accessInfo ?? '',
+      };
+    }
+
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        submissionData: { ...submission, media: { ...media, services } } as object,
+      },
+    });
+  }
+
+  /** A developer's orders for one of their developments. */
+  async forProperty(slug: string, userId: string, userRole: UserRole) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      include: { developer: { select: { userId: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+    return this.prisma.productionOrder.findMany({
+      where: { propertyId: property.id },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   // ─── Queries & ops ───────────────────────────────────────────────────────
