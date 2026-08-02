@@ -184,6 +184,7 @@ export class RentListingsService {
       data: {
         rentListingId,
         label: dto.label,
+        floor: dto.floor,
         bedrooms: dto.bedrooms ?? 1,
         bathrooms: dto.bathrooms ?? 1,
         sqm: dto.sqm,

@@ -443,6 +443,7 @@ model RentUnit {
   rentListingId     String
   rentListing       RentListing    @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
   label             String
+  floor             Int?
   bedrooms          Int            @default(1)
   bathrooms         Int            @default(1)
   sqm               Float?

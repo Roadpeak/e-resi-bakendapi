@@ -15,6 +15,11 @@ export class CreateRentUnitDto {
   @Min(0)
   bedrooms?: number;
 
+  @ApiPropertyOptional({ example: 10, description: 'Floor this unit sits on' })
+  @IsOptional()
+  @IsInt()
+  floor?: number;
+
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @IsInt()
