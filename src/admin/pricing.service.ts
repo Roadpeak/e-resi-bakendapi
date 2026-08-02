@@ -201,7 +201,10 @@ export class PricingService {
    * Nothing already invoiced or ordered is touched — those record a price that
    * was agreed, and rewriting them would change what somebody owes.
    */
-  async setPlatformCurrency(currency: string, rate = 1, useLiveRate = false) {
+  async setPlatformCurrency(currency: string, rate: number | undefined = 1, useLiveRate = false) {
+    // An omitted rate means "no manual rate given" — legitimate when the live
+    // rate is being used, and equivalent to relabelling otherwise.
+    if (rate === undefined || rate === null || Number.isNaN(rate)) rate = 1;
     const next = currency.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(next)) {
       throw new BadRequestException('Currency must be a 3-letter ISO code, e.g. KES');
