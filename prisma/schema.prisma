@@ -368,6 +368,8 @@ model Property {
   analyticsEvents     AnalyticsEvent[]
   productionTier      ProductionTier?
 
+  conversations Conversation[]
+
   @@index([slug])
   @@index([status])
   @@index([developerId])
@@ -446,6 +448,8 @@ model RentListing {
   rentUnits                 RentUnit[]
   media                     MediaAsset[]
   inquiries                 Inquiry[]
+
+  conversations Conversation[]
 
   @@index([slug])
   @@index([status])
@@ -877,7 +881,9 @@ model Conversation {
   developerId   String
   developer     User      @relation("ConversationDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
   propertyId    String?
+  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   rentListingId String?
+  rentListing   RentListing? @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
   subject       String?
   lastMessageAt DateTime  @default(now())
   createdAt     DateTime  @default(now())

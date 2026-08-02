@@ -95,6 +95,8 @@ export class AdminOpsService {
         include: {
           customer: { select: { id: true, email: true, firstName: true, lastName: true } },
           developer: { select: { id: true, email: true, firstName: true, lastName: true } },
+          property: { select: { slug: true, name: true } },
+          rentListing: { select: { slug: true, name: true } },
           _count: { select: { messages: true } },
         },
       }),
@@ -111,6 +113,8 @@ export class AdminOpsService {
       include: {
         customer: { select: { email: true, firstName: true, lastName: true } },
         developer: { select: { email: true, firstName: true, lastName: true } },
+        property: { select: { slug: true, name: true } },
+        rentListing: { select: { slug: true, name: true } },
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
