@@ -60,4 +60,5 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get pricingPlan() { return prismaInstance.pricingPlan; }
   get serviceCatalogItem() { return prismaInstance.serviceCatalogItem; }
   get platformSetting() { return prismaInstance.platformSetting; }
+  get listingFeeRun() { return prismaInstance.listingFeeRun; }
 }

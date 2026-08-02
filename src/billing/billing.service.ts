@@ -4,33 +4,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
-import type { LinkCardDto, PayMpesaDto } from './dto/link-method.dto.js';
+import type { PayMpesaDto } from './dto/link-method.dto.js';
 
 /** Flat monthly fee per live development (USD). */
 export const LISTING_FEE_MONTHLY = 49;
-
-function detectBrand(cardNumber: string): string {
-  if (/^4/.test(cardNumber)) return 'Visa';
-  if (/^5[1-5]/.test(cardNumber) || /^2[2-7]/.test(cardNumber)) return 'Mastercard';
-  if (/^3[47]/.test(cardNumber)) return 'Amex';
-  if (/^6/.test(cardNumber)) return 'Discover';
-  return 'Card';
-}
-
-function luhnValid(cardNumber: string): boolean {
-  let sum = 0;
-  let dbl = false;
-  for (let i = cardNumber.length - 1; i >= 0; i--) {
-    let d = Number(cardNumber[i]);
-    if (dbl) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    dbl = !dbl;
-  }
-  return sum % 10 === 0;
-}
 
 @Injectable()
 export class BillingService {
@@ -295,73 +272,6 @@ export class BillingService {
         // and we do not want retries for events we simply do not use.
         return { handled: false };
     }
-  }
-
-  async linkCard(userId: string, dto: LinkCardDto) {
-    if (!luhnValid(dto.cardNumber)) {
-      throw new BadRequestException('That card number is not valid');
-    }
-    const now = new Date();
-    if (dto.expYear < now.getFullYear()
-      || (dto.expYear === now.getFullYear() && dto.expMonth < now.getMonth() + 1)) {
-      throw new BadRequestException('This card has expired');
-    }
-
-    const last4 = dto.cardNumber.slice(-4);
-    const brand = detectBrand(dto.cardNumber);
-
-    const duplicate = await this.prisma.linkedPaymentMethod.findFirst({
-      where: { userId, type: 'CARD', last4, brand, expMonth: dto.expMonth, expYear: dto.expYear },
-    });
-    if (duplicate) throw new BadRequestException('This card is already linked');
-
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-
-    // $1 verification hold with the processor (or simulated in sandbox)
-    const result = await this.providers.verifyCard(dto, user.email);
-
-    const isDefault = await this.makeDefaultIfFirst(userId);
-    const method = await this.prisma.linkedPaymentMethod.create({
-      data: {
-        userId,
-        type: 'CARD',
-        brand,
-        last4,
-        expMonth: dto.expMonth,
-        expYear: dto.expYear,
-        cardholderName: dto.cardholderName,
-        addressLine1: dto.addressLine1,
-        addressLine2: dto.addressLine2,
-        city: dto.city,
-        postalCode: dto.postalCode,
-        country: dto.country.toUpperCase(),
-        processorRef: result.processorRef,
-        verification: result.verified ? 'VERIFIED' : 'PENDING',
-        verifiedAt: result.verified ? new Date() : null,
-        isDefault,
-      },
-    });
-
-    // audit trail: the $1 verification + its reversal
-    await this.prisma.payment.create({
-      data: {
-        userId,
-        amount: 1,
-        currency: 'USD',
-        method: 'STRIPE_CARD',
-        status: 'REFUNDED',
-        reference: `CARD-VERIFY-${last4}-${Date.now()}`,
-        metadata: {
-          purpose: 'card_verification',
-          reversed: true,
-          sandbox: result.sandbox,
-          methodId: method.id,
-        },
-      },
-    });
-
-    return { ...method, sandbox: result.sandbox };
   }
 
   /** Start PayPal linking — returns the approval URL for the redirect. */
