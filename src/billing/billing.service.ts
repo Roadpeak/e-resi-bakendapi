@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
 import { InvoicesService } from './invoices.service.js';
+import { PricingService } from '../admin/pricing.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
@@ -26,6 +27,7 @@ export class BillingService {
     private readonly mail: MailService,
     private readonly notifications: NotificationsService,
     private readonly invoices: InvoicesService,
+    private readonly pricing: PricingService,
     config: ConfigService,
   ) {
     this.appUrl = resolveAppUrl(config);
@@ -54,12 +56,16 @@ export class BillingService {
       }),
     ]);
 
+    const monthlyFee = Number(
+      await this.pricing.getSetting('listing_fee_monthly', String(LISTING_FEE_MONTHLY)),
+    ) || LISTING_FEE_MONTHLY;
+
     const listings = properties.map((p) => ({
       id: p.id,
       name: p.name,
       slug: p.slug,
       status: p.status,
-      monthlyFee: p.status === 'ACTIVE' ? LISTING_FEE_MONTHLY : 0,
+      monthlyFee: p.status === 'ACTIVE' ? monthlyFee : 0,
     }));
 
     const production = properties
@@ -78,9 +84,17 @@ export class BillingService {
       })
       .filter((o) => o.serviceIds.length > 0);
 
+    // Read the admin-managed fee and currency rather than the build-time
+    // constant, which is why this page stayed on USD after the setting changed.
+    const [feeRaw, currency] = await Promise.all([
+      this.pricing.getSetting('listing_fee_monthly', String(LISTING_FEE_MONTHLY)),
+      this.pricing.platformCurrency(),
+    ]);
+    const feePerListing = Number(feeRaw) || LISTING_FEE_MONTHLY;
+
     return {
-      feePerListing: LISTING_FEE_MONTHLY,
-      currency: 'USD',
+      feePerListing,
+      currency,
       monthly: {
         liveCount: listings.filter((l) => l.monthlyFee > 0).length,
         total: listings.reduce((n, l) => n + l.monthlyFee, 0),

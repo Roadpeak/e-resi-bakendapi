@@ -140,3 +140,21 @@ export class UpdateSettingDto {
   @IsString()
   value: string;
 }
+
+/** Switch the platform billing currency, optionally converting prices. */
+export class SetCurrencyDto {
+  @ApiProperty({ example: 'KES', description: '3-letter ISO code' })
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO code' })
+  currency: string;
+
+  @ApiPropertyOptional({
+    example: 129,
+    description: 'Multiplier applied to every catalog price. Omit or pass 1 to '
+      + 'relabel without converting.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.000001)
+  rate?: number;
+}

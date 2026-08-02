@@ -114,7 +114,7 @@ export class InvoicesService {
         taxPercent,
         taxAmount,
         total: Math.round((subtotal + taxAmount) * 100) / 100,
-        currency: params.currency ?? 'KES',
+        currency: params.currency ?? await this.pricing.platformCurrency(),
         dueAt: params.dueAt,
         issuedAt: params.sendNow ? new Date() : null,
         notes: params.notes,

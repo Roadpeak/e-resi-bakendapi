@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   IsUrl,
   MaxLength,
   Min,
@@ -75,6 +76,17 @@ export class CreatePropertyDto {
   @IsNumber()
   @Min(0)
   priceFrom?: number;
+
+  @ApiPropertyOptional({
+    example: 'KES',
+    description: 'Currency this development is priced in. Independent of the '
+      + 'platform billing currency — a listing may be priced in USD while the '
+      + 'developer is still invoiced in KES.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO code' })
+  currency?: string;
 
   @ApiPropertyOptional({ example: 25000000 })
   @IsOptional()

@@ -97,13 +97,13 @@ export class ListingFeeService {
   private async feeConfig(): Promise<{ monthly: number; currency: string; freeMonths: number; taxPercent: number }> {
     const [monthly, currency, freeMonths, tax] = await Promise.all([
       this.pricing.getSetting('listing_fee_monthly', '49'),
-      this.pricing.getSetting('listing_fee_currency', 'KES'),
+      this.pricing.platformCurrency(),
       this.pricing.getSetting('listing_fee_free_months', '0'),
       this.pricing.getSetting('tax_rate_percent', '0'),
     ]);
     return {
       monthly: Number(monthly),
-      currency: String(currency).toUpperCase(),
+      currency,
       freeMonths: Number(freeMonths),
       taxPercent: Number(tax),
     };

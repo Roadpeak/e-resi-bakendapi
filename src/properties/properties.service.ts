@@ -80,6 +80,7 @@ export class PropertiesService {
         heroVideoUrl: dto.heroVideoUrl,
         priceFrom: dto.priceFrom,
         priceTo: dto.priceTo,
+        ...(dto.currency && { currency: dto.currency.toUpperCase() }),
         tags: dto.tags ?? [],
         completionDate: dto.completionDate ? new Date(dto.completionDate) : undefined,
         submissionData: dto.submissionData as object | undefined,
@@ -263,6 +264,7 @@ export class PropertiesService {
         ...(dto.heroVideoUrl !== undefined && { heroVideoUrl: dto.heroVideoUrl }),
         ...(dto.priceFrom !== undefined && { priceFrom: dto.priceFrom }),
         ...(dto.priceTo !== undefined && { priceTo: dto.priceTo }),
+        ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
         ...(dto.completionDate !== undefined && { completionDate: new Date(dto.completionDate) }),
         // Previously accepted by the DTO but never written, so editing a

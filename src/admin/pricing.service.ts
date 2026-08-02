@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductionTierType, ServiceCategoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -42,6 +42,9 @@ const SERVICE_SEED: {
   { key: 'cgi', label: 'CGI / Architectural Visualization', category: 'IMMERSIVE', price: 2200, description: 'Photoreal renders for off-plan developments.' },
 ];
 
+/** Fallback when nothing is configured. Kenyan platform, Kenyan settlement. */
+export const PLATFORM_DEFAULT_CURRENCY = 'KES';
+
 @Injectable()
 export class PricingService {
   private readonly logger = new Logger(PricingService.name);
@@ -59,7 +62,7 @@ export class PricingService {
       const existing = await this.prisma.pricingPlan.findUnique({ where: { tier: t.tier } });
       if (existing) continue;
       await this.prisma.pricingPlan.create({
-        data: { ...t, currency: 'KES', order: i },
+        data: { ...t, currency: PLATFORM_DEFAULT_CURRENCY, order: i },
       });
       tiers++;
     }
@@ -69,14 +72,14 @@ export class PricingService {
       const existing = await this.prisma.serviceCatalogItem.findUnique({ where: { key: s.key } });
       if (existing) continue;
       await this.prisma.serviceCatalogItem.create({
-        data: { ...s, currency: 'USD', order: i },
+        data: { ...s, currency: PLATFORM_DEFAULT_CURRENCY, order: i },
       });
       services++;
     }
 
     const settingSeed = [
+      { key: 'platform_currency', value: 'KES', valueType: 'string', label: 'Platform currency', group: 'billing', description: 'Everything the platform bills in — listing fees, production, invoices and receipts. Must be a currency the payment gateway settles.' },
       { key: 'listing_fee_monthly', value: '49', valueType: 'number', label: 'Monthly listing fee', group: 'billing', description: 'Charged per active development each month.' },
-      { key: 'listing_fee_currency', value: 'USD', valueType: 'string', label: 'Listing fee currency', group: 'billing' },
       { key: 'listing_fee_free_months', value: '0', valueType: 'number', label: 'Free months on signup', group: 'billing' },
       { key: 'tax_rate_percent', value: '16', valueType: 'number', label: 'VAT rate (%)', group: 'billing', description: 'Applied to invoices.' },
     ];
@@ -171,5 +174,96 @@ export class PricingService {
   async getSetting(key: string, fallback: string): Promise<string> {
     const row = await this.prisma.platformSetting.findUnique({ where: { key } });
     return row?.value ?? fallback;
+  }
+
+  /**
+   * The one currency the platform bills in. Everything chargeable — listing
+   * fees, production, invoices, receipts — reads this rather than carrying its
+   * own default, which is how services ended up in USD while tiers were in KES.
+   *
+   * Note this is not the same as a listing's currency: a developer may price a
+   * development in USD while still being billed in KES.
+   */
+  async platformCurrency(): Promise<string> {
+    const value = await this.getSetting('platform_currency', PLATFORM_DEFAULT_CURRENCY);
+    return value.trim().toUpperCase();
+  }
+
+  /**
+   * Switch the platform currency and restate catalog prices with it.
+   *
+   * `rate` multiplies every tier and service price. Passing 1 relabels without
+   * converting, which is only right when the old figures were placeholders.
+   * Nothing already invoiced or ordered is touched — those record a price that
+   * was agreed, and rewriting them would change what somebody owes.
+   */
+  async setPlatformCurrency(currency: string, rate = 1) {
+    const next = currency.trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(next)) {
+      throw new BadRequestException('Currency must be a 3-letter ISO code, e.g. KES');
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      throw new BadRequestException('Conversion rate must be greater than zero');
+    }
+
+    const round = (n: number) => Math.round(n * rate * 100) / 100;
+
+    const [tiers, services] = await Promise.all([
+      this.prisma.pricingPlan.findMany(),
+      this.prisma.serviceCatalogItem.findMany(),
+    ]);
+
+    // Convert only what is not already in the target currency. The catalog can
+    // hold mixed currencies — tiers were seeded KES while services were USD —
+    // and multiplying a row that is already KES inflates it by the whole rate.
+    let converted = 0;
+    for (const t of tiers) {
+      const needsConversion = rate !== 1 && t.currency.toUpperCase() !== next;
+      if (needsConversion) converted++;
+      await this.prisma.pricingPlan.update({
+        where: { id: t.id },
+        data: { currency: next, ...(needsConversion && { price: round(t.price) }) },
+      });
+    }
+    for (const s of services) {
+      const needsConversion = rate !== 1 && s.currency.toUpperCase() !== next;
+      if (needsConversion) converted++;
+      await this.prisma.serviceCatalogItem.update({
+        where: { id: s.id },
+        data: { currency: next, ...(needsConversion && { price: round(s.price) }) },
+      });
+    }
+
+    // The listing fee lives in settings rather than a priced row, so its
+    // currency comes from the previous platform setting.
+    const previous = (await this.getSetting('platform_currency', '')).toUpperCase()
+      || (await this.getSetting('listing_fee_currency', '')).toUpperCase();
+    const fee = Number(await this.getSetting('listing_fee_monthly', '0'));
+    const feeNeedsConversion = rate !== 1 && fee > 0 && previous !== next;
+
+    await this.upsertSetting('platform_currency', next);
+    if (feeNeedsConversion) {
+      await this.upsertSetting('listing_fee_monthly', String(round(fee)));
+    }
+    // Kept in step so anything still reading the old key stays correct.
+    await this.upsertSetting('listing_fee_currency', next);
+
+    return {
+      currency: next,
+      rate,
+      tiersUpdated: tiers.length,
+      servicesUpdated: services.length,
+      /** How many prices were actually multiplied, as opposed to relabelled. */
+      pricesConverted: converted,
+      listingFee: feeNeedsConversion ? round(fee) : fee,
+    };
+  }
+
+  private async upsertSetting(key: string, value: string) {
+    return this.prisma.platformSetting.upsert({
+      where: { key },
+      create: { key, value, valueType: 'string', label: key, group: 'billing' },
+      update: { value },
+    });
   }
 }

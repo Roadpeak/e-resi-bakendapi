@@ -51,6 +51,7 @@ export class ProductionOrdersService {
     const selected = submission?.media?.services ?? {};
     const keys = Object.keys(selected);
 
+    const platformCurrency = await this.pricing.platformCurrency();
     const catalog = await this.pricing.listServices().catch(() => []);
     const byKey = new Map(catalog.map((c: { key: string; label: string; price: number; currency: string }) => [c.key, c]));
 
@@ -70,7 +71,9 @@ export class ProductionOrdersService {
         // Price is captured at order time. A later catalog change must not
         // silently re-price work that was already commissioned.
         amount: prior?.amount ?? item?.price ?? 0,
-        currency: prior?.currency ?? item?.currency ?? property.currency ?? 'KES',
+        // The platform bills in its own currency; a listing priced in USD is
+        // still invoiced in KES.
+        currency: prior?.currency ?? item?.currency ?? platformCurrency,
         preferredDate: brief.preferredDate || null,
         instructions: brief.instructions || null,
         accessInfo: brief.accessInfo || null,

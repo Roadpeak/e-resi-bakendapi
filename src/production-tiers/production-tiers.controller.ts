@@ -29,7 +29,7 @@ export class ProductionTiersController {
       services,
       listingFee: {
         monthly: Number(byKey.listing_fee_monthly ?? 49),
-        currency: byKey.listing_fee_currency ?? 'USD',
+        currency: byKey.platform_currency ?? byKey.listing_fee_currency ?? 'KES',
         freeMonths: Number(byKey.listing_fee_free_months ?? 0),
       },
       taxRatePercent: Number(byKey.tax_rate_percent ?? 0),

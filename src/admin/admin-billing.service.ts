@@ -40,7 +40,7 @@ export class AdminBillingService {
         }),
         this.prisma.property.count({ where: { status: PropertyStatus.ACTIVE } }),
         this.pricing.getSetting('listing_fee_monthly', '49'),
-        this.pricing.getSetting('listing_fee_currency', 'USD'),
+        this.pricing.platformCurrency(),
       ]);
 
     const fee = Number(feeRaw) || 0;

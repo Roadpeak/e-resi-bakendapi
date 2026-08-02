@@ -7,6 +7,7 @@ import { AuditService } from './audit.service.js';
 import { PricingService } from './pricing.service.js';
 import {
   CreateServiceDto,
+  SetCurrencyDto,
   UpdateServiceDto,
   UpdateSettingDto,
   UpdateTierDto,
@@ -106,6 +107,28 @@ export class PricingController {
       changes: this.audit.diff(before as unknown as Record<string, unknown>, dto as Record<string, unknown>),
     });
     return after;
+  }
+
+  @Post('currency')
+  @ApiOperation({
+    summary: 'Set the platform billing currency and restate catalog prices. '
+      + 'rate multiplies every price (1 = relabel without converting). '
+      + 'Existing invoices and orders are never touched.',
+  })
+  async setCurrency(
+    @Body() dto: SetCurrencyDto,
+    @CurrentUser() actor: { id: string },
+  ) {
+    const result = await this.service.setPlatformCurrency(dto.currency, dto.rate ?? 1);
+    await this.audit.record({
+      actorId: actor.id,
+      action: 'pricing.currency.change',
+      targetType: 'PlatformSetting',
+      targetId: 'platform_currency',
+      summary: `Platform currency → ${result.currency}`
+        + (result.rate !== 1 ? ` (prices × ${result.rate})` : ' (relabelled, prices unchanged)'),
+    });
+    return result;
   }
 
   @Delete('services/:id')
