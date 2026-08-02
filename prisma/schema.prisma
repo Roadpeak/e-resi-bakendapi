@@ -363,6 +363,10 @@ model Property {
   @@index([developerId])
   @@index([city])
   @@index([isFeatured])
+  /// Approval workflow — why a listing was rejected, and by whom.
+  reviewNotes  String?
+  reviewedById String?
+  reviewedAt   DateTime?
 }
 
 // ─────────────────────────────────────────────
