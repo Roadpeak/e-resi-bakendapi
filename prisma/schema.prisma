@@ -200,6 +200,9 @@ model User {
   emailVerified   Boolean   @default(false)
   phoneVerified   Boolean   @default(false)
   isActive        Boolean   @default(true)
+  /// Why and when access was withdrawn — a bare boolean loses the reason.
+  suspendedAt     DateTime?
+  suspendedReason String?
   oauthProvider        String?
   oauthId              String?
   refreshToken         String?
