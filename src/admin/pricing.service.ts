@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductionTierType, ServiceCategoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ExchangeRateService } from './exchange-rate.service.js';
 
 /**
  * Values previously hardcoded in production-tiers.service.ts. Used once to seed
@@ -49,7 +50,10 @@ export const PLATFORM_DEFAULT_CURRENCY = 'KES';
 export class PricingService {
   private readonly logger = new Logger(PricingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: ExchangeRateService,
+  ) {}
 
   /**
    * Populate the pricing tables from the previously hardcoded values.
@@ -197,14 +201,33 @@ export class PricingService {
    * Nothing already invoiced or ordered is touched — those record a price that
    * was agreed, and rewriting them would change what somebody owes.
    */
-  async setPlatformCurrency(currency: string, rate = 1) {
+  async setPlatformCurrency(currency: string, rate = 1, useLiveRate = false) {
     const next = currency.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(next)) {
       throw new BadRequestException('Currency must be a 3-letter ISO code, e.g. KES');
     }
-    if (!Number.isFinite(rate) || rate <= 0) {
+
+    const from = (await this.getSetting('platform_currency', PLATFORM_DEFAULT_CURRENCY))
+      .toUpperCase();
+
+    // Fetching at the moment of conversion, rather than trusting a figure typed
+    // into a form earlier, is the difference between converting at today's rate
+    // and converting at whatever the rate was when the page was opened.
+    let appliedRate = rate;
+    let rateSource = 'manual';
+    let rateFetchedAt: string | null = null;
+
+    if (useLiveRate && from !== next) {
+      const live = await this.fx.getRate(from, next);
+      appliedRate = live.rate;
+      rateSource = live.source;
+      rateFetchedAt = live.fetchedAt;
+    }
+
+    if (!Number.isFinite(appliedRate) || appliedRate <= 0) {
       throw new BadRequestException('Conversion rate must be greater than zero');
     }
+    rate = appliedRate;
 
     const round = (n: number) => Math.round(n * rate * 100) / 100;
 
@@ -251,6 +274,8 @@ export class PricingService {
     return {
       currency: next,
       rate,
+      rateSource,
+      rateFetchedAt,
       tiersUpdated: tiers.length,
       servicesUpdated: services.length,
       /** How many prices were actually multiplied, as opposed to relabelled. */

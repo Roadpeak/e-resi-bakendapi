@@ -17,6 +17,7 @@ import { AdminUsersController } from './admin-users.controller.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { PricingController } from './pricing.controller.js';
 import { PricingService } from './pricing.service.js';
+import { ExchangeRateService } from './exchange-rate.service.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 
 @Module({
@@ -24,8 +25,8 @@ import { ProductionOrdersService } from '../production-tiers/production-orders.s
   // orders here need InvoicesService to bill a scheduled shoot.
   imports: [MailModule, NotificationsModule, forwardRef(() => BillingModule)],
   controllers: [AdminController, PricingController, AdminUsersController, AdminPropertiesController, AdminBillingController, AdminOpsController, AdminSystemController],
-  providers: [AdminService, AuditService, PricingService, ProductionOrdersService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
+  providers: [AdminService, AuditService, PricingService, ExchangeRateService, ProductionOrdersService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
   // Exported so later phases (users, pricing, properties) can record actions.
-  exports: [AuditService, PricingService, ProductionOrdersService],
+  exports: [AuditService, PricingService, ExchangeRateService, ProductionOrdersService],
 })
 export class AdminModule {}

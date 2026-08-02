@@ -4,6 +4,7 @@ import { ProductionTierType, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { AuditService } from './audit.service.js';
+import { ExchangeRateService } from './exchange-rate.service.js';
 import { PricingService } from './pricing.service.js';
 import {
   CreateServiceDto,
@@ -21,6 +22,7 @@ export class PricingController {
   constructor(
     private readonly service: PricingService,
     private readonly audit: AuditService,
+    private readonly fx: ExchangeRateService,
   ) {}
 
   @Post('seed')
@@ -109,6 +111,15 @@ export class PricingController {
     return after;
   }
 
+  @Get('exchange-rate')
+  @ApiOperation({
+    summary: 'Live exchange rate between two currencies, with the time it was '
+      + 'fetched so the UI can flag a stale figure.',
+  })
+  exchangeRate(@Query('from') from: string, @Query('to') to: string) {
+    return this.fx.getRate(from ?? 'USD', to ?? 'KES');
+  }
+
   @Post('currency')
   @ApiOperation({
     summary: 'Set the platform billing currency and restate catalog prices. '
@@ -119,14 +130,18 @@ export class PricingController {
     @Body() dto: SetCurrencyDto,
     @CurrentUser() actor: { id: string },
   ) {
-    const result = await this.service.setPlatformCurrency(dto.currency, dto.rate ?? 1);
+    const result = await this.service.setPlatformCurrency(
+      dto.currency, dto.rate ?? 1, dto.useLiveRate ?? false,
+    );
     await this.audit.record({
       actorId: actor.id,
       action: 'pricing.currency.change',
       targetType: 'PlatformSetting',
       targetId: 'platform_currency',
       summary: `Platform currency → ${result.currency}`
-        + (result.rate !== 1 ? ` (prices × ${result.rate})` : ' (relabelled, prices unchanged)'),
+        + (result.rate !== 1
+          ? ` (prices × ${result.rate} from ${result.rateSource})`
+          : ' (relabelled, prices unchanged)'),
     });
     return result;
   }

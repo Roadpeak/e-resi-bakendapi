@@ -149,12 +149,21 @@ export class SetCurrencyDto {
   currency: string;
 
   @ApiPropertyOptional({
-    example: 129,
-    description: 'Multiplier applied to every catalog price. Omit or pass 1 to '
-      + 'relabel without converting.',
+    example: 129.37,
+    description: 'Multiplier applied to every catalog price. Omit when useLiveRate '
+      + 'is true; pass 1 to relabel without converting.',
   })
   @IsOptional()
   @IsNumber()
   @Min(0.000001)
   rate?: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Fetch the current rate at the moment of conversion instead of '
+      + 'trusting a number typed earlier. Overrides rate when true.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  useLiveRate?: boolean;
 }
