@@ -162,9 +162,16 @@ export class PaystackService {
     try {
       await this.call('/refund', { method: 'POST', body: { transaction: reference } });
     } catch (err) {
-      // The link itself succeeded; a failed refund is an operations problem, not
-      // a reason to reject the customer's card.
-      this.logger.error(`Failed to refund verification charge ${reference}`, err as Error);
+      const message = err instanceof Error ? err.message : String(err);
+      // Already refunded is the desired end state, not a failure — it happens
+      // whenever a confirmation is retried.
+      if (/refund already exist/i.test(message)) {
+        this.logger.log(`Verification charge ${reference} was already refunded`);
+        return;
+      }
+      // Otherwise the link still succeeded; an unrefunded charge is an
+      // operations problem, not a reason to reject the customer's card.
+      this.logger.error(`Failed to refund verification charge ${reference}: ${message}`);
     }
   }
 

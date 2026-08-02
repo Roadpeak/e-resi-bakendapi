@@ -1,6 +1,9 @@
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post,
+  Body, Controller, Delete, Get, Headers, Param, Patch, Post,
+  Req, UnauthorizedException,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -8,12 +11,16 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { LinkCardDto, PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
+import { PaystackService } from './paystack.service.js';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly service: BillingService) {}
+  constructor(
+    private readonly service: BillingService,
+    private readonly paystack: PaystackService,
+  ) {}
 
   @Get('summary')
   @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
@@ -34,6 +41,23 @@ export class BillingController {
   @ApiOperation({ summary: 'Link a card — verified with a $1 authorization that is reversed automatically' })
   linkCard(@CurrentUser() user: { id: string }, @Body() dto: LinkCardDto) {
     return this.service.linkCard(user.id, dto);
+  }
+
+  @Public()
+  @Post('paystack/webhook')
+  @ApiOperation({ summary: 'Paystack webhook — signature-verified, no auth' })
+  async paystackWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('x-paystack-signature') signature: string,
+  ) {
+    const raw = req.rawBody;
+    if (!raw || !this.paystack.verifyWebhook(raw, signature ?? '')) {
+      throw new UnauthorizedException('Invalid webhook signature');
+    }
+    // Always 200 once the signature checks out. Paystack retries on anything
+    // else, and a retry storm over an event we cannot process helps nobody.
+    await this.service.handlePaystackEvent(req.body as { event: string; data: Record<string, unknown> });
+    return { received: true };
   }
 
   @Post('methods/paystack/start')

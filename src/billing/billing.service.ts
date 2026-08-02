@@ -140,6 +140,18 @@ export class BillingService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
+    // Confirmation can arrive more than once — a double-click, the browser back
+    // button, or a retried webhook. Anything past this point must be safe to
+    // repeat, so bail out early if this reference was already processed.
+    const alreadyProcessed = await this.prisma.payment.findFirst({ where: { reference } });
+    if (alreadyProcessed) {
+      const existing = await this.prisma.linkedPaymentMethod.findFirst({
+        where: { userId, type: 'CARD' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) return existing;
+    }
+
     const result = await this.paystack.verifyTransaction(reference);
     if (!result.successful || !result.authorization) {
       throw new BadRequestException('That card could not be verified');
@@ -147,6 +159,16 @@ export class BillingService {
     const auth = result.authorization;
     if (!auth.reusable) {
       throw new BadRequestException('That card cannot be saved for future payments');
+    }
+
+    // The authorization code identifies the card at Paystack. If this user has
+    // already linked it, hand that back instead of storing a duplicate.
+    const duplicate = await this.prisma.linkedPaymentMethod.findFirst({
+      where: { userId, processorRef: auth.authorization_code },
+    });
+    if (duplicate) {
+      await this.paystack.refund(reference);
+      return duplicate;
     }
 
     const isDefault = await this.makeDefaultIfFirst(userId);
@@ -183,6 +205,96 @@ export class BillingService {
     });
 
     return method;
+  }
+
+  /**
+   * Handle a verified Paystack webhook.
+   *
+   * Webhooks are the only reliable signal for recurring charges: nobody is
+   * watching the browser when a monthly listing fee fails. Every branch is
+   * idempotent because Paystack retries until it gets a 200.
+   */
+  async handlePaystackEvent(event: { event: string; data: Record<string, unknown> }) {
+    const data = event.data ?? {};
+    const reference = typeof data.reference === 'string' ? data.reference : null;
+    if (!reference) return { handled: false };
+
+    switch (event.event) {
+      case 'charge.success': {
+        const existing = await this.prisma.payment.findFirst({ where: { reference } });
+        if (existing) return { handled: true, duplicate: true };
+
+        const metadata = (data.metadata ?? {}) as { userId?: string; purpose?: string };
+        if (!metadata.userId) return { handled: false };
+
+        await this.prisma.payment.create({
+          data: {
+            userId: metadata.userId,
+            amount: Number(data.amount ?? 0) / 100,
+            currency: String(data.currency ?? 'KES'),
+            method: 'STRIPE_CARD',
+            status: 'COMPLETED',
+            reference,
+            metadata: { provider: 'paystack', purpose: metadata.purpose ?? 'charge' },
+          },
+        });
+        return { handled: true };
+      }
+
+      case 'charge.failed': {
+        const metadata = (data.metadata ?? {}) as { userId?: string };
+        if (!metadata.userId) return { handled: false };
+
+        const existing = await this.prisma.payment.findFirst({ where: { reference } });
+        if (existing) {
+          await this.prisma.payment.update({
+            where: { id: existing.id },
+            data: { status: 'FAILED' },
+          });
+        } else {
+          await this.prisma.payment.create({
+            data: {
+              userId: metadata.userId,
+              amount: Number(data.amount ?? 0) / 100,
+              currency: String(data.currency ?? 'KES'),
+              method: 'STRIPE_CARD',
+              status: 'FAILED',
+              reference,
+              metadata: { provider: 'paystack', reason: data.gateway_response ?? null },
+            },
+          });
+        }
+
+        // A failed charge is what an admin needs to see; the billing queue reads
+        // FAILED payments, so this surfaces without anyone polling Paystack.
+        await this.prisma.notification.create({
+          data: {
+            userId: metadata.userId,
+            type: 'PAYMENT_RECEIVED',
+            title: 'A payment failed',
+            body: `We could not charge your card${data.gateway_response ? `: ${data.gateway_response}` : ''}. Please update your payment method.`,
+          },
+        });
+        return { handled: true };
+      }
+
+      case 'refund.processed':
+      case 'refund.pending': {
+        const existing = await this.prisma.payment.findFirst({ where: { reference } });
+        if (existing && existing.status !== 'REFUNDED') {
+          await this.prisma.payment.update({
+            where: { id: existing.id },
+            data: { status: 'REFUNDED' },
+          });
+        }
+        return { handled: true };
+      }
+
+      default:
+        // Unhandled events still get a 200 — Paystack retries anything else,
+        // and we do not want retries for events we simply do not use.
+        return { handled: false };
+    }
   }
 
   async linkCard(userId: string, dto: LinkCardDto) {

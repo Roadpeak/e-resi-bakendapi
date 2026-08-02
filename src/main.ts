@@ -12,7 +12,13 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'warn', 'error'],
+    // Webhook signatures are computed over the exact bytes sent. Re-serialising
+    // the parsed JSON changes key order and whitespace, so the signature would
+    // never match — keep the raw payload available.
+    rawBody: true,
+  });
   const config = app.get(ConfigService);
 
   // Security
