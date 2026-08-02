@@ -5,11 +5,17 @@
  * to be created out of band. Run this once per environment:
  *
  *   ADMIN_EMAIL=info@e-resi.com ADMIN_PASSWORD='<from your secrets manager>' \
- *     npx tsx prisma/seed-admin.ts
+ *     npm run seed:admin
+ *
+ * That runs the compiled dist/prisma/seed-admin.js on plain node, so it works
+ * in a pruned production image with no registry access — tsx is a devDependency
+ * and will not be installed there. Requires `npm run build` first.
+ * In development use `npm run seed:admin:dev`, which runs this file via tsx.
  *
  * Idempotent: on an existing account it promotes to ADMIN and marks the email
  * verified, and only sets the password when ADMIN_PASSWORD is supplied. It
- * never prints the password.
+ * never prints the password — and because it is bcrypt-hashed, a lost password
+ * cannot be recovered from the database; re-run this to set a new one.
  */
 import { PrismaClient, UserRole } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
