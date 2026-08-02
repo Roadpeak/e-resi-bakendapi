@@ -149,6 +149,14 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum ProductionOrderStatus {
+  ORDERED
+  SCHEDULED
+  IN_PRODUCTION
+  DELIVERED
+  CANCELLED
+}
+
 enum ProductionTierType {
   LISTING_ONLY
   PHOTOGRAPHY
@@ -841,6 +849,11 @@ model ProductionTier {
   propertyId  String             @unique
   property    Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   tier        ProductionTierType @default(LISTING_ONLY)
+  /// Where the paid production work has got to.
+  orderStatus ProductionOrderStatus @default(ORDERED)
+  scheduledAt DateTime?
+  deliveredAt DateTime?
+  crewNotes   String?
   paidAmount  Float?
   activatedAt DateTime           @default(now())
   expiresAt   DateTime?
