@@ -23,6 +23,20 @@ export class MailService {
     this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   }
 
+  /**
+   * Probe the SMTP connection. Sending falls back to logging on failure, so a
+   * broken config is otherwise invisible until someone reports a missing email.
+   */
+  async verifyConnection(): Promise<boolean> {
+    try {
+      await this.transporter.verify();
+      return true;
+    } catch (err) {
+      this.logger.warn(`SMTP verification failed: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
   async sendVerificationEmail(to: string, token: string): Promise<void> {
     const link = `${this.frontendUrl}/verify-email?token=${token}`;
     try {

@@ -123,6 +123,8 @@ enum ReservationStage {
 }
 
 enum NotificationType {
+  /// Platform-wide message sent by an administrator.
+  SYSTEM_ANNOUNCEMENT
   INQUIRY_RECEIVED
   INQUIRY_REPLIED
   BOOKING_CONFIRMED
