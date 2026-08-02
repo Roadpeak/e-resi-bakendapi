@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PaystackService } from './paystack.service.js';
 import { InvoicesService } from './invoices.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 
 export interface ListingFeeRunSummary {
   period: string;
@@ -34,6 +35,7 @@ export class ListingFeeService {
     private readonly pricing: PricingService,
     private readonly paystack: PaystackService,
     private readonly invoices: InvoicesService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /** Periods are used as identifiers, so reject anything that is not YYYY-MM. */
@@ -328,6 +330,16 @@ export class ListingFeeService {
             + 'We will try again over the next few days — please check your payment method.',
         },
       });
+    }
+    // Failed collection is revenue that will not arrive unless someone acts.
+    if (run.attempts <= 1) {
+      const dev = await this.prisma.listingFeeRun.findUnique({
+        where: { id: runId },
+        select: { developer: { select: { companyName: true } } },
+      });
+      await this.events.paymentFailed(
+        dev?.developer.companyName ?? 'A developer', amount, currency, reason,
+      );
     }
     this.logger.warn(`Listing fee run ${runId} failed: ${reason}`);
   }

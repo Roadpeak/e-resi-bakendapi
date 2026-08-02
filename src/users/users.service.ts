@@ -6,13 +6,17 @@ import {
 } from '@nestjs/common';
 import { KybStatus, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import type { UpdateDeveloperProfileDto } from './dto/update-developer-profile.dto.js';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: PlatformEventsService,
+  ) {}
 
   // ─── Admin: list all users ────────────────────────────────────────────────
 
@@ -118,7 +122,7 @@ export class UsersService {
     const year = Number.parseInt(String(company.yearEstablished ?? ''), 10);
     const projects = Number.parseInt(String(company.projectsCompleted ?? ''), 10);
 
-    return this.prisma.developerProfile.update({
+    const updated = await this.prisma.developerProfile.update({
       where: { userId },
       data: {
         // promote known company fields onto the profile columns
@@ -137,6 +141,14 @@ export class UsersService {
         ...(profile.kybStatus !== KybStatus.APPROVED && { kybStatus: KybStatus.PENDING }),
       },
     });
+
+    // Nothing else tells an admin a submission is waiting; the KYB queue was
+    // poll-only before this.
+    if (profile.kybStatus !== KybStatus.APPROVED) {
+      await this.events.developerSubmittedKyb(updated.companyName, updated.id);
+    }
+
+    return updated;
   }
 
   // ─── Public: get developer profile by userId ─────────────────────────────

@@ -2,10 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { KybStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 
 @Injectable()
 export class AdminUsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: PlatformEventsService,
+  ) {}
 
   // ─── Users ────────────────────────────────────────────────────────────────
 
@@ -266,6 +270,15 @@ export class AdminUsersService {
         ...(notes !== undefined && { kybDocuments: { ...(before.kybDocuments as object ?? {}), reviewNotes: notes } }),
       },
     });
+
+    // Verification gates publishing, so the developer needs to know the moment
+    // it changes — and why, when it was refused.
+    if (status === 'APPROVED') {
+      await this.events.kybApproved(after.userId, after.companyName);
+    } else if (status === 'REJECTED') {
+      await this.events.kybRejected(after.userId, after.companyName, notes);
+    }
+
     return { before, after };
   }
 }

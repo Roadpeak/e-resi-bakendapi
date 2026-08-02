@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { MailModule } from '../mail/mail.module.js';
 import { AdminController } from './admin.controller.js';
 import { AdminService } from './admin.service.js';
@@ -18,7 +19,7 @@ import { PricingService } from './pricing.service.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 
 @Module({
-  imports: [MailModule],
+  imports: [MailModule, NotificationsModule],
   controllers: [AdminController, PricingController, AdminUsersController, AdminPropertiesController, AdminBillingController, AdminOpsController, AdminSystemController],
   providers: [AdminService, AuditService, PricingService, ProductionOrdersService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
   // Exported so later phases (users, pricing, properties) can record actions.

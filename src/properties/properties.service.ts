@@ -7,6 +7,7 @@ import {
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
 import type { QueryPropertiesDto } from './dto/query-properties.dto.js';
 import type { UpdatePropertyDto } from './dto/update-property.dto.js';
@@ -36,6 +37,7 @@ export class PropertiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly productionOrders: ProductionOrdersService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /**
@@ -85,6 +87,18 @@ export class PropertiesService {
     });
 
     await this.syncOrders(created.id);
+
+    // A new development lands in the review queue. Admins had no signal for
+    // this before — the queue was poll-only.
+    await this.events.propertySubmitted(created.name, developer.companyName, created.id);
+
+    // Any services picked with it are work someone has to schedule.
+    const orders = await this.prisma.productionOrder.findMany({
+      where: { propertyId: created.id, status: 'ORDERED' },
+      select: { label: true, amount: true, currency: true },
+    });
+    await this.events.productionOrdered(created.name, developer.companyName, orders);
+
     return created;
   }
 

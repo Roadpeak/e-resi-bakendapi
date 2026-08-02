@@ -1,12 +1,16 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { BookingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateBookingDto } from './dto/create-booking.dto.js';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: PlatformEventsService,
+  ) {}
 
   // ─── Create (public or authenticated) ────────────────────────────────────
 
@@ -14,7 +18,7 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { slug: dto.propertySlug } });
     if (!property) throw new NotFoundException('Property not found');
 
-    return this.prisma.booking.create({
+    const booking = await this.prisma.booking.create({
       data: {
         propertyId: property.id,
         name: dto.name,
@@ -30,6 +34,9 @@ export class BookingsService {
         property: { select: { slug: true, name: true, heroImageUrl: true } },
       },
     });
+
+    await this.events.newBooking(booking.property.name, dto.name, booking.id);
+    return booking;
   }
 
   // ─── User: my bookings ────────────────────────────────────────────────────

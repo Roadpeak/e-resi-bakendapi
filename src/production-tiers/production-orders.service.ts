@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ProductionOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 
 /** Shape of one selected service inside a property's submissionData. */
 interface SelectedService {
@@ -21,6 +22,7 @@ export class ProductionOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /**
@@ -182,6 +184,21 @@ export class ProductionOrdersService {
       },
       include: { property: { select: { name: true, slug: true } } },
     });
+
+    // The developer needs to arrange site access, so a booked date is only
+    // useful to them if we say so. Only announce genuine transitions.
+    const owner = before.property.developer.userId;
+    if (after.status === 'SCHEDULED' && after.scheduledAt && before.status !== 'SCHEDULED') {
+      await this.events.productionScheduled(
+        owner,
+        { id: after.id, label: after.label, scheduledAt: after.scheduledAt },
+        after.property.name,
+      );
+    } else if (after.status === 'DELIVERED' && before.status !== 'DELIVERED') {
+      await this.events.productionDelivered(
+        owner, { id: after.id, label: after.label }, after.property.name,
+      );
+    }
 
     return { before, after };
   }

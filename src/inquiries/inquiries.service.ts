@@ -6,13 +6,17 @@ import {
 } from '@nestjs/common';
 import { InquiryStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateInquiryDto } from './dto/create-inquiry.dto.js';
 import type { ReplyInquiryDto } from './dto/reply-inquiry.dto.js';
 
 @Injectable()
 export class InquiriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: PlatformEventsService,
+  ) {}
 
   // ─── Submit (public / authenticated) ─────────────────────────────────────
 
@@ -33,7 +37,7 @@ export class InquiriesService {
       if (!listing) throw new NotFoundException('Rent listing not found');
     }
 
-    return this.prisma.inquiry.create({
+    const inquiry = await this.prisma.inquiry.create({
       data: {
         name: dto.name,
         email: dto.email,
@@ -44,7 +48,13 @@ export class InquiriesService {
         ...(dto.rentListingId && { rentListingId: dto.rentListingId }),
         ...(userId && { userId }),
       },
+      include: { property: { select: { name: true } } },
     });
+
+    await this.events.newInquiry(
+      inquiry.property?.name ?? 'a listing', dto.name, inquiry.id,
+    );
+    return inquiry;
   }
 
   // ─── Developer: list inquiries for own properties ─────────────────────────

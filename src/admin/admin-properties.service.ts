@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 
 @Injectable()
 export class AdminPropertiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: PlatformEventsService,
+  ) {}
 
   async list(
     pagination: PaginationDto,
@@ -73,7 +77,10 @@ export class AdminPropertiesService {
     reviewerId: string,
     notes?: string,
   ) {
-    const before = await this.prisma.property.findUnique({ where: { slug } });
+    const before = await this.prisma.property.findUnique({
+      where: { slug },
+      include: { developer: { select: { userId: true } } },
+    });
     if (!before) throw new NotFoundException('Property not found');
 
     const after = await this.prisma.property.update({
@@ -85,6 +92,16 @@ export class AdminPropertiesService {
         reviewedAt: new Date(),
       },
     });
+
+    // The developer is waiting on this decision — tell them either way, and
+    // carry the reason when it is a rejection.
+    const owner = before.developer.userId;
+    if (decision === 'APPROVE') {
+      await this.events.propertyApproved(owner, { id: after.id, name: after.name, slug: after.slug });
+    } else {
+      await this.events.propertyRejected(owner, { id: after.id, name: after.name }, notes);
+    }
+
     return { before, after };
   }
 
