@@ -115,6 +115,52 @@ export class PaystackService {
     };
   }
 
+  /**
+   * Hosted checkout for a specific amount — used to pay an invoice.
+   *
+   * Unlike startCardLink this is a real charge that is meant to settle, so
+   * channels stay open (card and M-Pesa) rather than card-only, and nothing
+   * is refunded afterwards.
+   */
+  async startPayment(params: {
+    email: string;
+    amountMinor: number;
+    currency: string;
+    reference: string;
+    callbackPath: string;
+    metadata: Record<string, unknown>;
+  }): Promise<{ authorizationUrl: string; reference: string; testMode: boolean }> {
+    if (!this.configured) {
+      this.logger.warn('[SANDBOX] Paystack not configured — simulating payment');
+      return {
+        authorizationUrl: `${this.frontendUrl}${params.callbackPath}?paystack=simulated&reference=${params.reference}`,
+        reference: params.reference,
+        testMode: true,
+      };
+    }
+
+    const data = await this.call<{ authorization_url: string; reference: string }>(
+      '/transaction/initialize',
+      {
+        method: 'POST',
+        body: {
+          email: params.email,
+          amount: params.amountMinor,
+          currency: params.currency,
+          reference: params.reference,
+          callback_url: `${this.frontendUrl}${params.callbackPath}?paystack=invoice`,
+          metadata: params.metadata,
+        },
+      },
+    );
+
+    return {
+      authorizationUrl: data.authorization_url,
+      reference: data.reference,
+      testMode: this.testMode,
+    };
+  }
+
   /** Confirm the transaction and hand back the reusable authorization. */
   async verifyTransaction(reference: string): Promise<{
     successful: boolean;

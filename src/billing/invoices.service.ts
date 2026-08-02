@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PricingService } from '../admin/pricing.service.js';
+import { PaystackService } from './paystack.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
 import { ConfigService } from '@nestjs/config';
 import type { DocumentLine } from '../mail/templates/document.js';
@@ -31,6 +32,7 @@ export class InvoicesService {
     private readonly mail: MailService,
     private readonly notifications: NotificationsService,
     private readonly pricing: PricingService,
+    private readonly paystack: PaystackService,
     config: ConfigService,
   ) {
     this.appUrl = resolveAppUrl(config);
@@ -400,6 +402,86 @@ export class InvoicesService {
     );
 
     return receipt;
+  }
+
+  // ─── Paying an invoice ───────────────────────────────────────────────────
+
+  /**
+   * Begin payment for an unpaid invoice on Paystack's hosted checkout.
+   *
+   * Card details never reach this API. The reference embeds the invoice id so
+   * the webhook can settle it without trusting anything the browser sends back.
+   */
+  async startPayment(invoiceId: string, userId: string) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { receipt: true },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.userId !== userId) throw new NotFoundException('Invoice not found');
+    if (invoice.status === 'PAID' || invoice.receipt) {
+      throw new BadRequestException(`${invoice.number} is already paid`);
+    }
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException(`${invoice.number} was cancelled`);
+    }
+    if (invoice.status === 'DRAFT') {
+      throw new BadRequestException(`${invoice.number} has not been issued yet`);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.paystack.startPayment({
+      email: user.email,
+      amountMinor: Math.round(invoice.total * 100),
+      currency: invoice.currency,
+      reference: `inv_${invoice.id}_${Date.now()}`,
+      callbackPath: '/dashboard/billing',
+      metadata: { userId, invoiceId: invoice.id, purpose: 'invoice_payment' },
+    });
+  }
+
+  /**
+   * Settle an invoice from a confirmed Paystack transaction. Called by the
+   * webhook, and by the browser return leg — both are idempotent because
+   * markPaid returns the existing receipt rather than issuing a second one.
+   */
+  async settleFromPaystack(invoiceId: string, reference: string, userId?: string) {
+    const result = await this.paystack.verifyTransaction(reference);
+    if (!result.successful) {
+      throw new BadRequestException('That payment has not completed');
+    }
+
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    // The webhook passes no userId; the browser leg does, and must not be able
+    // to settle somebody else's invoice.
+    if (userId && invoice.userId !== userId) throw new NotFoundException('Invoice not found');
+
+    // Record the money before the receipt, so a payment is never invisible.
+    const existing = await this.prisma.payment.findFirst({ where: { reference } });
+    const payment = existing ?? await this.prisma.payment.create({
+      data: {
+        userId: invoice.userId,
+        amount: result.amount / 100,
+        currency: result.currency,
+        method: 'PAYSTACK_CARD',
+        status: 'COMPLETED',
+        reference,
+        metadata: { purpose: 'invoice_payment', invoiceId },
+      },
+    });
+
+    return this.markPaid({
+      invoiceId,
+      method: 'Card',
+      reference,
+      paymentId: payment.id,
+    });
   }
 
   // ─── Scheduled work ──────────────────────────────────────────────────────

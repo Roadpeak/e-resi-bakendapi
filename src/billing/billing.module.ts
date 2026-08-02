@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AdminModule } from '../admin/admin.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { InvoicesService } from './invoices.service.js';
@@ -10,7 +10,7 @@ import { PaystackService } from './paystack.service.js';
 
 @Module({
   // AdminModule supplies PricingService; NotificationsModule the in-app feed.
-  imports: [AdminModule, NotificationsModule],
+  imports: [forwardRef(() => AdminModule), NotificationsModule],
   controllers: [BillingController],
   providers: [
     BillingService, PaymentProvidersService, PaystackService,

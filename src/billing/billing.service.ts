@@ -4,6 +4,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
+import { InvoicesService } from './invoices.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
@@ -24,6 +25,7 @@ export class BillingService {
     private readonly paystack: PaystackService,
     private readonly mail: MailService,
     private readonly notifications: NotificationsService,
+    private readonly invoices: InvoicesService,
     config: ConfigService,
   ) {
     this.appUrl = resolveAppUrl(config);
@@ -247,7 +249,9 @@ export class BillingService {
         const existing = await this.prisma.payment.findFirst({ where: { reference } });
         if (existing) return { handled: true, duplicate: true };
 
-        const metadata = (data.metadata ?? {}) as { userId?: string; purpose?: string };
+        const metadata = (data.metadata ?? {}) as {
+          userId?: string; purpose?: string; invoiceId?: string;
+        };
         if (!metadata.userId) return { handled: false };
 
         // A card link must not depend on the customer's browser coming back.
@@ -256,6 +260,19 @@ export class BillingService {
         // that always arrives, so it completes the link and the refund itself.
         // confirmPaystackCardLink is idempotent, so the redirect racing this is
         // harmless.
+        // Invoice payment must settle from the webhook: the customer can close
+        // the tab, and the receipt should not depend on them coming back.
+        if (metadata.purpose === 'invoice_payment' && metadata.invoiceId) {
+          try {
+            await this.invoices.settleFromPaystack(metadata.invoiceId, reference);
+            return { handled: true, settled: true };
+          } catch (err) {
+            this.logger.error(
+              `Webhook could not settle invoice ${metadata.invoiceId}: ${(err as Error).message}`,
+            );
+          }
+        }
+
         if (metadata.purpose === 'card_link') {
           try {
             await this.confirmPaystackCardLink(metadata.userId, reference);

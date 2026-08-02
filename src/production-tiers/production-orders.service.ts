@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ProductionOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
+import { InvoicesService } from '../billing/invoices.service.js';
 
 /** Shape of one selected service inside a property's submissionData. */
 interface SelectedService {
@@ -23,6 +24,8 @@ export class ProductionOrdersService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly events: PlatformEventsService,
+    @Inject(forwardRef(() => InvoicesService))
+    private readonly invoices: InvoicesService,
   ) {}
 
   /**
@@ -188,6 +191,35 @@ export class ProductionOrdersService {
     // The developer needs to arrange site access, so a booked date is only
     // useful to them if we say so. Only announce genuine transitions.
     const owner = before.property.developer.userId;
+
+    // Booking a crew is the point the work is committed, so that is when it
+    // gets billed. Guarded on invoiceId so re-scheduling never bills twice,
+    // and on amount so a free service is not invoiced for zero.
+    if (after.status === 'SCHEDULED' && !after.invoiceId && after.amount > 0) {
+      try {
+        const invoice = await this.invoices.invoiceProduction({
+          userId: owner,
+          propertyId: after.propertyId,
+          propertyName: after.property.name,
+          currency: after.currency,
+          lines: [{
+            description: `${after.label} · ${after.property.name}`,
+            amount: after.amount,
+          }],
+        });
+        await this.prisma.productionOrder.update({
+          where: { id: after.id },
+          data: { invoiceId: invoice.id },
+        });
+      } catch (err) {
+        // The booking stands; an uninvoiced job is an ops problem, not a
+        // reason to refuse the crew date.
+        this.logger.error(
+          `Could not invoice production order ${after.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     if (after.status === 'SCHEDULED' && after.scheduledAt && before.status !== 'SCHEDULED') {
       await this.events.productionScheduled(
         owner,

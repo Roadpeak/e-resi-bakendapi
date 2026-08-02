@@ -57,6 +57,28 @@ export class BillingController {
     return this.invoices.dispatchDue();
   }
 
+  @Post('invoices/:id/pay')
+  @ApiOperation({
+    summary: 'Start payment for one of your unpaid invoices — returns a '
+      + 'Paystack checkout URL. Card details never reach this API.',
+  })
+  payInvoice(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.invoices.startPayment(id, user.id);
+  }
+
+  @Post('invoices/:id/confirm')
+  @ApiOperation({
+    summary: 'Confirm an invoice payment on return from Paystack. Idempotent — '
+      + 'the webhook settles it too, whichever arrives first.',
+  })
+  confirmInvoice(
+    @Param('id') id: string,
+    @Body('reference') reference: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.invoices.settleFromPaystack(id, reference, user.id);
+  }
+
   @Post('invoices/:id/remind')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
