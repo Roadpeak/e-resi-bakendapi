@@ -1,5 +1,5 @@
 import {
-  BadRequestException, ForbiddenException, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
@@ -11,6 +11,8 @@ export const LISTING_FEE_MONTHLY = 49;
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly providers: PaymentProvidersService,
@@ -203,6 +205,25 @@ export class BillingService {
 
         const metadata = (data.metadata ?? {}) as { userId?: string; purpose?: string };
         if (!metadata.userId) return { handled: false };
+
+        // A card link must not depend on the customer's browser coming back.
+        // They can close the tab, lose signal, or — as happened in production —
+        // be sent to a malformed callback URL. The webhook is the only signal
+        // that always arrives, so it completes the link and the refund itself.
+        // confirmPaystackCardLink is idempotent, so the redirect racing this is
+        // harmless.
+        if (metadata.purpose === 'card_link') {
+          try {
+            await this.confirmPaystackCardLink(metadata.userId, reference);
+            return { handled: true, linked: true };
+          } catch (err) {
+            // Never rethrow: Paystack retries anything that is not a 2xx, and a
+            // retry storm will not fix a card we could not save.
+            this.logger.error(
+              `Webhook could not link card for ${reference}: ${(err as Error).message}`,
+            );
+          }
+        }
 
         await this.prisma.payment.create({
           data: {

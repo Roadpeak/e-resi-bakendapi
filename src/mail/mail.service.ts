@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { resolveAppUrl } from '../common/app-url.js';
 
 @Injectable()
 export class MailService {
@@ -20,7 +21,7 @@ export class MailService {
       },
     });
     this.from = config.get<string>('SMTP_FROM', 'e-resi <noreply@e-resi.co.ke>');
-    this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    this.frontendUrl = resolveAppUrl(config);
   }
 
   /**

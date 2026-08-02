@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { resolveAppUrl } from '../common/app-url.js';
 
 /**
  * Thin integration layer over the three processors.
@@ -28,7 +29,7 @@ export class PaymentProvidersService {
       config.get('MPESA_CONSUMER_KEY') && config.get('MPESA_CONSUMER_SECRET')
       && config.get('MPESA_SHORTCODE') && config.get('MPESA_PASSKEY'),
     );
-    this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3001');
+    this.frontendUrl = resolveAppUrl(config);
   }
 
   get sandbox() {

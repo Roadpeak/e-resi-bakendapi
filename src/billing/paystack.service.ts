@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { resolveAppUrl } from '../common/app-url.js';
 
 const BASE = 'https://api.paystack.co';
 
@@ -32,7 +33,7 @@ export class PaystackService {
 
   constructor(private readonly config: ConfigService) {
     this.secretKey = config.get<string>('PAYSTACK_SECRET_KEY', '');
-    this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3001');
+    this.frontendUrl = resolveAppUrl(config);
   }
 
   get configured(): boolean {
