@@ -7,6 +7,7 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AuditService } from './audit.service.js';
+import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 
 /** Extends PaginationDto — forbidNonWhitelisted rejects undeclared params. */
 class ListPaymentsDto extends PaginationDto {
@@ -47,6 +48,7 @@ export class AdminBillingController {
   constructor(
     private readonly service: AdminBillingService,
     private readonly audit: AuditService,
+    private readonly orders_: ProductionOrdersService,
   ) {}
 
   @Get('summary')
@@ -95,9 +97,20 @@ export class AdminBillingController {
   // ─── Production orders ────────────────────────────────────────────────────
 
   @Get('production-orders')
-  @ApiOperation({ summary: 'Admin: production orders by stage' })
+  @ApiOperation({
+    summary: 'Admin: production orders by stage — one row per ordered service',
+  })
   orders(@Query('status') status?: ProductionOrderStatus) {
-    return this.service.productionOrders(status);
+    return this.orders_.list({ status });
+  }
+
+  @Post('production-orders/backfill')
+  @ApiOperation({
+    summary: 'Admin: create order rows for services selected before per-service '
+      + 'orders existed. Idempotent, and raises no invoices.',
+  })
+  backfillOrders() {
+    return this.orders_.backfill();
   }
 
   @Patch('production-orders/:id')
@@ -107,17 +120,20 @@ export class AdminBillingController {
     @Body() dto: UpdateOrderDto,
     @CurrentUser() actor: { id: string },
   ) {
-    const { before, after } = await this.service.updateOrder(id, dto);
+    // The DTO keeps its original `orderStatus` name so existing admin clients
+    // keep working; the per-service order model calls the column `status`.
+    const { before, after } = await this.orders_.update(id, {
+      status: dto.orderStatus,
+      scheduledAt: dto.scheduledAt,
+      crewNotes: dto.crewNotes,
+    });
     await this.audit.record({
       actorId: actor.id,
       action: 'production.order.update',
-      targetType: 'ProductionTier',
+      targetType: 'ProductionOrder',
       targetId: id,
-      summary: `${after.property?.name ?? 'Order'}: ${before.orderStatus} → ${after.orderStatus}`,
-      changes: this.audit.diff(
-        { orderStatus: before.orderStatus },
-        { orderStatus: after.orderStatus },
-      ),
+      summary: `${after.property?.name ?? 'Order'} · ${after.label}: ${before.status} → ${after.status}`,
+      changes: this.audit.diff({ status: before.status }, { status: after.status }),
     });
     return after;
   }

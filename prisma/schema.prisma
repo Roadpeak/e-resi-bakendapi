@@ -378,6 +378,7 @@ model Property {
   inquiries           Inquiry[]
   bookings            Booking[]
   invoices            Invoice[]
+  productionOrders    ProductionOrder[]
   analyticsEvents     AnalyticsEvent[]
   productionTier      ProductionTier?
 
@@ -1153,4 +1154,49 @@ model Receipt {
   createdAt   DateTime @default(now())
 
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTION ORDERS (per service)
+// ─────────────────────────────────────────────
+
+/// One ordered production service for one development.
+///
+/// Deliberately per-service rather than per-property: a developer buying
+/// photography and a cinematic tour is buying two jobs that get scheduled on
+/// different days by different crews, and are invoiced as separate lines.
+/// ProductionTier keeps modelling the packaged tier a listing sits on; this
+/// models the work actually owed.
+model ProductionOrder {
+  id          String                @id @default(cuid())
+  propertyId  String
+  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Catalog key, e.g. "photography". Matches ServiceCatalogItem.key when the
+  /// service is still in the catalog; kept as a plain string so an order
+  /// survives the catalog entry being renamed or retired.
+  serviceKey  String
+  label       String
+  amount      Float
+  currency    String                @default("KES")
+  status      ProductionOrderStatus @default(ORDERED)
+
+  /// What the developer asked for at order time.
+  preferredDate String?
+  instructions  String?
+  accessInfo    String?
+
+  /// Set by ops once a crew is booked.
+  scheduledAt DateTime?
+  deliveredAt DateTime?
+  crewNotes   String?
+
+  /// The invoice line this was billed on, if it has been billed at all.
+  invoiceId   String?
+
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([propertyId, serviceKey])
+  @@index([status])
+  @@index([propertyId])
 }

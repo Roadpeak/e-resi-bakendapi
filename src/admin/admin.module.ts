@@ -15,12 +15,13 @@ import { AdminUsersController } from './admin-users.controller.js';
 import { AdminUsersService } from './admin-users.service.js';
 import { PricingController } from './pricing.controller.js';
 import { PricingService } from './pricing.service.js';
+import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 
 @Module({
   imports: [MailModule],
   controllers: [AdminController, PricingController, AdminUsersController, AdminPropertiesController, AdminBillingController, AdminOpsController, AdminSystemController],
-  providers: [AdminService, AuditService, PricingService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
+  providers: [AdminService, AuditService, PricingService, ProductionOrdersService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
   // Exported so later phases (users, pricing, properties) can record actions.
-  exports: [AuditService, PricingService],
+  exports: [AuditService, PricingService, ProductionOrdersService],
 })
 export class AdminModule {}

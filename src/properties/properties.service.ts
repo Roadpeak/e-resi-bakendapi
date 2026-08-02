@@ -1,10 +1,12 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
 import type { QueryPropertiesDto } from './dto/query-properties.dto.js';
 import type { UpdatePropertyDto } from './dto/update-property.dto.js';
@@ -29,7 +31,27 @@ async function uniqueSlug(prisma: PrismaService, base: string): Promise<string> 
 
 @Injectable()
 export class PropertiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PropertiesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly productionOrders: ProductionOrdersService,
+  ) {}
+
+  /**
+   * Turn selected production services into order rows. Never allowed to fail
+   * the write that triggered it — an unsynced order is an ops problem, losing
+   * the developer's submission is not.
+   */
+  private async syncOrders(propertyId: string): Promise<void> {
+    try {
+      await this.productionOrders.syncFromSubmission(propertyId);
+    } catch (err) {
+      this.logger.error(
+        `Could not sync production orders for ${propertyId}: ${(err as Error).message}`,
+      );
+    }
+  }
 
   // ─── Create ───────────────────────────────────────────────────────────────
 
@@ -39,7 +61,7 @@ export class PropertiesService {
 
     const slug = await uniqueSlug(this.prisma, slugify(dto.name));
 
-    return this.prisma.property.create({
+    const created = await this.prisma.property.create({
       data: {
         slug,
         name: dto.name,
@@ -61,6 +83,9 @@ export class PropertiesService {
         submissionData: dto.submissionData as object | undefined,
       },
     });
+
+    await this.syncOrders(created.id);
+    return created;
   }
 
   // ─── Public list ──────────────────────────────────────────────────────────
@@ -226,8 +251,13 @@ export class PropertiesService {
         ...(dto.priceTo !== undefined && { priceTo: dto.priceTo }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
         ...(dto.completionDate !== undefined && { completionDate: new Date(dto.completionDate) }),
+        // Previously accepted by the DTO but never written, so editing a
+        // submission silently discarded any change to the selected services.
+        ...(dto.submissionData !== undefined && { submissionData: dto.submissionData as object }),
       },
     });
+
+    if (dto.submissionData !== undefined) await this.syncOrders(updated.id);
 
     // the property photo is the face of everything listed under it — keep
     // its rent listings in sync when it changes
