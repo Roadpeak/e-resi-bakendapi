@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { FurnishingType } from '@prisma/client';
 
 export class CreateRentUnitDto {
@@ -19,6 +19,31 @@ export class CreateRentUnitDto {
   @IsOptional()
   @IsInt()
   floor?: number;
+
+  @ApiPropertyOptional({ description: 'Physical unit this offer refers to' })
+  @IsOptional()
+  @IsString()
+  unitId?: string;
+
+  @ApiPropertyOptional({ example: '2 Bedroom', description: 'Layout being let' })
+  @IsOptional()
+  @IsString()
+  unitType?: string;
+
+  @ApiPropertyOptional({ description: 'Show the property cinematic tour for this unit type' })
+  @IsOptional()
+  @IsBoolean()
+  showCinematicTour?: boolean;
+
+  @ApiPropertyOptional({ description: 'Show the property 3D tour for this unit type' })
+  @IsOptional()
+  @IsBoolean()
+  show3DTour?: boolean;
+
+  @ApiPropertyOptional({ description: 'Show the property VR tour for this unit type' })
+  @IsOptional()
+  @IsBoolean()
+  showVRTour?: boolean;
 
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()

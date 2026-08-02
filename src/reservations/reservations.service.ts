@@ -15,6 +15,52 @@ export class ReservationsService {
 
   // ─── Create reservation ───────────────────────────────────────────────────
 
+  /**
+   * Reserve one unit of a rent listing's unit type. Decrements the type's
+   * availability and, when the offer maps to a physical unit, reserves that
+   * too so the for-sale and rental views stay consistent.
+   */
+  async createForRentUnit(rentUnitId: string, userId: string, expiresAtIso?: string) {
+    const rentUnit = await this.prisma.rentUnit.findUnique({
+      where: { id: rentUnitId },
+      include: { rentListing: { select: { id: true, name: true, slug: true } } },
+    });
+    if (!rentUnit) throw new NotFoundException('Rent unit not found');
+    if (rentUnit.available < 1) {
+      throw new BadRequestException('No units of this type are available');
+    }
+
+    const expiresAt = expiresAtIso
+      ? new Date(expiresAtIso)
+      : new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.rentUnit.update({
+        where: { id: rentUnitId },
+        data: { available: { decrement: 1 } },
+      });
+
+      // Only a linked physical unit can carry a Reservation row.
+      if (!rentUnit.unitId) {
+        return {
+          rentUnitId,
+          reserved: true,
+          remaining: rentUnit.available - 1,
+          message: 'Reservation request recorded',
+        };
+      }
+
+      await tx.unit.update({
+        where: { id: rentUnit.unitId },
+        data: { status: UnitStatus.RESERVED },
+      });
+      const reservation = await tx.reservation.create({
+        data: { unitId: rentUnit.unitId, userId, expiresAt },
+      });
+      return { ...reservation, remaining: rentUnit.available - 1 };
+    });
+  }
+
   async create(dto: CreateReservationDto, userId: string) {
     const unit = await this.prisma.unit.findUnique({ where: { id: dto.unitId } });
     if (!unit) throw new NotFoundException('Unit not found');
@@ -175,10 +221,19 @@ export class ReservationsService {
       throw new BadRequestException('Cannot cancel a completed reservation');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.reservation.delete({ where: { id } }),
-      this.prisma.unit.update({ where: { id: reservation.unitId }, data: { status: UnitStatus.AVAILABLE } }),
-    ]);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reservation.delete({ where: { id } });
+      await tx.unit.update({
+        where: { id: reservation.unitId },
+        data: { status: UnitStatus.AVAILABLE },
+      });
+      // Releasing a unit must also give the rental offer its stock back,
+      // otherwise availability drifts down every cancelled reservation.
+      await tx.rentUnit.updateMany({
+        where: { unitId: reservation.unitId },
+        data: { available: { increment: 1 } },
+      });
+    });
 
     return { message: 'Reservation cancelled and unit released' };
   }

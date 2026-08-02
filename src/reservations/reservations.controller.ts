@@ -22,6 +22,16 @@ export class ReservationsController {
     return this.service.create(dto, user.id);
   }
 
+  @Post('rent-units/:rentUnitId')
+  @ApiOperation({ summary: 'Reserve one unit of a rent listing unit type' })
+  reserveRentUnit(
+    @Param('rentUnitId') rentUnitId: string,
+    @CurrentUser() user: { id: string },
+    @Body('expiresAt') expiresAt?: string,
+  ) {
+    return this.service.createForRentUnit(rentUnitId, user.id, expiresAt);
+  }
+
   @Get()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Admin: list all reservations' })

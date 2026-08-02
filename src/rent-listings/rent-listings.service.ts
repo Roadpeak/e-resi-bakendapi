@@ -184,6 +184,8 @@ export class RentListingsService {
       data: {
         rentListingId,
         label: dto.label,
+        unitId: dto.unitId,
+        unitType: dto.unitType,
         floor: dto.floor,
         bedrooms: dto.bedrooms ?? 1,
         bathrooms: dto.bathrooms ?? 1,
@@ -193,6 +195,9 @@ export class RentListingsService {
         total: dto.total ?? 1,
         furnishing: dto.furnishing ?? 'UNFURNISHED',
         features: dto.features ?? [],
+        showCinematicTour: dto.showCinematicTour ?? false,
+        show3DTour: dto.show3DTour ?? false,
+        showVRTour: dto.showVRTour ?? false,
       },
     });
   }

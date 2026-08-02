@@ -383,6 +383,7 @@ model Unit {
   updatedAt    DateTime   @updatedAt
 
   reservations Reservation[]
+  rentUnits    RentUnit[]
 
   @@index([propertyId])
   @@index([status])
@@ -442,7 +443,12 @@ model RentUnit {
   id                String         @id @default(cuid())
   rentListingId     String
   rentListing       RentListing    @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
+  /** The physical unit this offer refers to, when one exists — lets a tenant reserve it. */
+  unitId            String?
+  unit              Unit?          @relation(fields: [unitId], references: [id], onDelete: SetNull)
   label             String
+  /** Layout being let: "Studio", "2 Bedroom", "Penthouse". */
+  unitType          String?
   floor             Int?
   bedrooms          Int            @default(1)
   bathrooms         Int            @default(1)
@@ -454,10 +460,15 @@ model RentUnit {
   furnishing        FurnishingType @default(UNFURNISHED)
   features          String[]
   cinematicSceneIds String[]
+  /** Which of the property's tours to show for this unit type. */
+  showCinematicTour Boolean        @default(false)
+  show3DTour        Boolean        @default(false)
+  showVRTour        Boolean        @default(false)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
   @@index([rentListingId])
+  @@index([unitId])
 }
 
 // ─────────────────────────────────────────────
