@@ -6,11 +6,35 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { SetProductionTierDto } from './dto/set-tier.dto.js';
 import { ProductionTiersService } from './production-tiers.service.js';
+import { PricingService } from '../admin/pricing.service.js';
 
 @ApiTags('Production Tiers')
 @Controller('production-tiers')
 export class ProductionTiersController {
-  constructor(private readonly service: ProductionTiersService) {}
+  constructor(
+    private readonly service: ProductionTiersService,
+    private readonly pricing: PricingService,
+  ) {}
+
+  @Public()
+  @Get('catalog')
+  @ApiOperation({ summary: 'Public: production services and the listing fee' })
+  async catalog() {
+    const [services, settings] = await Promise.all([
+      this.pricing.listServices(),
+      this.pricing.listSettings('billing'),
+    ]);
+    const byKey = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+    return {
+      services,
+      listingFee: {
+        monthly: Number(byKey.listing_fee_monthly ?? 49),
+        currency: byKey.listing_fee_currency ?? 'USD',
+        freeMonths: Number(byKey.listing_fee_free_months ?? 0),
+      },
+      taxRatePercent: Number(byKey.tax_rate_percent ?? 0),
+    };
+  }
 
   @Public()
   @Get('pricing')

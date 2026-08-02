@@ -28,11 +28,36 @@ export const TIER_FEATURES: Record<ProductionTierType, string[]> = {
 export class ProductionTiersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Admin-managed pricing. Falls back to the built-in constants when the
+   * PricingPlan table has not been seeded yet, so this never returns empty.
+   */
   async getPricing() {
+    const plans = await this.prisma.pricingPlan.findMany({
+      where: { isActive: true },
+      orderBy: { order: 'asc' },
+    });
+
+    if (plans.length > 0) {
+      return plans.map((p) => ({
+        tier: p.tier,
+        label: p.label,
+        priceKES: p.currency === 'KES' ? p.price : undefined,
+        price: p.price,
+        currency: p.currency,
+        features: p.features,
+        description: p.description,
+      }));
+    }
+
     return Object.entries(TIER_PRICING).map(([tier, price]) => ({
       tier,
+      label: tier,
       priceKES: price,
+      price,
+      currency: 'KES',
       features: TIER_FEATURES[tier as ProductionTierType],
+      description: null,
     }));
   }
 

@@ -910,3 +910,70 @@ model AuditLog {
   @@index([targetType, targetId])
   @@index([createdAt])
 }
+
+// ─────────────────────────────────────────────
+// PRICING (admin-managed)
+// ─────────────────────────────────────────────
+
+/// Price of a production tier. Replaces the hardcoded TIER_PRICING map so
+/// admins can change pricing without a deploy. One row per tier.
+model PricingPlan {
+  id          String             @id @default(cuid())
+  tier        ProductionTierType @unique
+  /// Display name shown to developers, e.g. "Cinematic Tour".
+  label       String
+  price       Float
+  currency    String             @default("KES")
+  features    String[]
+  description String?
+  isActive    Boolean            @default(true)
+  order       Int                @default(0)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([isActive])
+}
+
+enum ServiceCategoryType {
+  CAPTURE
+  IMMERSIVE
+  MARKETING
+  DESIGN
+}
+
+/// An à-la-carte production service a developer can order during onboarding.
+/// Replaces the hardcoded SERVICES array in the frontend catalog.
+model ServiceCatalogItem {
+  id          String              @id @default(cuid())
+  /// Stable key referenced by existing submissionData, e.g. "drone_photo".
+  key         String              @unique
+  label       String
+  category    ServiceCategoryType
+  price       Float
+  currency    String              @default("USD")
+  unit        String?
+  description String?
+  isActive    Boolean             @default(true)
+  order       Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+/// Key/value platform configuration — listing fee, currency, tax rate,
+/// feature flags. Typed by `valueType` so the admin UI can render an
+/// appropriate control.
+model PlatformSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  valueType   String   @default("string")
+  label       String
+  description String?
+  group       String   @default("general")
+  updatedAt   DateTime @updatedAt
+
+  @@index([group])
+}
