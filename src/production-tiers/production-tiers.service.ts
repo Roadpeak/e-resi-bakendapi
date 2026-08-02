@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductionTierType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { SetProductionTierDto } from './dto/set-tier.dto.js';
+import { InvoicesService } from '../billing/invoices.service.js';
 
 // Tier pricing in KES
 export const TIER_PRICING: Record<ProductionTierType, number> = {
@@ -26,7 +27,12 @@ export const TIER_FEATURES: Record<ProductionTierType, string[]> = {
 
 @Injectable()
 export class ProductionTiersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ProductionTiersService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly invoices: InvoicesService,
+  ) {}
 
   /**
    * Admin-managed pricing. Falls back to the built-in constants when the
@@ -80,7 +86,12 @@ export class ProductionTiersService {
       throw new ForbiddenException('You do not own this property');
     }
 
-    return this.prisma.productionTier.upsert({
+    const before = await this.prisma.productionTier.findUnique({
+      where: { propertyId: property.id },
+      select: { tier: true },
+    });
+
+    const order = await this.prisma.productionTier.upsert({
       where: { propertyId: property.id },
       create: {
         propertyId: property.id,
@@ -95,6 +106,33 @@ export class ProductionTiersService {
         activatedAt: new Date(),
       },
     });
+
+    // Production is invoiced the moment it is ordered — the shoot is scheduled
+    // against it. Only bill a genuine change: re-saving the same tier, or a
+    // free listing-only tier, owes nothing.
+    const amount = dto.paidAmount ?? 0;
+    const isNewOrder = !before || before.tier !== dto.tier;
+    if (isNewOrder && amount > 0) {
+      const label = dto.tier.replace(/_/g, ' ').toLowerCase();
+      await this.invoices.invoiceProduction({
+        userId: property.developer.userId,
+        propertyId: property.id,
+        propertyName: property.name,
+        lines: [{
+          description: `Production — ${label} · ${property.name}`,
+          amount,
+        }],
+        currency: property.currency ?? 'KES',
+      }).catch((err) => {
+        // The order stands; an uninvoiced job is an ops problem, not a reason
+        // to refuse the booking.
+        this.logger.error(
+          `Could not invoice production for ${property.slug}: ${(err as Error).message}`,
+        );
+      });
+    }
+
+    return order;
   }
 
   async developerTiers(userId: string) {

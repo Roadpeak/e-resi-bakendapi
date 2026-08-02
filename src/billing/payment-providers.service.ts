@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
-import type { LinkCardDto } from './dto/link-method.dto.js';
+import { resolveAppUrl } from '../common/app-url.js';
 
 /**
  * Thin integration layer over the three processors.
@@ -29,7 +29,7 @@ export class PaymentProvidersService {
       config.get('MPESA_CONSUMER_KEY') && config.get('MPESA_CONSUMER_SECRET')
       && config.get('MPESA_SHORTCODE') && config.get('MPESA_PASSKEY'),
     );
-    this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3001');
+    this.frontendUrl = resolveAppUrl(config);
   }
 
   get sandbox() {
@@ -38,87 +38,6 @@ export class PaymentProvidersService {
       paypal: !this.paypalConfigured,
       mpesa: !this.mpesaConfigured,
     };
-  }
-
-  // ─── Cards (Stripe): tokenize, $1 verification hold, reverse ─────────────
-
-  /**
-   * Verifies the card with a $1 authorization that is immediately released.
-   * Returns processor references; the PAN/CVC are used transiently and never
-   * stored. In sandbox mode the verification is simulated.
-   */
-  async verifyCard(dto: LinkCardDto, userEmail: string): Promise<{
-    processorRef: string;
-    verified: boolean;
-    sandbox: boolean;
-  }> {
-    if (!this.stripe) {
-      this.logger.warn('[SANDBOX] Stripe not configured — simulating $1 card verification + reversal');
-      return { processorRef: `sim_pm_${Date.now()}`, verified: true, sandbox: true };
-    }
-
-    try {
-      const customer = await this.stripe.customers.create({
-        email: userEmail,
-        name: dto.cardholderName,
-        address: {
-          line1: dto.addressLine1,
-          line2: dto.addressLine2 ?? undefined,
-          city: dto.city,
-          postal_code: dto.postalCode,
-          country: dto.country,
-        },
-      });
-
-      const paymentMethod = await this.stripe.paymentMethods.create({
-        type: 'card',
-        card: {
-          number: dto.cardNumber,
-          exp_month: dto.expMonth,
-          exp_year: dto.expYear,
-          cvc: dto.cvc,
-        },
-        billing_details: {
-          name: dto.cardholderName,
-          email: userEmail,
-          address: {
-            line1: dto.addressLine1,
-            line2: dto.addressLine2 ?? undefined,
-            city: dto.city,
-            postal_code: dto.postalCode,
-            country: dto.country,
-          },
-        },
-      });
-      await this.stripe.paymentMethods.attach(paymentMethod.id, { customer: customer.id });
-
-      // $1 verification hold — manual capture so nothing settles, then release
-      const intent = await this.stripe.paymentIntents.create({
-        amount: 100,
-        currency: 'usd',
-        customer: customer.id,
-        payment_method: paymentMethod.id,
-        capture_method: 'manual',
-        confirm: true,
-        description: 'e-resi card verification (reversed automatically)',
-        automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-      });
-      if (intent.status !== 'requires_capture' && intent.status !== 'succeeded') {
-        throw new BadRequestException('Card verification failed — the $1 authorization was declined');
-      }
-      await this.stripe.paymentIntents.cancel(intent.id).catch(async () => {
-        // already captured → refund instead
-        await this.stripe!.refunds.create({ payment_intent: intent.id });
-      });
-
-      return { processorRef: `${customer.id}:${paymentMethod.id}`, verified: true, sandbox: false };
-    } catch (err) {
-      if (err instanceof BadRequestException) throw err;
-      this.logger.error('Stripe card verification failed', err as Error);
-      throw new BadRequestException(
-        (err as { message?: string }).message ?? 'Card verification failed',
-      );
-    }
   }
 
   // ─── PayPal billing agreements (recurring monthly billing) ───────────────

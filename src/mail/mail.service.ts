@@ -1,6 +1,10 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { resolveAppUrl } from '../common/app-url.js';
+import {
+  renderDocument, renderDocumentText, renderNotice, type DocumentParams,
+} from './templates/document.js';
 
 @Injectable()
 export class MailService {
@@ -20,7 +24,7 @@ export class MailService {
       },
     });
     this.from = config.get<string>('SMTP_FROM', 'e-resi <noreply@e-resi.co.ke>');
-    this.frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    this.frontendUrl = resolveAppUrl(config);
   }
 
   /**
@@ -124,6 +128,53 @@ export class MailService {
         return;
       }
       throw new InternalServerErrorException('Failed to send password reset email');
+    }
+  }
+
+  /**
+   * Send a billing document (invoice, reminder or receipt).
+   *
+   * Never throws. A failed email must not roll back the invoice it describes —
+   * the record is the source of truth and the customer can always see it in
+   * the dashboard. Returns whether the send actually succeeded so callers can
+   * record it.
+   */
+  async sendDocument(to: string, subject: string, doc: DocumentParams): Promise<boolean> {
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject,
+        html: renderDocument(doc),
+        text: renderDocumentText(doc),
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(`Failed to send "${subject}" to ${to}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /** Plain transactional note — card linked, charge reversed, and similar. */
+  async sendNotice(
+    to: string,
+    subject: string,
+    heading: string,
+    body: string,
+    cta?: { label: string; url: string },
+  ): Promise<boolean> {
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject,
+        html: renderNotice({ heading, body, cta }),
+        text: `${heading}\n\n${body}${cta ? `\n\n${cta.label}: ${cta.url}` : ''}`,
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(`Failed to send "${subject}" to ${to}: ${(err as Error).message}`);
+      return false;
     }
   }
 }

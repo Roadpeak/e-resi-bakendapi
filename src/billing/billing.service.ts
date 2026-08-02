@@ -1,44 +1,33 @@
 import {
-  BadRequestException, ForbiddenException, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
-import type { LinkCardDto, PayMpesaDto } from './dto/link-method.dto.js';
+import { MailService } from '../mail/mail.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { resolveAppUrl } from '../common/app-url.js';
+import { ConfigService } from '@nestjs/config';
+import type { PayMpesaDto } from './dto/link-method.dto.js';
 
 /** Flat monthly fee per live development (USD). */
 export const LISTING_FEE_MONTHLY = 49;
 
-function detectBrand(cardNumber: string): string {
-  if (/^4/.test(cardNumber)) return 'Visa';
-  if (/^5[1-5]/.test(cardNumber) || /^2[2-7]/.test(cardNumber)) return 'Mastercard';
-  if (/^3[47]/.test(cardNumber)) return 'Amex';
-  if (/^6/.test(cardNumber)) return 'Discover';
-  return 'Card';
-}
-
-function luhnValid(cardNumber: string): boolean {
-  let sum = 0;
-  let dbl = false;
-  for (let i = cardNumber.length - 1; i >= 0; i--) {
-    let d = Number(cardNumber[i]);
-    if (dbl) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    dbl = !dbl;
-  }
-  return sum % 10 === 0;
-}
-
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+  private readonly appUrl: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly providers: PaymentProvidersService,
     private readonly paystack: PaystackService,
-  ) {}
+    private readonly mail: MailService,
+    private readonly notifications: NotificationsService,
+    config: ConfigService,
+  ) {
+    this.appUrl = resolveAppUrl(config);
+  }
 
   // ─── Developer billing summary ──────────────────────────────────────────
 
@@ -197,14 +186,48 @@ export class BillingService {
         userId,
         amount: result.amount / 100,
         currency: result.currency,
-        method: 'STRIPE_CARD',
+        method: 'PAYSTACK_CARD',
         status: 'REFUNDED',
         reference,
         metadata: { purpose: 'card_verification', provider: 'paystack' },
       },
     });
 
+    await this.announceCardLinked(userId, user.email, method, result.amount / 100, result.currency);
+
     return method;
+  }
+
+  /**
+   * Tell the customer their card is on file and that the verification charge
+   * has been returned. Both facts land in one message deliberately — a card
+   * charge the customer did not expect, with no explanation, reads as fraud.
+   */
+  private async announceCardLinked(
+    userId: string,
+    email: string,
+    method: { brand: string | null; last4: string | null },
+    verifiedAmount: number,
+    currency: string,
+  ): Promise<void> {
+    const label = `${method.brand ?? 'Card'} ending ${method.last4 ?? '••••'}`;
+    const reversal = `The ${currency} ${verifiedAmount.toLocaleString()} verification charge has been reversed `
+      + 'and will drop off your statement within a few working days.';
+
+    await this.notifications.createNotification(
+      userId,
+      'PAYMENT_METHOD_UPDATED',
+      'Card linked',
+      `${label} is now your payment method. ${reversal}`,
+    );
+
+    await this.mail.sendNotice(
+      email,
+      'Your card is linked to e-resi',
+      'Card linked',
+      `${label} has been saved for your listing fees. ${reversal}`,
+      { label: 'Manage payment methods', url: `${this.appUrl}/dashboard/billing` },
+    );
   }
 
   /**
@@ -226,6 +249,25 @@ export class BillingService {
 
         const metadata = (data.metadata ?? {}) as { userId?: string; purpose?: string };
         if (!metadata.userId) return { handled: false };
+
+        // A card link must not depend on the customer's browser coming back.
+        // They can close the tab, lose signal, or — as happened in production —
+        // be sent to a malformed callback URL. The webhook is the only signal
+        // that always arrives, so it completes the link and the refund itself.
+        // confirmPaystackCardLink is idempotent, so the redirect racing this is
+        // harmless.
+        if (metadata.purpose === 'card_link') {
+          try {
+            await this.confirmPaystackCardLink(metadata.userId, reference);
+            return { handled: true, linked: true };
+          } catch (err) {
+            // Never rethrow: Paystack retries anything that is not a 2xx, and a
+            // retry storm will not fix a card we could not save.
+            this.logger.error(
+              `Webhook could not link card for ${reference}: ${(err as Error).message}`,
+            );
+          }
+        }
 
         await this.prisma.payment.create({
           data: {
@@ -295,73 +337,6 @@ export class BillingService {
         // and we do not want retries for events we simply do not use.
         return { handled: false };
     }
-  }
-
-  async linkCard(userId: string, dto: LinkCardDto) {
-    if (!luhnValid(dto.cardNumber)) {
-      throw new BadRequestException('That card number is not valid');
-    }
-    const now = new Date();
-    if (dto.expYear < now.getFullYear()
-      || (dto.expYear === now.getFullYear() && dto.expMonth < now.getMonth() + 1)) {
-      throw new BadRequestException('This card has expired');
-    }
-
-    const last4 = dto.cardNumber.slice(-4);
-    const brand = detectBrand(dto.cardNumber);
-
-    const duplicate = await this.prisma.linkedPaymentMethod.findFirst({
-      where: { userId, type: 'CARD', last4, brand, expMonth: dto.expMonth, expYear: dto.expYear },
-    });
-    if (duplicate) throw new BadRequestException('This card is already linked');
-
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
-
-    // $1 verification hold with the processor (or simulated in sandbox)
-    const result = await this.providers.verifyCard(dto, user.email);
-
-    const isDefault = await this.makeDefaultIfFirst(userId);
-    const method = await this.prisma.linkedPaymentMethod.create({
-      data: {
-        userId,
-        type: 'CARD',
-        brand,
-        last4,
-        expMonth: dto.expMonth,
-        expYear: dto.expYear,
-        cardholderName: dto.cardholderName,
-        addressLine1: dto.addressLine1,
-        addressLine2: dto.addressLine2,
-        city: dto.city,
-        postalCode: dto.postalCode,
-        country: dto.country.toUpperCase(),
-        processorRef: result.processorRef,
-        verification: result.verified ? 'VERIFIED' : 'PENDING',
-        verifiedAt: result.verified ? new Date() : null,
-        isDefault,
-      },
-    });
-
-    // audit trail: the $1 verification + its reversal
-    await this.prisma.payment.create({
-      data: {
-        userId,
-        amount: 1,
-        currency: 'USD',
-        method: 'STRIPE_CARD',
-        status: 'REFUNDED',
-        reference: `CARD-VERIFY-${last4}-${Date.now()}`,
-        metadata: {
-          purpose: 'card_verification',
-          reversed: true,
-          sandbox: result.sandbox,
-          methodId: method.id,
-        },
-      },
-    });
-
-    return { ...method, sandbox: result.sandbox };
   }
 
   /** Start PayPal linking — returns the approval URL for the redirect. */

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
@@ -100,6 +100,41 @@ export class AdminPropertiesService {
     if (!before) throw new NotFoundException('Property not found');
     const after = await this.prisma.property.update({ where: { slug }, data: { isFeatured } });
     return { before, after };
+  }
+
+  /**
+   * Permanently delete a property. Media, units, tours and reservations cascade
+   * with it; rent listings, bookings and inquiries deliberately do not, so those
+   * are checked up front — otherwise Postgres rejects the delete with a foreign
+   * key error that tells the admin nothing about what is actually in the way.
+   *
+   * Archiving via setStatus is the reversible option; this is not.
+   */
+  async remove(slug: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      include: {
+        _count: { select: { rentListings: true, bookings: true, inquiries: true } },
+      },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const blockers = [
+      ['rent listing', property._count.rentListings],
+      ['booking', property._count.bookings],
+      ['inquiry', property._count.inquiries],
+    ].filter(([, n]) => (n as number) > 0)
+      .map(([label, n]) => `${n} ${label}${(n as number) === 1 ? '' : 's'}`);
+
+    if (blockers.length) {
+      throw new BadRequestException(
+        `${property.name} still has ${blockers.join(', ')}. `
+        + 'Remove those first, or archive the property instead of deleting it.',
+      );
+    }
+
+    await this.prisma.property.delete({ where: { slug } });
+    return property;
   }
 
   /** Move a listing to another developer — used when an account is closed. */

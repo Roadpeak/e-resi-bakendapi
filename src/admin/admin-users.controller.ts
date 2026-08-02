@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -37,6 +37,23 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'Admin: user detail with activity counts' })
   userDetail(@Param('id') id: string) {
     return this.service.detail(id);
+  }
+
+  @Delete('users/:id')
+  @ApiOperation({
+    summary: 'Admin: permanently delete a user. Refuses self-deletion, and '
+      + 'developers who still have listings — suspend those instead.',
+  })
+  async deleteUser(@Param('id') id: string, @CurrentUser() actor: { id: string }) {
+    const user = await this.service.deleteUser(id, actor.id);
+    await this.audit.record({
+      actorId: actor.id,
+      action: 'user.delete',
+      targetType: 'User',
+      targetId: id,
+      summary: `Deleted ${user.email} (${user.role})`,
+    });
+    return { message: `${user.email} has been deleted` };
   }
 
   @Patch('users/:id/suspend')
@@ -101,6 +118,15 @@ export class AdminUsersController {
   listDevelopers(@Query() query: ListDevelopersDto) {
     const { kybStatus, ...pagination } = query;
     return this.service.listDevelopers(pagination as PaginationDto, kybStatus);
+  }
+
+  @Get('developers/:profileId')
+  @ApiOperation({
+    summary: 'Admin: full developer profile — company, owner, onboarding '
+      + 'submission, KYB documents and listings',
+  })
+  developerDetail(@Param('profileId') profileId: string) {
+    return this.service.getDeveloper(profileId);
   }
 
   @Patch('developers/:profileId/kyb')

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -31,6 +32,8 @@ import { AppService } from './app.service.js';
   imports: [
     AdminModule,
     ConfigModule.forRoot({ isGlobal: true }),
+    // Drives recurring listing-fee collection.
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     PrismaModule,
     MailModule,

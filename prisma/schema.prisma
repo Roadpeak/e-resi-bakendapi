@@ -132,6 +132,14 @@ enum NotificationType {
   RESERVATION_UPDATED
   RESERVATION_EXPIRING
   PAYMENT_RECEIVED
+  /// An invoice was issued and is awaiting payment.
+  INVOICE_ISSUED
+  /// A due or overdue invoice is being chased.
+  INVOICE_REMINDER
+  /// Payment settled — receipt available.
+  RECEIPT_ISSUED
+  /// A card was linked, or its verification charge reversed.
+  PAYMENT_METHOD_UPDATED
   KYB_APPROVED
   KYB_REJECTED
   PROPERTY_PUBLISHED
@@ -142,6 +150,7 @@ enum PaymentMethod {
   STRIPE_CARD
   MPESA
   PAYPAL
+  PAYSTACK_CARD
 }
 
 enum PaymentStatus {
@@ -238,6 +247,8 @@ model User {
   conversationsReceived Conversation[] @relation("ConversationDeveloper")
   chatMessages      ChatMessage[]
   auditLogs         AuditLog[]     @relation("AuditActor")
+  invoices          Invoice[]
+  receipts          Receipt[]
 
   @@index([email])
   @@index([role])
@@ -315,6 +326,7 @@ model DeveloperProfile {
 
   properties        Property[]
   rentListings      RentListing[]
+  listingFeeRuns    ListingFeeRun[]
 }
 
 // ─────────────────────────────────────────────
@@ -365,6 +377,7 @@ model Property {
   savedBy             SavedProperty[]
   inquiries           Inquiry[]
   bookings            Booking[]
+  invoices            Invoice[]
   analyticsEvents     AnalyticsEvent[]
   productionTier      ProductionTier?
 
@@ -1004,4 +1017,140 @@ model PlatformSetting {
   updatedAt   DateTime @updatedAt
 
   @@index([group])
+}
+
+// ─────────────────────────────────────────────
+// RECURRING LISTING-FEE BILLING
+// ─────────────────────────────────────────────
+
+/// One row per developer per billing period. The unique constraint on
+/// (developerId, period) is what makes the monthly run idempotent — a retry,
+/// an overlapping run or a manual re-trigger can never double-charge.
+model ListingFeeRun {
+  id           String              @id @default(cuid())
+  developerId  String
+  developer    DeveloperProfile    @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  /// Billing period as YYYY-MM, e.g. "2026-08".
+  period       String
+  /// Number of live developments the fee was calculated over.
+  listingCount Int
+  /// Charged amount in major units (e.g. 4900.00 KES), tax included.
+  amount       Float
+  currency     String              @default("KES")
+  status       ListingFeeRunStatus @default(PENDING)
+  /// Paystack transaction reference, once a charge has been attempted.
+  reference    String?             @unique
+  paymentId    String?
+  failureText  String?
+  attempts     Int                 @default(0)
+  chargedAt    DateTime?
+  invoice      Invoice?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([developerId, period])
+  @@index([status])
+  @@index([period])
+}
+
+enum ListingFeeRunStatus {
+  PENDING
+  PAID
+  FAILED
+  /// Nothing to charge — no live listings, or still inside the free window.
+  SKIPPED
+}
+
+// ─────────────────────────────────────────────
+// INVOICING & RECEIPTS
+// ─────────────────────────────────────────────
+
+/// What an invoice is billing for. Drives the copy and the due-date rules.
+enum InvoiceKind {
+  /// Recurring monthly listing fee, issued 3 days before it falls due.
+  SUBSCRIPTION
+  /// One-off media production work, issued as soon as it is ordered.
+  PRODUCTION
+}
+
+enum InvoiceStatus {
+  DRAFT
+  /// Sent to the customer and awaiting payment.
+  ISSUED
+  /// Past its due date.
+  OVERDUE
+  PAID
+  CANCELLED
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  /// Human-facing sequential reference, e.g. "INV-2026-000042".
+  number      String        @unique
+  kind        InvoiceKind
+  status      InvoiceStatus @default(DRAFT)
+
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Set for subscription invoices; ties the invoice to its billing run.
+  listingFeeRunId String?   @unique
+  listingFeeRun   ListingFeeRun? @relation(fields: [listingFeeRunId], references: [id], onDelete: SetNull)
+  /// Set for production invoices.
+  propertyId  String?
+  property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  /// Snapshot of the biller and customer at issue time — an invoice must not
+  /// change retroactively when a company renames itself.
+  billedToName  String
+  billedToEmail String
+
+  /// Line items as [{ description, quantity, unitAmount, amount }].
+  lineItems   Json
+  subtotal    Float
+  taxPercent  Float         @default(0)
+  taxAmount   Float         @default(0)
+  total       Float
+  currency    String        @default("KES")
+
+  issuedAt    DateTime?
+  dueAt       DateTime
+  paidAt      DateTime?
+  /// When the account is suspended if this stays unpaid. Set when a reminder
+  /// carrying a termination warning goes out.
+  terminatesAt DateTime?
+
+  /// How many reminders have been sent, and when the last one went.
+  remindersSent Int         @default(0)
+  lastReminderAt DateTime?
+
+  paymentId   String?
+  notes       String?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  receipt     Receipt?
+
+  @@index([userId])
+  @@index([status])
+  @@index([dueAt])
+}
+
+/// Issued once an invoice is settled. Separate from Invoice so a receipt
+/// number is never reused and the paid snapshot cannot drift.
+model Receipt {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  invoiceId   String   @unique
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Float
+  currency    String   @default("KES")
+  method      String
+  reference   String?
+  paidAt      DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
 }

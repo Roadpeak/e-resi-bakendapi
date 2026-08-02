@@ -178,6 +178,83 @@ export class AdminUsersService {
     };
   }
 
+  /**
+   * Delete a user account. Refuses the cases that are almost always a mistake:
+   * deleting yourself, and deleting a developer who still has listings — those
+   * cascade, so an accidental click would take the developments with it.
+   * Suspension exists for everything short of genuine removal.
+   */
+  async deleteUser(id: string, actorId: string) {
+    if (id === actorId) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        developerProfile: {
+          include: { _count: { select: { properties: true, rentListings: true } } },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const listings = (user.developerProfile?._count.properties ?? 0)
+      + (user.developerProfile?._count.rentListings ?? 0);
+    if (listings > 0) {
+      throw new BadRequestException(
+        `This developer still has ${listings} listing${listings === 1 ? '' : 's'}. `
+        + 'Remove or reassign them first, or suspend the account instead.',
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+    return user;
+  }
+
+  /**
+   * Everything an admin needs to actually review a developer before approving
+   * their KYB: the company record, who owns the account, what they submitted
+   * during onboarding, their documents, and what they have listed so far.
+   */
+  async getDeveloper(profileId: string) {
+    const profile = await this.prisma.developerProfile.findUnique({
+      where: { id: profileId },
+      include: {
+        user: {
+          select: {
+            id: true, email: true, firstName: true, lastName: true, phone: true,
+            role: true, isActive: true, emailVerified: true, avatarUrl: true,
+            createdAt: true, lastLoginAt: true, suspendedAt: true, suspendedReason: true,
+          },
+        },
+        properties: {
+          select: { id: true, name: true, slug: true, status: true, city: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        },
+        rentListings: {
+          select: { id: true, name: true, slug: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        },
+        _count: { select: { properties: true, rentListings: true } },
+      },
+    });
+    if (!profile) throw new NotFoundException('Developer profile not found');
+
+    // kybDocuments doubles as the store for reviewNotes; split them so the UI
+    // does not have to know that and cannot render notes as if they were a file.
+    const docs = (profile.kybDocuments ?? {}) as Record<string, unknown>;
+    const { reviewNotes, ...documents } = docs;
+
+    return {
+      ...profile,
+      kybDocuments: documents,
+      reviewNotes: typeof reviewNotes === 'string' ? reviewNotes : null,
+    };
+  }
+
   async setKyb(profileId: string, status: KybStatus, notes?: string) {
     const before = await this.prisma.developerProfile.findUnique({ where: { id: profileId } });
     if (!before) throw new NotFoundException('Developer profile not found');

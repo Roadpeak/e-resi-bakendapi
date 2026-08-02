@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
@@ -109,6 +109,23 @@ export class AdminPropertiesController {
       changes: this.audit.diff({ status: before.status }, { status: after.status }),
     });
     return after;
+  }
+
+  @Delete(':slug')
+  @ApiOperation({
+    summary: 'Admin: permanently delete a property and its media, units and '
+      + 'tours. Refused while rent listings, bookings or inquiries reference it.',
+  })
+  async remove(@Param('slug') slug: string, @CurrentUser() actor: { id: string }) {
+    const property = await this.service.remove(slug);
+    await this.audit.record({
+      actorId: actor.id,
+      action: 'property.delete',
+      targetType: 'Property',
+      targetId: property.id,
+      summary: `Deleted ${property.name} (${property.city})`,
+    });
+    return { message: `${property.name} has been deleted` };
   }
 
   @Patch(':slug/feature')
