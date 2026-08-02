@@ -56,4 +56,5 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get conversation() { return prismaInstance.conversation; }
   get chatMessage() { return prismaInstance.chatMessage; }
   get productionTier() { return prismaInstance.productionTier; }
+  get auditLog() { return prismaInstance.auditLog; }
 }

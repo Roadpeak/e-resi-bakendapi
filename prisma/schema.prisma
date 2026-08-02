@@ -224,6 +224,7 @@ model User {
   conversationsStarted Conversation[] @relation("ConversationCustomer")
   conversationsReceived Conversation[] @relation("ConversationDeveloper")
   chatMessages      ChatMessage[]
+  auditLogs         AuditLog[]     @relation("AuditActor")
 
   @@index([email])
   @@index([role])
@@ -878,5 +879,34 @@ model ChatMessage {
   createdAt      DateTime     @default(now())
 
   @@index([conversationId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+/// Every administrative mutation, recorded for accountability. A console that
+/// can change prices, suspend users and delete properties must be traceable.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id])
+  /// Dotted verb, e.g. "user.suspend", "pricing.tier.update".
+  action     String
+  /// Model name of the affected record, e.g. "Property".
+  targetType String?
+  targetId   String?
+  /// Human-readable summary shown in the activity feed.
+  summary    String?
+  /// Field-level before/after for the change.
+  changes    Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType, targetId])
   @@index([createdAt])
 }
