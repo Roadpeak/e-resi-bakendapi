@@ -86,10 +86,6 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # CF IP allowlist + real-client-IP setup (regenerate periodically from
-      # https://www.cloudflare.com/ips-v4 and /ips-v6 — CF publishes rare updates)
-      - ./nginx/cf-ips.conf:/etc/nginx/conf.d/cf-ips.conf:ro
-      - ./nginx/cf-allowlist.conf:/etc/nginx/conf.d/cf-allowlist.conf:ro
       # CF origin cert + private key (CF-signed, 15-yr, only trusted by CF).
       # Certs live on host at /home/deploy/e-resi/certs (not in repo).
       - /home/deploy/e-resi/certs:/etc/nginx/certs:ro
