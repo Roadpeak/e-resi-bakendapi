@@ -83,8 +83,13 @@ services:
       - backend
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # CF origin cert + key + client-verify CA. Certs live on host at
+      # /home/deploy/e-resi/certs (not in repo — private key). See
+      # reference_eresi_cf_aop.md in memory.
+      - /home/deploy/e-resi/certs:/etc/nginx/certs:ro
     networks: [app_net]
 
 volumes:
