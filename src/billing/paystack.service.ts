@@ -149,6 +149,9 @@ export class PaystackService {
           currency: params.currency,
           reference: params.reference,
           callback_url: `${this.frontendUrl}${params.callbackPath}?paystack=invoice`,
+          // Card-only, matching card-linking, so invoice payment cannot pay
+          // through a channel we can't also use to charge stored cards later.
+          channels: ['card'],
           metadata: params.metadata,
         },
       },
