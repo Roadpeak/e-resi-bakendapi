@@ -470,6 +470,20 @@ export class BillingService {
     const succeeded = stk.ResultCode === 0;
     const receipt = stk.CallbackMetadata?.Item?.find((i) => i.Name === 'MpesaReceiptNumber')?.Value;
 
+    // Invoice-scoped payments (started via InvoicesService.startMpesaPayment)
+    // must go through settleFromMpesa so the invoice is marked paid and a
+    // receipt is issued — a bare status update would leave both undone.
+    const settled = await this.invoices.settleFromMpesa(
+      stk.CheckoutRequestID,
+      succeeded,
+      receipt ? String(receipt) : undefined,
+    );
+    if (settled.settled || settled.receipt !== undefined) {
+      return { message: 'processed' };
+    }
+
+    // Otherwise this is the older "pay down my pending balance" flow, which
+    // has no invoice to settle — just record the outcome on the payment.
     await this.prisma.payment.updateMany({
       where: { metadata: { path: ['checkoutRequestId'], equals: stk.CheckoutRequestID } },
       data: {

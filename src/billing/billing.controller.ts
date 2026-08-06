@@ -9,7 +9,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
-import { PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
+import { PayInvoiceMpesaDto, PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
 import { InvoicesService } from './invoices.service.js';
 import { ListingFeeService } from './listing-fee.service.js';
@@ -77,6 +77,19 @@ export class BillingController {
     @CurrentUser() user: { id: string },
   ) {
     return this.invoices.settleFromPaystack(id, reference, user.id);
+  }
+
+  @Post('invoices/:id/pay-mpesa')
+  @ApiOperation({
+    summary: 'Send an M-Pesa STK push for one of your unpaid invoices. Restricted '
+      + 'to KES invoices under the Safaricom transaction limit.',
+  })
+  payInvoiceMpesa(
+    @Param('id') id: string,
+    @Body() dto: PayInvoiceMpesaDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.invoices.startMpesaPayment(id, user.id, dto.phone);
   }
 
   @Post('invoices/:id/remind')

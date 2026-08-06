@@ -6,6 +6,7 @@ import { MailService } from '../mail/mail.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PaystackService } from './paystack.service.js';
+import { PaymentProvidersService } from './payment-providers.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
 import { ConfigService } from '@nestjs/config';
 import type { DocumentLine } from '../mail/templates/document.js';
@@ -33,6 +34,7 @@ export class InvoicesService {
     private readonly notifications: NotificationsService,
     private readonly pricing: PricingService,
     private readonly paystack: PaystackService,
+    private readonly providers: PaymentProvidersService,
     config: ConfigService,
   ) {
     this.appUrl = resolveAppUrl(config);
@@ -407,18 +409,17 @@ export class InvoicesService {
   // ─── Paying an invoice ───────────────────────────────────────────────────
 
   /**
-   * Begin payment for an unpaid invoice on Paystack's hosted checkout.
-   *
-   * Card details never reach this API. The reference embeds the invoice id so
-   * the webhook can settle it without trusting anything the browser sends back.
+   * Load an invoice and confirm it is actually payable: owned by this user (when
+   * given), not already paid, not cancelled, and issued. Shared by every payment
+   * channel so "already paid" reads the same whether it came from card or M-Pesa.
    */
-  async startPayment(invoiceId: string, userId: string) {
+  private async assertPayable(invoiceId: string, userId?: string) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { receipt: true },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.userId !== userId) throw new NotFoundException('Invoice not found');
+    if (userId && invoice.userId !== userId) throw new NotFoundException('Invoice not found');
     if (invoice.status === 'PAID' || invoice.receipt) {
       throw new BadRequestException(`${invoice.number} is already paid`);
     }
@@ -428,9 +429,20 @@ export class InvoicesService {
     if (invoice.status === 'DRAFT') {
       throw new BadRequestException(`${invoice.number} has not been issued yet`);
     }
+    return invoice;
+  }
+
+  /**
+   * Begin payment for an unpaid invoice on Paystack's hosted checkout.
+   *
+   * Card details never reach this API. The reference embeds the invoice id so
+   * the webhook can settle it without trusting anything the browser sends back.
+   */
+  async startPayment(invoiceId: string, userId: string) {
+    const invoice = await this.assertPayable(invoiceId, userId);
 
     const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: invoice.userId },
       select: { email: true },
     });
     if (!user) throw new NotFoundException('User not found');
@@ -443,6 +455,70 @@ export class InvoicesService {
       callbackPath: '/dashboard/billing',
       metadata: { userId, invoiceId: invoice.id, purpose: 'invoice_payment' },
     });
+  }
+
+  /**
+   * Safaricom's STK-push ceiling per transaction. Checked here rather than
+   * left to Daraja so a developer gets an answer that names the invoice and
+   * the alternative, not a raw gateway rejection.
+   */
+  private static readonly MPESA_MAX_KES = 250_000;
+
+  /**
+   * Send an M-Pesa STK push for exactly this invoice's total.
+   *
+   * The invoice is already in KES (the platform's billing currency), so unlike
+   * the old flow this needs no USD→KES conversion or exchange rate at all — the
+   * number on the STK prompt is the number on the invoice.
+   */
+  async startMpesaPayment(invoiceId: string, userId: string, phone: string) {
+    const invoice = await this.assertPayable(invoiceId, userId);
+
+    if (invoice.currency !== 'KES') {
+      throw new BadRequestException(
+        `${invoice.number} is billed in ${invoice.currency} — M-Pesa can only pay KES invoices. Pay by card instead.`,
+      );
+    }
+    if (invoice.total > InvoicesService.MPESA_MAX_KES) {
+      throw new BadRequestException(
+        `M-Pesa can't process amounts over KES ${InvoicesService.MPESA_MAX_KES.toLocaleString()} `
+        + `— ${invoice.number} is KES ${invoice.total.toLocaleString()}. Pay by card instead.`,
+      );
+    }
+
+    const { checkoutRequestId, completed, sandbox } = await this.providers.mpesaStkPush(
+      phone,
+      invoice.total,
+      `Invoice ${invoice.number}`,
+      invoice.number,
+    );
+
+    // Recorded immediately so the callback — which only carries the
+    // checkoutRequestId — has something to find and settle. Mirrors how the
+    // pre-invoice M-Pesa flow correlated its callback.
+    const payment = await this.prisma.payment.create({
+      data: {
+        userId: invoice.userId,
+        amount: invoice.total,
+        currency: invoice.currency,
+        method: 'MPESA',
+        status: completed ? 'COMPLETED' : 'PENDING',
+        reference: `MPESA-${invoice.number}-${Date.now()}`,
+        metadata: { checkoutRequestId, invoiceId: invoice.id, purpose: 'invoice_payment' },
+      },
+    });
+
+    // Sandbox mode resolves instantly — there is no callback to wait for.
+    if (completed) {
+      await this.markPaid({
+        invoiceId: invoice.id,
+        method: 'M-Pesa',
+        reference: payment.reference ?? undefined,
+        paymentId: payment.id,
+      });
+    }
+
+    return { checkoutRequestId, sandbox, invoiceNumber: invoice.number, amount: invoice.total };
   }
 
   /**
@@ -482,6 +558,46 @@ export class InvoicesService {
       reference,
       paymentId: payment.id,
     });
+  }
+
+  /**
+   * Settle an invoice from a Daraja STK callback. There is no browser return
+   * leg for M-Pesa — Safaricom pushes this server-to-server once the customer
+   * enters their PIN — so this is the only settlement path for this channel.
+   *
+   * Looked up by checkoutRequestId, which startMpesaPayment stored on the
+   * Payment row it created before the push was even sent.
+   */
+  async settleFromMpesa(checkoutRequestId: string, succeeded: boolean, mpesaCode?: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { metadata: { path: ['checkoutRequestId'], equals: checkoutRequestId } },
+    });
+    // An STK push Daraja knows about but this API does not raise silently —
+    // Safaricom retries callbacks it cannot deliver, not ones we reject.
+    if (!payment) return { settled: false };
+
+    if (!succeeded) {
+      await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+      return { settled: false };
+    }
+
+    const invoiceId = (payment.metadata as { invoiceId?: string } | null)?.invoiceId;
+    if (!invoiceId) return { settled: false };
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: 'COMPLETED', ...(mpesaCode && { mpesaCode }) },
+    });
+
+    return {
+      settled: true,
+      receipt: await this.markPaid({
+        invoiceId,
+        method: 'M-Pesa',
+        reference: mpesaCode ?? payment.reference ?? undefined,
+        paymentId: payment.id,
+      }),
+    };
   }
 
   // ─── Scheduled work ──────────────────────────────────────────────────────

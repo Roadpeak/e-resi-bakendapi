@@ -131,7 +131,12 @@ export class PaymentProvidersService {
 
   // ─── M-Pesa (Daraja STK push verification) ────────────────────────────────
 
-  async mpesaStkPush(phone: string, amountKes: number, description: string): Promise<{
+  async mpesaStkPush(
+    phone: string,
+    amountKes: number,
+    description: string,
+    accountReference = 'e-resi-billing',
+  ): Promise<{
     checkoutRequestId: string;
     completed: boolean;
     sandbox: boolean;
@@ -170,7 +175,7 @@ export class PaymentProvidersService {
         PartyB: shortcode,
         PhoneNumber: phone,
         CallBackURL: `${this.config.get('API_PUBLIC_URL', 'http://localhost:4000')}/api/billing/mpesa/callback`,
-        AccountReference: 'e-resi-billing',
+        AccountReference: accountReference.slice(0, 12),
         TransactionDesc: description.slice(0, 90),
       }),
     });
