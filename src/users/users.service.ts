@@ -7,7 +7,7 @@ import {
 import { KybStatus, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
-import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import type { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import type { UpdateDeveloperProfileDto } from './dto/update-developer-profile.dto.js';
 
@@ -109,6 +109,10 @@ export class UsersService {
         ...(dto.establishedYear !== undefined && { establishedYear: dto.establishedYear }),
         ...(dto.website !== undefined && { website: dto.website }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
+        ...(dto.phone !== undefined && { phone: dto.phone }),
+        ...(dto.whatsapp !== undefined && { whatsapp: dto.whatsapp }),
+        ...(dto.location !== undefined && { location: dto.location }),
+        ...(dto.socials !== undefined && { socials: dto.socials as object }),
       },
     });
   }
@@ -159,12 +163,71 @@ export class UsersService {
       include: {
         properties: {
           where: { status: 'ACTIVE' },
-          select: { id: true, slug: true, name: true, heroImageUrl: true, city: true, priceFrom: true },
-          take: 6,
+          select: {
+            id: true, slug: true, name: true, heroImageUrl: true, city: true,
+            neighborhood: true, priceFrom: true, priceTo: true, currency: true,
+            latitude: true, longitude: true, category: true,
+          },
+          orderBy: { createdAt: 'desc' },
         },
       },
     });
     if (!profile) throw new NotFoundException('Developer profile not found');
     return profile;
+  }
+
+  /**
+   * Same shape as getDeveloperProfileByUserId, but keyed by the profile's own
+   * id — the id the public directory (listPublicDevelopers) actually hands
+   * back, so the detail page does not need to know a userId at all.
+   */
+  async getPublicDeveloperProfile(profileId: string) {
+    const profile = await this.prisma.developerProfile.findUnique({
+      where: { id: profileId },
+      include: {
+        properties: {
+          where: { status: 'ACTIVE' },
+          select: {
+            id: true, slug: true, name: true, heroImageUrl: true, city: true,
+            neighborhood: true, priceFrom: true, priceTo: true, currency: true,
+            latitude: true, longitude: true, category: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    // A developer whose KYB was rejected, or who has yet to be approved, is
+    // not something a buyer should be able to browse to directly.
+    if (!profile || profile.kybStatus !== 'APPROVED') {
+      throw new NotFoundException('Developer not found');
+    }
+    return profile;
+  }
+
+  /**
+   * Public directory — every KYB-approved developer with at least one live
+   * listing. Developers with zero active properties are excluded: a card
+   * whose Explore button leads to an empty grid is a dead end, not a listing.
+   */
+  async listPublicDevelopers(pagination: PaginationDto) {
+    const where = {
+      kybStatus: 'APPROVED' as const,
+      properties: { some: { status: 'ACTIVE' as const } },
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.developerProfile.findMany({
+        where,
+        skip: pagination.skip,
+        take: pagination.limit ?? 20,
+        orderBy: { completedProjects: 'desc' },
+        select: {
+          id: true, companyName: true, logoUrl: true, location: true,
+          phone: true, whatsapp: true, establishedYear: true, completedProjects: true,
+          _count: { select: { properties: { where: { status: 'ACTIVE' } } } },
+        },
+      }),
+      this.prisma.developerProfile.count({ where }),
+    ]);
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
   }
 }

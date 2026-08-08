@@ -324,6 +324,20 @@ model DeveloperProfile {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  /// Public contact — shown on the developer's card and profile page.
+  /// Separate from User.phone, which is the account owner's private login contact.
+  phone             String?
+  /// Full wa.me-ready number (digits only, no +), so the WhatsApp icon can
+  /// deep-link straight into a chat without any client-side reformatting.
+  whatsapp          String?
+  /// Free-text city/area shown on the card — e.g. "Nairobi, Westlands".
+  /// Not FK'd to any location table; developers operate across areas, not one.
+  location          String?
+  /// { instagram?, facebook?, twitter?, linkedin?, tiktok?: string } — full
+  /// profile URLs. Optional keys throughout; the profile page renders only
+  /// whichever are present rather than a fixed set of icons.
+  socials           Json?
+
   properties        Property[]
   rentListings      RentListing[]
   listingFeeRuns    ListingFeeRun[]

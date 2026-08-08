@@ -98,6 +98,24 @@ export class UsersController {
   // ─── Public ───────────────────────────────────────────────────────────────
 
   @Public()
+  @Get('developers')
+  @ApiOperation({
+    summary: 'Public: directory of KYB-approved developers with at least one live listing',
+  })
+  listPublicDevelopers(@Query() pagination: PaginationDto) {
+    return this.usersService.listPublicDevelopers(pagination);
+  }
+
+  @Public()
+  @Get('developers/id/:profileId')
+  @ApiOperation({
+    summary: 'Public: developer profile by profile id, with active properties',
+  })
+  getPublicDeveloperProfile(@Param('profileId') profileId: string) {
+    return this.usersService.getPublicDeveloperProfile(profileId);
+  }
+
+  @Public()
   @Get('developers/:userId/profile')
   @ApiOperation({ summary: 'Public: get developer profile (with active properties)' })
   getDeveloperProfile(@Param('userId') userId: string) {
