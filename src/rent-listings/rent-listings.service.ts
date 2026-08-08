@@ -101,13 +101,19 @@ export class RentListingsService {
             take: 8,
             select: { url: true, title: true },
           },
+          // Rent listings rarely have their own uploads — they're units within a
+          // development, so fall back to the parent property's gallery below.
+          property: { select: { media: { orderBy: { order: 'asc' }, take: 8, select: { url: true, title: true } } } },
         },
       }),
       this.prisma.rentListing.count({ where }),
     ]);
 
     return {
-      data,
+      data: data.map(({ property, ...listing }) => ({
+        ...listing,
+        media: listing.media.length > 0 ? listing.media : (property?.media ?? []),
+      })),
       meta: { total, page: pagination.page, limit: pagination.limit, totalPages: Math.ceil(total / (pagination.limit ?? 20)) },
     };
   }
