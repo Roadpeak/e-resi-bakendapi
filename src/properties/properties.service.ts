@@ -157,6 +157,12 @@ export class PropertiesService {
         include: {
           developer: { select: { companyName: true, logoUrl: true } },
           _count: { select: { units: true } },
+          // Card gallery strips only need a few thumbnails, not the full asset shape.
+          media: {
+            orderBy: { order: 'asc' },
+            take: 8,
+            select: { url: true, title: true },
+          },
         },
       }),
       this.prisma.property.count({ where }),

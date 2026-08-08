@@ -96,6 +96,11 @@ export class RentListingsService {
         include: {
           developer: { select: { companyName: true, logoUrl: true } },
           rentUnits: { select: { label: true, pricePerMonth: true, available: true, total: true, bedrooms: true } },
+          media: {
+            orderBy: { order: 'asc' },
+            take: 8,
+            select: { url: true, title: true },
+          },
         },
       }),
       this.prisma.rentListing.count({ where }),
