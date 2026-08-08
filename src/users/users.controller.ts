@@ -34,26 +34,18 @@ export class UsersController {
   }
 
   // ─── Self ─────────────────────────────────────────────────────────────────
-  // Must be declared before ':id' so /users/me never matches the admin route.
+  // Everything below with a literal first segment (me, developers, ...) must
+  // stay above ':id' — Nest matches routes in declaration order, and ':id' is
+  // an unconstrained single-segment wildcard that will otherwise swallow any
+  // literal route added after it. This bit a real deploy once already: the
+  // public developer directory landed below ':id' and every request came back
+  // 401, because it was being handled by the ADMIN-only findOne() below
+  // instead of the @Public() handler that was actually declared for it.
 
   @Get('me')
   @ApiOperation({ summary: 'Get own user record (any authenticated role)' })
   getMe(@CurrentUser() user: { id: string }) {
     return this.usersService.findOne(user.id);
-  }
-
-  @Get(':id')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Admin: get user by ID' })
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
-  }
-
-  @Patch(':id/active')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Admin: enable or disable a user account' })
-  setActive(@Param('id') id: string, @Body('isActive') isActive: boolean) {
-    return this.usersService.setActive(id, isActive);
   }
 
   @Patch('developers/:profileId/kyb')
@@ -120,5 +112,31 @@ export class UsersController {
   @ApiOperation({ summary: 'Public: get developer profile (with active properties)' })
   getDeveloperProfile(@Param('userId') userId: string) {
     return this.usersService.getDeveloperProfileByUserId(userId);
+  }
+
+  // ─── Admin: by id ───────────────────────────────────────────────────────────
+  // ':id' is an unconstrained single-segment wildcard — it matches the literal
+  // word "developers" just as readily as a real id. (path-to-regexp 8, which
+  // this Nest/Express version uses, removed inline :id(regex) constraints
+  // entirely — there is no way to make the route itself reject non-id text.)
+  // The only real defence is declaration order: every literal route above
+  // this one must stay above it, or it gets silently swallowed here instead —
+  // exactly what happened to the public developer directory before this fix,
+  // where every request 401'd because it was hitting this ADMIN-only handler.
+  // If you add a new top-level literal route to this controller, it MUST go
+  // above this line.
+
+  @Get(':id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: get user by ID' })
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne(id);
+  }
+
+  @Patch(':id/active')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: enable or disable a user account' })
+  setActive(@Param('id') id: string, @Body('isActive') isActive: boolean) {
+    return this.usersService.setActive(id, isActive);
   }
 }
