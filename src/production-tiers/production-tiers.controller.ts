@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { PropertyCategory, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -21,10 +21,19 @@ export class ProductionTiersController {
 
   @Public()
   @Get('catalog')
-  @ApiOperation({ summary: 'Public: production services and the listing fee' })
-  async catalog() {
+  @ApiOperation({
+    summary: 'Public: production services and the listing fee. Pass propertyType '
+      + 'to get the prices that development will actually be billed.',
+  })
+  @ApiQuery({ name: 'propertyType', enum: PropertyCategory, required: false })
+  async catalog(@Query('propertyType') propertyType?: PropertyCategory) {
     const [services, settings] = await Promise.all([
-      this.pricing.listServices(),
+      // Quote the type's own prices, or the catalogue defaults when the caller
+      // has not picked a type yet. Without this the wizard would quote default
+      // prices and the order would then bill the type price.
+      propertyType && Object.values(PropertyCategory).includes(propertyType)
+        ? this.pricing.listServicesForType(propertyType)
+        : this.pricing.listServices(),
       this.pricing.listSettings('billing'),
     ]);
     const byKey = Object.fromEntries(settings.map((s) => [s.key, s.value]));
