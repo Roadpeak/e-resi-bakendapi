@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { AgentKind, AgentSpecialty, KybStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { SubmitAgentKycDto } from './dto/submit-agent-kyc.dto.js';
 import type { UpdateAgentProfileDto } from './dto/update-agent-profile.dto.js';
@@ -168,7 +168,7 @@ export class AgentsService {
       }),
       this.prisma.agentProfile.count({ where }),
     ]);
-    return { data, total };
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
   }
 
   async getForAdmin(id: string) {
@@ -271,7 +271,7 @@ export class AgentsService {
       }),
       this.prisma.agentProfile.count({ where }),
     ]);
-    return { data, total };
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
   }
 
   async getPublic(id: string) {
