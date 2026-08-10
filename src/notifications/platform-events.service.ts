@@ -189,6 +189,32 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * A booked date moved. Distinct from productionScheduled so the developer
+   * sees what changed rather than a second "booked" notice — they may already
+   * have arranged site access around the original date.
+   */
+  async productionRescheduled(
+    userId: string,
+    order: { id: string; label: string; scheduledAt: Date; previousDate: Date | null },
+    propertyName: string,
+  ) {
+    const fmt = (d: Date) => d.toLocaleDateString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+    const when = fmt(order.scheduledAt);
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${order.label} moved to ${when}`,
+      (order.previousDate
+        ? `${order.label} at ${propertyName} has moved from ${fmt(order.previousDate)} to ${when}. `
+        : `${order.label} at ${propertyName} is now booked for ${when}. `)
+      + 'Please make sure site access is arranged for the new date.',
+      { cta: { label: 'View production', path: '/dashboard/billing' }, resourceId: order.id, resourceType: 'ProductionOrder' },
+    );
+  }
+
   async productionDelivered(userId: string, order: { id: string; label: string }, propertyName: string) {
     await this.toUser(
       userId,

@@ -305,7 +305,19 @@ export class ProductionOrdersService {
             name: true,
             city: true,
             heroImageUrl: true,
-            developer: { select: { id: true, companyName: true } },
+            developer: {
+              select: {
+                id: true,
+                companyName: true,
+                // Ops ring the developer to agree a new date before moving a
+                // booking. phone is the public business line; the account
+                // owner's own number and email are the fallback when it is
+                // not set.
+                phone: true,
+                whatsapp: true,
+                user: { select: { firstName: true, lastName: true, phone: true, email: true } },
+              },
+            },
           },
         },
       },
@@ -369,10 +381,28 @@ export class ProductionOrdersService {
       }
     }
 
+    const dateMoved =
+      after.scheduledAt && before.scheduledAt
+      && after.scheduledAt.getTime() !== before.scheduledAt.getTime();
+
     if (after.status === 'SCHEDULED' && after.scheduledAt && before.status !== 'SCHEDULED') {
       await this.events.productionScheduled(
         owner,
         { id: after.id, label: after.label, scheduledAt: after.scheduledAt },
+        after.property.name,
+      );
+    } else if (after.status === 'SCHEDULED' && after.scheduledAt && dateMoved) {
+      // Already scheduled and the date changed. Without this branch a
+      // reschedule was silent — the developer kept planning around the old
+      // date because nothing ever told them it had moved.
+      await this.events.productionRescheduled(
+        owner,
+        {
+          id: after.id,
+          label: after.label,
+          scheduledAt: after.scheduledAt,
+          previousDate: before.scheduledAt,
+        },
         after.property.name,
       );
     } else if (after.status === 'DELIVERED' && before.status !== 'DELIVERED') {
