@@ -62,6 +62,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get servicePriceOverride() { return prismaInstance.servicePriceOverride; }
   get agentProfile() { return prismaInstance.agentProfile; }
   get agentReview() { return prismaInstance.agentReview; }
+  get agentPartnership() { return prismaInstance.agentPartnership; }
+  get propertyAssignment() { return prismaInstance.propertyAssignment; }
+  get partnershipDocument() { return prismaInstance.partnershipDocument; }
   get platformSetting() { return prismaInstance.platformSetting; }
   get listingFeeRun() { return prismaInstance.listingFeeRun; }
   get invoice() { return prismaInstance.invoice; }

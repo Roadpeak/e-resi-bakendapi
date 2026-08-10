@@ -16,6 +16,7 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { AgentsService } from './agents.service.js';
+import { PartnershipsService } from './partnerships.service.js';
 import { SubmitAgentKycDto } from './dto/submit-agent-kyc.dto.js';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto.js';
 
@@ -53,7 +54,10 @@ class PublicAgentQueryDto extends PaginationDto {
 @ApiTags('Agents')
 @Controller('agents')
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
+  constructor(
+    private readonly agents: AgentsService,
+    private readonly partnerships: PartnershipsService,
+  ) {}
 
   // ─── Agent: own profile ───────────────────────────────────────────────────
   //
@@ -193,6 +197,16 @@ export class AgentsController {
       specialty: query.specialty,
       q: query.q,
     });
+  }
+
+  @Public()
+  @Get(':id/partners')
+  @ApiOperation({
+    summary: 'Public: developers this agent actively works with, shown on '
+      + 'their profile',
+  })
+  listPartners(@Param('id') id: string) {
+    return this.partnerships.listPublicPartners({ agentId: id });
   }
 
   @Public()

@@ -258,6 +258,8 @@ model User {
   developerProfile  DeveloperProfile?
   agentProfile      AgentProfile?
   agentReviews      AgentReview[]
+  partnershipRequests   AgentPartnership[]    @relation("PartnershipRequester")
+  partnershipDocuments  PartnershipDocument[] @relation("PartnershipDocUploader")
   savedProperties   SavedProperty[]
   inquiries         Inquiry[]
   inquiryReplies    InquiryReply[]
@@ -366,6 +368,7 @@ model DeveloperProfile {
   properties        Property[]
   rentListings      RentListing[]
   listingFeeRuns    ListingFeeRun[]
+  agentPartnerships AgentPartnership[]
 }
 
 /// A letting/sales agent — either a registered company or an individual
@@ -435,10 +438,99 @@ model AgentProfile {
 
   reviews           AgentReview[]
   conversations     Conversation[]
+  partnerships      AgentPartnership[]
 
   @@index([kybStatus])
   @@index([kind])
   @@index([isListed])
+}
+
+/// Where a partnership request stands. A developer and an agent both have to
+/// want the relationship, so it is proposed by one side and accepted by the
+/// other rather than imposed.
+enum PartnershipStatus {
+  PENDING
+  ACTIVE
+  DECLINED
+  ENDED
+}
+
+/// A working relationship between a developer and an agent.
+///
+/// Partners appear on each other's public pages, and only an ACTIVE partner
+/// can be assigned properties — the partnership is the gate that stops a
+/// developer handing listings to an agent who never agreed to sell them.
+model AgentPartnership {
+  id           String            @id @default(cuid())
+  developerId  String
+  developer    DeveloperProfile  @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  status       PartnershipStatus @default(PENDING)
+
+  /// Which side proposed it — either may, and the other accepts.
+  requestedById String
+  requestedBy   User             @relation("PartnershipRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  message       String?
+
+  /// Default commission for work under this partnership, as a percentage.
+  /// Individual assignments may override it.
+  commissionPercent Float?
+  respondedAt  DateTime?
+  endedAt      DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  assignments  PropertyAssignment[]
+  documents    PartnershipDocument[]
+
+  /// One partnership per pair — re-requesting reuses the row rather than
+  /// stacking duplicates that would each need answering.
+  @@unique([developerId, agentId])
+  @@index([status])
+  @@index([agentId])
+}
+
+/// A property a developer has handed to an agent to sell or let, with the
+/// commission agreed for it.
+model PropertyAssignment {
+  id            String            @id @default(cuid())
+  partnershipId String
+  partnership   AgentPartnership  @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  propertyId    String
+  property      Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  /// Overrides the partnership default when the two differ — a flagship unit
+  /// may be worth different terms from the rest of the portfolio.
+  commissionPercent Float?
+  notes         String?
+  isActive      Boolean           @default(true)
+  assignedAt    DateTime          @default(now())
+  endedAt       DateTime?
+
+  /// A property is assigned to a given partnership once; ending and
+  /// reassigning reuses the row so its history is not lost.
+  @@unique([partnershipId, propertyId])
+  @@index([propertyId])
+  @@index([isActive])
+}
+
+/// A signed agreement covering a partnership. Both parties can read every
+/// document on their own partnership at any time, whichever side uploaded it.
+model PartnershipDocument {
+  id            String           @id @default(cuid())
+  partnershipId String
+  partnership   AgentPartnership @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  uploadedById  String
+  uploadedBy    User             @relation("PartnershipDocUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+  name          String
+  url           String
+  /// Free text — "Commission agreement", "Addendum", "Exclusivity terms".
+  kind          String?
+  sizeBytes     Int?
+  createdAt     DateTime         @default(now())
+
+  @@index([partnershipId])
 }
 
 /// A rating left on an agent. Only someone who actually dealt with the agent
@@ -503,6 +595,7 @@ model Property {
   updatedAt           DateTime          @updatedAt
 
   units               Unit[]
+  agentAssignments    PropertyAssignment[]
   floorPlans          FloorPlan[]
   amenities           Amenity[]
   constructionUpdates ConstructionUpdate[]

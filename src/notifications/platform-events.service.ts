@@ -271,6 +271,61 @@ export class PlatformEventsService {
     );
   }
 
+  /** Someone wants to work with you — needs an answer, so it is addressed. */
+  async partnershipRequested(userId: string, fromName: string, partnershipId: string) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${fromName} wants to partner with you`,
+      `${fromName} has sent you a partnership request on e-resi. Review the terms and accept or decline.`,
+      {
+        cta: { label: 'View request', path: '/dashboard/partners' },
+        resourceId: partnershipId,
+        resourceType: 'AgentPartnership',
+      },
+    );
+  }
+
+  async partnershipAnswered(
+    userId: string,
+    responderName: string,
+    accepted: boolean,
+    partnershipId: string,
+  ) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      accepted
+        ? `${responderName} accepted your partnership request`
+        : `${responderName} declined your partnership request`,
+      accepted
+        ? `You can now assign properties and work together on e-resi.`
+        : `${responderName} is not taking on this partnership at the moment.`,
+      {
+        cta: { label: 'View partners', path: '/dashboard/partners' },
+        resourceId: partnershipId,
+        resourceType: 'AgentPartnership',
+      },
+    );
+  }
+
+  /** A developer handed a property over — the agent needs to know the terms. */
+  async propertyAssigned(
+    userId: string,
+    propertyName: string,
+    developerName: string,
+    commissionPercent: number | null,
+  ) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${propertyName} assigned to you`,
+      `${developerName} has assigned ${propertyName} to you`
+      + (commissionPercent !== null ? ` at ${commissionPercent}% commission.` : '.'),
+      { cta: { label: 'View assignments', path: '/agent/properties' } },
+    );
+  }
+
   async propertySubmitted(propertyName: string, companyName: string, propertyId: string) {
     await this.toAdmins(
       'New listing awaiting review',
