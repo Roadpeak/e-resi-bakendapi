@@ -93,10 +93,13 @@ export class AdminOpsService {
         take: pagination.limit ?? 20,
         orderBy: { lastMessageAt: 'desc' },
         include: {
-          customer: { select: { id: true, email: true, firstName: true, lastName: true } },
-          developer: { select: { id: true, email: true, firstName: true, lastName: true } },
+          // Either side can now be a customer, developer or agent, so both
+          // parties are selected the same way.
+          initiator: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
+          counterparty: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
           property: { select: { slug: true, name: true } },
           rentListing: { select: { slug: true, name: true } },
+          agent: { select: { id: true, displayName: true } },
           _count: { select: { messages: true } },
         },
       }),
@@ -111,10 +114,11 @@ export class AdminOpsService {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        customer: { select: { email: true, firstName: true, lastName: true } },
-        developer: { select: { email: true, firstName: true, lastName: true } },
+        initiator: { select: { email: true, firstName: true, lastName: true, role: true } },
+        counterparty: { select: { email: true, firstName: true, lastName: true, role: true } },
         property: { select: { slug: true, name: true } },
         rentListing: { select: { slug: true, name: true } },
+        agent: { select: { id: true, displayName: true } },
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');

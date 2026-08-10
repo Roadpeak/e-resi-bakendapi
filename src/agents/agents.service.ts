@@ -319,8 +319,8 @@ export class AgentsService {
     const spokeWith = await this.prisma.conversation.findFirst({
       where: {
         OR: [
-          { customerId: userId, developerId: agent.userId },
-          { customerId: agent.userId, developerId: userId },
+          { initiatorId: userId, counterpartyId: agent.userId },
+          { initiatorId: agent.userId, counterpartyId: userId },
         ],
       },
       select: { id: true },

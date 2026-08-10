@@ -4,6 +4,7 @@ import { IsOptional, IsString, Length } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { ChatService } from './chat.service.js';
 
+/** Exactly one context is expected; the service rejects a request with none. */
 class StartConversationDto {
   @IsOptional()
   @IsString()
@@ -12,6 +13,14 @@ class StartConversationDto {
   @IsOptional()
   @IsString()
   rentListingSlug?: string;
+
+  /**
+   * Message an agent directly — the route taken from the "Need agent help?"
+   * picker and from an agent's own page.
+   */
+  @IsOptional()
+  @IsString()
+  agentId?: string;
 }
 
 class SendMessageDto {
@@ -27,7 +36,10 @@ export class ChatController {
   constructor(private readonly service: ChatService) {}
 
   @Post('conversations')
-  @ApiOperation({ summary: 'Start (or resume) a conversation with a property/rental developer' })
+  @ApiOperation({
+    summary: 'Start (or resume) a conversation — with a listing’s developer '
+      + '(propertySlug/rentListingSlug) or with an agent (agentId)',
+  })
   start(@CurrentUser() user: { id: string }, @Body() dto: StartConversationDto) {
     return this.service.startConversation(user.id, dto);
   }

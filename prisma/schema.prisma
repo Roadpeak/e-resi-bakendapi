@@ -268,8 +268,8 @@ model User {
   payments          Payment[]
   documents         Document[]
   paymentMethods    LinkedPaymentMethod[]
-  conversationsStarted Conversation[] @relation("ConversationCustomer")
-  conversationsReceived Conversation[] @relation("ConversationDeveloper")
+  conversationsStarted Conversation[] @relation("ConversationInitiator")
+  conversationsReceived Conversation[] @relation("ConversationCounterparty")
   chatMessages      ChatMessage[]
   auditLogs         AuditLog[]     @relation("AuditActor")
   invoices          Invoice[]
@@ -434,6 +434,7 @@ model AgentProfile {
   updatedAt         DateTime   @updatedAt
 
   reviews           AgentReview[]
+  conversations     Conversation[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -1024,25 +1025,41 @@ model ProductionTier {
 
 /// A conversation between a customer (investor/tenant/buyer) and a developer,
 /// anchored to the property or rent listing it started from.
+/// A two-party conversation.
+///
+/// Originally hardcoded customer-to-developer. Agents talk to tenants,
+/// investors AND developers, so the parties are now neutral: `initiator`
+/// started it, `counterparty` was contacted. Roles live on the User, not in
+/// these column names, so a new participant type needs no schema change.
 model Conversation {
-  id            String    @id @default(cuid())
-  customerId    String
-  customer      User      @relation("ConversationCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  developerId   String
-  developer     User      @relation("ConversationDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
-  propertyId    String?
-  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  rentListingId String?
-  rentListing   RentListing? @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
-  subject       String?
-  lastMessageAt DateTime  @default(now())
-  createdAt     DateTime  @default(now())
+  id             String    @id @default(cuid())
+  initiatorId    String
+  initiator      User      @relation("ConversationInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  counterpartyId String
+  counterparty   User      @relation("ConversationCounterparty", fields: [counterpartyId], references: [id], onDelete: Cascade)
+  propertyId     String?
+  property       Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  rentListingId  String?
+  rentListing    RentListing? @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
+  /// Set when the conversation is about an agent rather than a listing, so an
+  /// enquiry to an agent has context the way a property enquiry does.
+  agentId        String?
+  agent          AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  subject        String?
+  lastMessageAt  DateTime  @default(now())
+  createdAt      DateTime  @default(now())
 
-  messages      ChatMessage[]
+  messages       ChatMessage[]
 
-  @@unique([customerId, developerId, propertyId, rentListingId])
-  @@index([customerId])
-  @@index([developerId])
+  /// One thread per pair per context — re-contacting about the same listing
+  /// continues the thread rather than starting a second one.
+  ///
+  /// Named explicitly: the generated name would exceed Postgres' 63-character
+  /// identifier limit and be truncated, which makes it hard to reference
+  /// reliably from later migrations.
+  @@unique([initiatorId, counterpartyId, propertyId, rentListingId, agentId], map: "Conversation_parties_context_key")
+  @@index([initiatorId])
+  @@index([counterpartyId])
   @@index([lastMessageAt])
 }
 
