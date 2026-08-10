@@ -175,8 +175,28 @@ jobs:
             # frontend container (owned by the sibling repo's workflow).
             SERVICES="postgres redis nginx backend"
             docker compose -f docker-compose.prod.yml pull $SERVICES
-            docker compose -f docker-compose.prod.yml up -d $SERVICES
 
+            # Bring up postgres first (backend depends on it for migrations)
+            # then apply pending Prisma migrations against the NEW image
+            # before recreating backend. Two reasons vs. relying only on the
+            # entrypoint: (1) migration failures surface as a red workflow
+            # step, not a container-restart symptom; (2) the old backend
+            # container keeps serving traffic while migrations run, and only
+            # gets replaced once the new schema is committed.
+            docker compose -f docker-compose.prod.yml up -d postgres
+            for i in 1 2 3 4 5 6; do
+              docker exec e-resi-postgres-1 pg_isready -U "${POSTGRES_USER}" >/dev/null 2>&1 && break
+              [ $i -eq 6 ] && { echo "postgres never became ready"; exit 1; }
+              sleep 5
+            done
+
+            echo "=== prisma migrate deploy ==="
+            docker compose -f docker-compose.prod.yml run --rm -T \
+              --entrypoint sh backend \
+              -c 'NODE_OPTIONS="--experimental-require-module" node ./node_modules/prisma/build/index.js migrate deploy'
+
+            # Now recreate backend + nginx with the new image
+            docker compose -f docker-compose.prod.yml up -d $SERVICES
             docker compose -f docker-compose.prod.yml restart nginx
             docker image prune -f
 
