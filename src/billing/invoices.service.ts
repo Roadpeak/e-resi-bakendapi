@@ -433,7 +433,17 @@ export class InvoicesService {
   }
 
   /**
-   * Begin payment for an unpaid invoice on Paystack's hosted checkout.
+   * Begin payment for an unpaid invoice.
+   *
+   * If the developer has a usable saved card, it is charged directly — no
+   * redirect, nothing to re-enter. That is the same mechanism the monthly
+   * listing-fee sweep already uses; the invoice button simply never used it,
+   * which is why "Pay" asked for card details even with a card on file.
+   *
+   * Falls back to hosted checkout when there is no saved card, or when the
+   * stored authorization is rejected. A card linked while the platform was on
+   * Paystack test keys cannot be charged with live keys, so those rows are
+   * marked for re-linking rather than left to fail on every attempt.
    *
    * Card details never reach this API. The reference embeds the invoice id so
    * the webhook can settle it without trusting anything the browser sends back.
@@ -447,14 +457,65 @@ export class InvoicesService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    return this.paystack.startPayment({
+    const amountMinor = Math.round(invoice.total * 100);
+    const reference = `inv_${invoice.id}_${Date.now()}`;
+
+    const savedCard = await this.prisma.linkedPaymentMethod.findFirst({
+      where: {
+        userId: invoice.userId,
+        type: 'CARD',
+        verification: 'VERIFIED',
+        processorRef: { not: null },
+      },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (savedCard?.processorRef) {
+      try {
+        const charge = await this.paystack.chargeAuthorization({
+          email: user.email,
+          authorizationCode: savedCard.processorRef,
+          amountMinor,
+          currency: invoice.currency,
+          reference,
+        });
+        if (charge.successful) {
+          const settled = await this.settleFromPaystack(invoice.id, charge.reference, invoice.userId);
+          return {
+            paid: true as const,
+            chargedCard: { brand: savedCard.brand, last4: savedCard.last4 },
+            invoice: settled,
+          };
+        }
+        // Declined by the issuer rather than a bad authorization: let them try
+        // another card on checkout instead of dead-ending here.
+        this.logger.warn(`Saved-card charge declined for invoice ${invoice.number}`);
+      } catch (err) {
+        const message = (err as Error).message ?? '';
+        this.logger.warn(
+          `Saved card unusable for invoice ${invoice.number}: ${message}. Falling back to checkout.`,
+        );
+        // Paystack rejects an authorization from the other mode outright. Flag
+        // it so the UI can ask for a re-link instead of silently retrying a
+        // card that can never work again.
+        if (/authorization|not found|invalid|test/i.test(message)) {
+          await this.prisma.linkedPaymentMethod.update({
+            where: { id: savedCard.id },
+            data: { verification: 'FAILED' },
+          }).catch(() => undefined);
+        }
+      }
+    }
+
+    const checkout = await this.paystack.startPayment({
       email: user.email,
-      amountMinor: Math.round(invoice.total * 100),
+      amountMinor,
       currency: invoice.currency,
-      reference: `inv_${invoice.id}_${Date.now()}`,
+      reference,
       callbackPath: '/dashboard/billing',
       metadata: { userId, invoiceId: invoice.id, purpose: 'invoice_payment' },
     });
+    return { paid: false as const, ...checkout };
   }
 
   /**
