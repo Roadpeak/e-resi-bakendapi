@@ -13,6 +13,7 @@ import { UnitsModule } from './units/units.module.js';
 import { RentListingsModule } from './rent-listings/rent-listings.module.js';
 import { MediaModule } from './media/media.module.js';
 import { ToursModule } from './tours/tours.module.js';
+import { AgentsModule } from './agents/agents.module.js';
 import { AmenitiesModule } from './amenities/amenities.module.js';
 import { ConstructionUpdatesModule } from './construction-updates/construction-updates.module.js';
 import { InquiriesModule } from './inquiries/inquiries.module.js';
@@ -45,6 +46,7 @@ import { AppService } from './app.service.js';
     RentListingsModule,
     MediaModule,
     ToursModule,
+    AgentsModule,
     AmenitiesModule,
     ConstructionUpdatesModule,
     InquiriesModule,

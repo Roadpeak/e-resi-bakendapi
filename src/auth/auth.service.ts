@@ -93,6 +93,20 @@ export class AuthService {
       throw new BadRequestException('companyName is required for Developer accounts');
     }
 
+    if (dto.role === 'AGENT') {
+      if (!dto.agentKind) {
+        throw new BadRequestException('agentKind is required for Agent accounts');
+      }
+      if (!dto.displayName?.trim()) {
+        throw new BadRequestException('displayName is required for Agent accounts');
+      }
+      // Without a specialty an agent matches no search and appears nowhere,
+      // so an account created without one would be silently useless.
+      if (!dto.specialties?.length) {
+        throw new BadRequestException('Select at least one specialty for Agent accounts');
+      }
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
     const user = await this.prisma.user.create({
@@ -109,6 +123,21 @@ export class AuthService {
     if (dto.role === 'DEVELOPER') {
       await this.prisma.developerProfile.create({
         data: { userId: user.id, companyName: dto.companyName! },
+      });
+    }
+
+    if (dto.role === 'AGENT') {
+      await this.prisma.agentProfile.create({
+        data: {
+          userId: user.id,
+          kind: dto.agentKind!,
+          displayName: dto.displayName!.trim(),
+          specialties: dto.specialties!,
+          phone: dto.phone,
+          email: dto.email,
+          // Nothing is public until KYC is approved and the fee is current —
+          // isListed defaults to false and is set by those two, not signup.
+        },
       });
     }
 

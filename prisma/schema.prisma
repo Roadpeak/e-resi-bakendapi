@@ -15,7 +15,30 @@ enum UserRole {
   INVESTOR
   TENANT
   DEVELOPER
+  AGENT
   ADMIN
+}
+
+/// An agent is either a registered company or a sole practitioner. The two
+/// verify differently — a company submits registration documents, an
+/// individual a national ID and a passport photo — and they are billed and
+/// listed separately, so the distinction is modelled rather than inferred.
+enum AgentKind {
+  COMPANY
+  INDIVIDUAL
+}
+
+/// What an agent actually handles. Selected at signup and used to filter the
+/// "Need agent help?" picker on the browse pages, so a tenant looking for a
+/// rental is never shown an agent who only does commercial sales.
+enum AgentSpecialty {
+  APARTMENT_RENTAL
+  APARTMENT_PURCHASE
+  VILLA_RENTAL
+  VILLA_PURCHASE
+  COMMERCIAL_RENTAL
+  COMMERCIAL_PURCHASE
+  LAND_SALE
 }
 
 enum KybStatus {
@@ -233,6 +256,8 @@ model User {
   updatedAt            DateTime  @updatedAt
 
   developerProfile  DeveloperProfile?
+  agentProfile      AgentProfile?
+  agentReviews      AgentReview[]
   savedProperties   SavedProperty[]
   inquiries         Inquiry[]
   inquiryReplies    InquiryReply[]
@@ -341,6 +366,98 @@ model DeveloperProfile {
   properties        Property[]
   rentListings      RentListing[]
   listingFeeRuns    ListingFeeRun[]
+}
+
+/// A letting/sales agent — either a registered company or an individual
+/// practitioner. Mirrors DeveloperProfile deliberately: same KYB lifecycle,
+/// same public-contact fields, same monthly listing fee, so admin review and
+/// billing work the same way for both and neither needs its own concepts.
+model AgentProfile {
+  id                String     @id @default(cuid())
+  userId            String     @unique
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind              AgentKind
+
+  /// Trading name. The company name, or the individual's professional name.
+  displayName       String
+  /// Company registration number — companies only.
+  registrationNumber String?
+  logoUrl           String?
+  /// Passport-style photo. Required for individuals, who are the product;
+  /// optional for companies, which lead with a logo.
+  photoUrl          String?
+  bio               String?
+  yearsExperience   Int?
+  website           String?
+
+  /// Which of APARTMENT_RENTAL, VILLA_PURCHASE… this agent takes on. Drives
+  /// the browse-page picker, so an empty list means they surface nowhere.
+  specialties       AgentSpecialty[]
+  /// Areas worked, free text — "Kilimani", "Westlands". Agents cover
+  /// neighbourhoods rather than one fixed location.
+  serviceAreas      String[]
+
+  /// Same lifecycle as a developer's: nothing is publicly listed until an
+  /// admin approves the documents.
+  kybStatus         KybStatus  @default(NOT_SUBMITTED)
+  /// Submitted documents as [{ type, url, label }] — company registration and
+  /// physical-address proof, or national ID for an individual.
+  kybDocuments      Json?
+  kybReviewedAt     DateTime?
+  kybReviewedBy     String?
+  kybRejectionReason String?
+
+  /// Public contact. Separate from User.phone, which is the private login
+  /// contact for the account owner.
+  phone             String?
+  /// wa.me-ready digits, no plus — the WhatsApp button deep-links directly.
+  whatsapp          String?
+  email             String?
+  /// Street address. Companies must give a physical location as part of KYC.
+  officeAddress     String?
+  location          String?
+  socials           Json?
+
+  /// Cached from AgentReview so the directory can sort by rating without
+  /// aggregating on every request. Recomputed whenever a review lands.
+  ratingAverage     Float      @default(0)
+  ratingCount       Int        @default(0)
+
+  /// Hidden from the public directory when the monthly fee goes unpaid past
+  /// its grace period. Distinct from kybStatus: the agent is still verified,
+  /// just not currently listed, and reactivates on payment.
+  isListed          Boolean    @default(false)
+  /// Set when non-payment hid the profile, so the UI can explain why.
+  suspendedAt       DateTime?
+
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  reviews           AgentReview[]
+
+  @@index([kybStatus])
+  @@index([kind])
+  @@index([isListed])
+}
+
+/// A rating left on an agent. Only someone who actually dealt with the agent
+/// may leave one — the service checks for a conversation or an assignment
+/// first — because these scores decide who appears at the top of the picker.
+model AgentReview {
+  id        String       @id @default(cuid())
+  agentId   String
+  agent     AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  /// 1–5. Enforced in the service; Prisma has no check constraint.
+  rating    Int
+  comment   String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  /// One review per person per agent — editing replaces rather than stacks.
+  @@unique([agentId, authorId])
+  @@index([agentId])
 }
 
 // ─────────────────────────────────────────────

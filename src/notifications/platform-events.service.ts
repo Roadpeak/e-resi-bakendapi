@@ -236,6 +236,41 @@ export class PlatformEventsService {
     );
   }
 
+  /** An agent is waiting on document review — the queue is otherwise poll-only. */
+  async agentKycSubmitted(displayName: string, agentId: string) {
+    await this.toAdmins(
+      'Agent awaiting verification',
+      `${displayName} submitted verification documents for review.`,
+      { label: 'Review agent', path: '/admin/agents?status=PENDING' },
+      { id: agentId, type: 'AgentProfile' },
+    );
+  }
+
+  /**
+   * Outcome of that review. A rejection carries the reason, since the agent
+   * cannot fix anything without knowing what failed.
+   */
+  async agentKycReviewed(
+    userId: string,
+    displayName: string,
+    status: 'APPROVED' | 'REJECTED' | string,
+    rejectionReason?: string,
+  ) {
+    const approved = status === 'APPROVED';
+    await this.toUser(
+      userId,
+      'GENERAL',
+      approved ? 'Your agent account is verified' : 'Verification needs attention',
+      approved
+        ? `${displayName} is verified and now listed in the e-resi agent directory.`
+        : `We could not verify ${displayName}. ${rejectionReason ?? ''} `
+          + 'Update your documents and submit again.',
+      {
+        cta: { label: approved ? 'View my profile' : 'Update documents', path: '/agent/profile' },
+      },
+    );
+  }
+
   async propertySubmitted(propertyName: string, companyName: string, propertyId: string) {
     await this.toAdmins(
       'New listing awaiting review',
