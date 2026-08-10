@@ -44,7 +44,7 @@ export class ProductionOrdersService {
   async syncFromSubmission(propertyId: string): Promise<{ created: number; updated: number; cancelled: number }> {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
-      select: { id: true, currency: true, submissionData: true },
+      select: { id: true, currency: true, submissionData: true, category: true },
     });
     if (!property) throw new NotFoundException('Property not found');
 
@@ -55,7 +55,11 @@ export class ProductionOrdersService {
     const keys = Object.keys(selected);
 
     const platformCurrency = await this.pricing.platformCurrency();
-    const catalog = await this.pricing.listServices().catch(() => []);
+    // Priced for this development's type — shooting a villa is not priced like
+    // a one-bed apartment. Falls back to the catalog default per service.
+    const catalog = await this.pricing
+      .listServicesForType(property.category)
+      .catch(() => [] as { key: string; label: string; price: number; currency: string }[]);
     const byKey = new Map(catalog.map((c: { key: string; label: string; price: number; currency: string }) => [c.key, c]));
 
     const existing = await this.prisma.productionOrder.findMany({ where: { propertyId } });
@@ -174,7 +178,8 @@ export class ProductionOrdersService {
       throw new ForbiddenException('You do not own this property');
     }
 
-    const catalog = await this.pricing.listServices();
+    // Priced for this development's type, same as the submission path.
+    const catalog = await this.pricing.listServicesForType(property.category);
     const byKey = new Map(
       catalog.map((c: { key: string; label: string; price: number; currency: string }) => [c.key, c]),
     );

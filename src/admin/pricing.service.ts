@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ProductionTierType, ServiceCategoryType } from '@prisma/client';
+import { ProductionTierType, PropertyCategory, ServiceCategoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ExchangeRateService } from './exchange-rate.service.js';
 
@@ -130,6 +130,72 @@ export class PricingService {
       where: includeInactive ? {} : { isActive: true },
       orderBy: [{ category: 'asc' }, { order: 'asc' }],
     });
+  }
+
+  // ─── Per-property-type pricing ────────────────────────────────────────────
+
+  /**
+   * The catalog with each service's price resolved for one property type.
+   * Falls back to the catalog default wherever no override exists, so callers
+   * never need to know whether a type has been priced separately.
+   */
+  async listServicesForType(propertyType: PropertyCategory, includeInactive = false) {
+    const services = await this.prisma.serviceCatalogItem.findMany({
+      where: includeInactive ? {} : { isActive: true },
+      orderBy: [{ category: 'asc' }, { order: 'asc' }],
+      include: { priceOverrides: { where: { propertyType } } },
+    });
+    return services.map(({ priceOverrides, ...s }) => {
+      const override = priceOverrides[0];
+      return {
+        ...s,
+        price: override?.price ?? s.price,
+        defaultPrice: s.price,
+        isTypePriced: !!override,
+        propertyType,
+      };
+    });
+  }
+
+  /** Every override for a service, keyed by property type — powers the admin grid. */
+  async listServiceOverrides(serviceId: string) {
+    const service = await this.prisma.serviceCatalogItem.findUnique({
+      where: { id: serviceId },
+      include: { priceOverrides: true },
+    });
+    if (!service) throw new NotFoundException('Service not found');
+    return service;
+  }
+
+  /**
+   * Set (or clear) a type price. Passing a null price removes the override so
+   * the service falls back to its catalog default for that type.
+   */
+  async setServicePrice(serviceId: string, propertyType: PropertyCategory, price: number | null) {
+    const service = await this.prisma.serviceCatalogItem.findUnique({ where: { id: serviceId } });
+    if (!service) throw new NotFoundException('Service not found');
+
+    const before = await this.prisma.servicePriceOverride.findUnique({
+      where: { serviceId_propertyType: { serviceId, propertyType } },
+    });
+
+    if (price === null) {
+      if (before) {
+        await this.prisma.servicePriceOverride.delete({
+          where: { serviceId_propertyType: { serviceId, propertyType } },
+        });
+      }
+      return { service, before, after: null };
+    }
+
+    if (price < 0) throw new BadRequestException('Price cannot be negative');
+
+    const after = await this.prisma.servicePriceOverride.upsert({
+      where: { serviceId_propertyType: { serviceId, propertyType } },
+      create: { serviceId, propertyType, price },
+      update: { price },
+    });
+    return { service, before, after };
   }
 
   async createService(data: {

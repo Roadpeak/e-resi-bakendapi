@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ServiceCategoryType } from '@prisma/client';
+import { PropertyCategory, ServiceCategoryType } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
@@ -11,6 +11,7 @@ import {
   IsString,
   Matches,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateTierDto {
@@ -166,4 +167,26 @@ export class SetCurrencyDto {
   @IsOptional()
   @IsBoolean()
   useLiveRate?: boolean;
+}
+
+/**
+ * Set or clear a per-property-type price for a production service.
+ * A null price removes the override, so the service falls back to its
+ * catalog default for that type.
+ */
+export class SetServiceTypePriceDto {
+  @ApiProperty({ enum: PropertyCategory, example: 'VILLA' })
+  @IsEnum(PropertyCategory)
+  propertyType: PropertyCategory;
+
+  @ApiProperty({
+    example: 45000,
+    nullable: true,
+    description: 'Pass null to clear the override and use the default price.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber()
+  @Min(0)
+  price: number | null;
 }

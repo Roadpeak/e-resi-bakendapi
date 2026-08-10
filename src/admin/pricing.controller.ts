@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { ProductionTierType, UserRole } from '@prisma/client';
+import { ProductionTierType, PropertyCategory, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { AuditService } from './audit.service.js';
@@ -9,6 +9,7 @@ import { PricingService } from './pricing.service.js';
 import {
   CreateServiceDto,
   SetCurrencyDto,
+  SetServiceTypePriceDto,
   UpdateServiceDto,
   UpdateSettingDto,
   UpdateTierDto,
@@ -109,6 +110,49 @@ export class PricingController {
       changes: this.audit.diff(before as unknown as Record<string, unknown>, dto as Record<string, unknown>),
     });
     return after;
+  }
+
+  // ─── Per-property-type service pricing ────────────────────────────────────
+
+  @Get('services/by-type')
+  @ApiOperation({
+    summary: 'Admin: the service catalog priced for one property type, with the '
+      + 'default price alongside so the UI can show what is overridden',
+  })
+  @ApiQuery({ name: 'propertyType', enum: PropertyCategory })
+  listServicesForType(@Query('propertyType') propertyType: PropertyCategory) {
+    return this.service.listServicesForType(propertyType, true);
+  }
+
+  @Get('services/:id/type-prices')
+  @ApiOperation({ summary: 'Admin: every per-type price set for one service' })
+  listServiceOverrides(@Param('id') id: string) {
+    return this.service.listServiceOverrides(id);
+  }
+
+  @Patch('services/:id/type-price')
+  @ApiOperation({
+    summary: 'Admin: set or clear a service price for one property type '
+      + '(null price clears the override)',
+  })
+  async setServiceTypePrice(
+    @Param('id') id: string,
+    @Body() dto: SetServiceTypePriceDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const { service, before, after } = await this.service.setServicePrice(
+      id, dto.propertyType, dto.price,
+    );
+    await this.audit.record({
+      actorId: user.id,
+      action: 'pricing.service.type_price',
+      targetType: 'ServicePriceOverride',
+      targetId: id,
+      summary: after
+        ? `${service.label} · ${dto.propertyType}: ${before?.price ?? `default ${service.price}`} → ${after.price}`
+        : `${service.label} · ${dto.propertyType}: cleared, back to default ${service.price}`,
+    });
+    return after ?? { cleared: true, propertyType: dto.propertyType, price: service.price };
   }
 
   @Get('exchange-rate')
