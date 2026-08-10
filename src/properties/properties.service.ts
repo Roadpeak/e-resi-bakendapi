@@ -82,6 +82,8 @@ export class PropertiesService {
         priceTo: dto.priceTo,
         ...(dto.currency && { currency: dto.currency.toUpperCase() }),
         tags: dto.tags ?? [],
+        // On-site facilities. Nearby landmarks are Amenity rows, not these.
+        features: dto.features ?? [],
         completionDate: dto.completionDate ? new Date(dto.completionDate) : undefined,
         submissionData: dto.submissionData as object | undefined,
       },
@@ -272,6 +274,7 @@ export class PropertiesService {
         ...(dto.priceTo !== undefined && { priceTo: dto.priceTo }),
         ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
+        ...(dto.features !== undefined && { features: dto.features }),
         ...(dto.completionDate !== undefined && { completionDate: new Date(dto.completionDate) }),
         // Previously accepted by the DTO but never written, so editing a
         // submission silently discarded any change to the selected services.

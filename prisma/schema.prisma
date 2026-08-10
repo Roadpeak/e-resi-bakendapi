@@ -374,6 +374,11 @@ model Property {
   hasVRTour           Boolean           @default(false)
   isFeatured          Boolean           @default(false)
   tags                String[]
+  /// On-site facilities the development itself has — pool, gym, borehole,
+  /// backup generator, 24/7 guards. Distinct from the `amenities` relation
+  /// below, which holds nearby landmarks the development does NOT own
+  /// (schools, hospitals, malls) and carries a distance to each.
+  features            String[]
   completionDate      DateTime?
   submissionData      Json?
   createdAt           DateTime          @default(now())

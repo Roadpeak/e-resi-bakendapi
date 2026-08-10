@@ -100,6 +100,21 @@ export class CreatePropertyDto {
   @IsString({ each: true })
   tags?: string[];
 
+  /**
+   * On-site amenities — what the development itself has. Distinct from the
+   * Amenity table, which holds nearby landmarks the development does NOT own
+   * (schools, hospitals, malls) and carries a distance.
+   */
+  @ApiPropertyOptional({
+    example: ['Swimming pool', 'Gym', 'Backup generator', '24/7 guards'],
+    description: 'Facilities within the development itself. Nearby landmarks '
+      + 'go to /properties/:slug/amenities instead.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
   @ApiPropertyOptional({ example: '2026-12-01T00:00:00.000Z' })
   @IsOptional()
   completionDate?: string;
