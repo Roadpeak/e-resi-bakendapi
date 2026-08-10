@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,7 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -16,18 +17,57 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { CreatePropertyDto } from './dto/create-property.dto.js';
 import { QueryPropertiesDto } from './dto/query-properties.dto.js';
 import { UpdatePropertyDto } from './dto/update-property.dto.js';
+import { NearbyPlacesService } from './nearby-places.service.js';
 import { PropertiesService } from './properties.service.js';
 
 @ApiTags('Properties')
 @Controller('properties')
 export class PropertiesController {
-  constructor(private readonly propertiesService: PropertiesService) {}
+  constructor(
+    private readonly propertiesService: PropertiesService,
+    private readonly nearby: NearbyPlacesService,
+  ) {}
 
   @Public()
   @Get()
   @ApiOperation({ summary: 'Public: browse active properties' })
   findAll(@Query() query: QueryPropertiesDto) {
     return this.propertiesService.findAll(query);
+  }
+
+  /**
+   * MUST stay above ':slug' — that is an unconstrained single-segment
+   * wildcard and would otherwise match the literal word "nearby-suggestions"
+   * and try to look it up as a property.
+   */
+  @Get('nearby-suggestions')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Developer: suggest nearby landmarks around a point, for the '
+      + '"Nearby" list. Suggestions only — nothing is saved.',
+  })
+  @ApiQuery({ name: 'lat', required: true })
+  @ApiQuery({ name: 'lng', required: true })
+  @ApiQuery({ name: 'radius', required: false, description: 'Metres, default 3000' })
+  nearbySuggestions(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('radius') radius?: string,
+  ) {
+    const latitude = Number.parseFloat(lat);
+    const longitude = Number.parseFloat(lng);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+      || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      throw new BadRequestException('lat and lng must be valid coordinates');
+    }
+    const parsedRadius = Number.parseInt(radius ?? '', 10);
+    // Capped: a wider box means more results to filter and more load on a
+    // shared public endpoint, for landmarks too far away to be selling points.
+    const metres = Number.isFinite(parsedRadius)
+      ? Math.min(Math.max(parsedRadius, 250), 10_000)
+      : 3000;
+    return this.nearby.suggest(latitude, longitude, metres);
   }
 
   @Public()
