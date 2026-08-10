@@ -439,6 +439,7 @@ model AgentProfile {
   reviews           AgentReview[]
   conversations     Conversation[]
   partnerships      AgentPartnership[]
+  feeRuns           AgentFeeRun[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -531,6 +532,40 @@ model PartnershipDocument {
   createdAt     DateTime         @default(now())
 
   @@index([partnershipId])
+}
+
+/// One month's listing fee for one agent.
+///
+/// Mirrors ListingFeeRun rather than extending it: an agent's fee is a flat
+/// monthly charge that differs by kind (a company pays more than a sole
+/// practitioner), whereas a developer's scales with how many developments are
+/// live. Sharing one table would mean a listingCount column that means
+/// nothing for half the rows.
+model AgentFeeRun {
+  id           String              @id @default(cuid())
+  agentId      String
+  agent        AgentProfile        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Billing period as YYYY-MM.
+  period       String
+  /// Charged amount in major units, tax included.
+  amount       Float
+  currency     String              @default("KES")
+  status       ListingFeeRunStatus @default(PENDING)
+  reference    String?             @unique
+  paymentId    String?
+  failureText  String?
+  attempts     Int                 @default(0)
+  chargedAt    DateTime?
+  /// When an unpaid fee stops being tolerated and the profile is hidden.
+  /// Nothing is delisted before this, so one failed charge never silently
+  /// removes a paying agent from the directory.
+  graceEndsAt  DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  /// One run per agent per month — reruns update rather than duplicate.
+  @@unique([agentId, period])
+  @@index([status])
 }
 
 /// A rating left on an agent. Only someone who actually dealt with the agent

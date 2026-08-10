@@ -86,6 +86,12 @@ export class PricingService {
       { key: 'listing_fee_monthly', value: '49', valueType: 'number', label: 'Monthly listing fee', group: 'billing', description: 'Charged per active development each month.' },
       { key: 'listing_fee_free_months', value: '0', valueType: 'number', label: 'Free months on signup', group: 'billing' },
       { key: 'tax_rate_percent', value: '16', valueType: 'number', label: 'VAT rate (%)', group: 'billing', description: 'Applied to invoices.' },
+      // Agents are billed a flat monthly fee, priced separately by kind: an
+      // agency and a sole practitioner do not carry the same overhead.
+      { key: 'agent_fee_monthly_company', value: '99', valueType: 'number', label: 'Agent fee — company (monthly)', group: 'billing', description: 'Flat monthly listing fee for agency accounts.' },
+      { key: 'agent_fee_monthly_individual', value: '29', valueType: 'number', label: 'Agent fee — individual (monthly)', group: 'billing', description: 'Flat monthly listing fee for individual agents.' },
+      { key: 'agent_fee_free_months', value: '1', valueType: 'number', label: 'Agent free months on signup', group: 'billing', description: 'First month free by default.' },
+      { key: 'agent_fee_grace_days', value: '7', valueType: 'number', label: 'Agent grace period (days)', group: 'billing', description: 'How long an unpaid agent stays listed before their profile is hidden.' },
     ];
     let settings = 0;
     for (const s of settingSeed) {

@@ -12,6 +12,7 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { PayInvoiceMpesaDto, PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
 import { InvoicesService } from './invoices.service.js';
+import { AgentFeeService } from './agent-fee.service.js';
 import { ListingFeeService } from './listing-fee.service.js';
 import { PaystackService } from './paystack.service.js';
 
@@ -23,6 +24,7 @@ export class BillingController {
     private readonly service: BillingService,
     private readonly paystack: PaystackService,
     private readonly listingFees: ListingFeeService,
+    private readonly agentFees: AgentFeeService,
     private readonly invoices: InvoicesService,
   ) {}
 
@@ -119,6 +121,38 @@ export class BillingController {
   })
   runFees(@Param('period') period: string) {
     return this.listingFees.runForPeriod(period);
+  }
+
+  // ─── Agent listing fees ─────────────────────────────────────────────────
+
+  @Get('agent-fees/mine')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({
+    summary: 'Agent: my billing history and what the next charge will be, '
+      + 'including whether I am still inside the free window',
+  })
+  myAgentFees(@CurrentUser() user: { id: string }) {
+    return this.agentFees.historyForAgent(user.id);
+  }
+
+  @Post('agent-fees/:period/run')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Admin: run agent fee collection for a period. Idempotent — '
+      + 'agents already charged or skipped for the period are left alone.',
+  })
+  runAgentFees(@Param('period') period: string) {
+    return this.agentFees.runForPeriod(period);
+  }
+
+  @Post('agent-fees/enforce-grace')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Admin: hide agents whose grace period has expired. Runs daily '
+      + 'on a schedule; this is the manual trigger.',
+  })
+  enforceAgentGrace() {
+    return this.agentFees.enforceGracePeriod();
   }
 
   @Get('summary')

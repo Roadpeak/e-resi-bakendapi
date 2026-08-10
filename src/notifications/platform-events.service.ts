@@ -271,6 +271,47 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * A listing fee could not be collected. Names the deadline, because the
+   * consequence is losing directory visibility and the agent can still avoid
+   * it.
+   */
+  async agentFeeFailed(
+    userId: string,
+    displayName: string,
+    reason: string,
+    graceEndsAt: Date | null,
+    amount: number,
+    currency: string,
+  ) {
+    const deadline = graceEndsAt
+      ? graceEndsAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+    await this.toUser(
+      userId,
+      'GENERAL',
+      'Your listing fee could not be collected',
+      `We could not charge ${currency} ${amount.toLocaleString()} for ${displayName}: ${reason}. `
+      + (deadline
+        ? `Update your payment method before ${deadline} to stay listed in the agent directory.`
+        : 'Update your payment method to stay listed in the agent directory.'),
+      { cta: { label: 'Fix payment', path: '/agent/billing' } },
+    );
+  }
+
+  /** The grace period expired — says plainly that this is reversible. */
+  async agentDelisted(userId: string, displayName: string) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${displayName} is no longer listed`,
+      'Your listing fee is still unpaid, so your profile has been hidden from the '
+      + 'agent directory. Your account and data are intact — settle the fee and you '
+      + 'will be listed again straight away.',
+      { cta: { label: 'Settle now', path: '/agent/billing' } },
+    );
+  }
+
   /** Someone wants to work with you — needs an answer, so it is addressed. */
   async partnershipRequested(userId: string, fromName: string, partnershipId: string) {
     await this.toUser(
