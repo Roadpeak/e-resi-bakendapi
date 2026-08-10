@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -130,6 +131,50 @@ export class AgentsController {
   @ApiOperation({ summary: 'Admin: show or hide an agent in the public directory' })
   setListed(@Param('id') id: string, @Body('isListed') isListed: boolean) {
     return this.agents.setListed(id, isListed);
+  }
+
+  // ─── Reviews ──────────────────────────────────────────────────────────────
+  //
+  // Declared above ':id' — these are two-segment paths, but keeping every
+  // agent route ahead of the bare wildcard keeps the ordering rule simple.
+
+  @Public()
+  @Get(':id/reviews')
+  @ApiOperation({ summary: 'Public: reviews left on an agent' })
+  listReviews(@Param('id') id: string, @Query() pagination: PaginationDto) {
+    return this.agents.listReviews(id, pagination);
+  }
+
+  @Get(':id/reviews/eligibility')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Whether the signed-in user may review this agent, and why not '
+      + 'if they may not — so the UI can explain rather than just hide the form.',
+  })
+  reviewEligibility(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.agents.canReview(id, user.id);
+  }
+
+  @Post(':id/reviews')
+  @Roles(UserRole.TENANT, UserRole.INVESTOR, UserRole.BUYER, UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Leave or update a review. One per person per agent — a second '
+      + 'submission replaces the first.',
+  })
+  upsertReview(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+    @Body() body: { rating: number; comment?: string },
+  ) {
+    return this.agents.upsertReview(id, user.id, body.rating, body.comment);
+  }
+
+  @Delete(':id/reviews/mine')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove your own review of this agent' })
+  deleteOwnReview(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.agents.deleteReview(id, user.id);
   }
 
   // ─── Public directory ─────────────────────────────────────────────────────

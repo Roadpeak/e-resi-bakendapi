@@ -292,6 +292,120 @@ export class AgentsService {
     return profile;
   }
 
+  // ─── Reviews ──────────────────────────────────────────────────────────────
+
+  /**
+   * Whether this user is allowed to review this agent.
+   *
+   * Ratings decide who appears at the top of the picker, so they have to be
+   * earned: only someone who actually dealt with the agent may score them.
+   * Today that means a conversation with them; assignments become a second
+   * route once developer↔agent work lands. Until chat exists nobody qualifies,
+   * which is deliberate — an open rating box on a new directory is gamed
+   * immediately, by competitors and by the agents themselves.
+   */
+  async canReview(agentId: string, userId: string): Promise<{ allowed: boolean; reason?: string }> {
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { id: agentId },
+      select: { userId: true },
+    });
+    if (!agent) throw new NotFoundException('Agent not found');
+
+    // Reviewing yourself is the most obvious way to inflate a score.
+    if (agent.userId === userId) {
+      return { allowed: false, reason: 'You cannot review your own profile' };
+    }
+
+    const spokeWith = await this.prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { customerId: userId, developerId: agent.userId },
+          { customerId: agent.userId, developerId: userId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (spokeWith) return { allowed: true };
+
+    return {
+      allowed: false,
+      reason: 'Message this agent before leaving a review',
+    };
+  }
+
+  /**
+   * Leave or update a review. One per person per agent — a second submission
+   * replaces the first rather than stacking, so nobody can pile on ratings.
+   */
+  async upsertReview(agentId: string, userId: string, rating: number, comment?: string) {
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new BadRequestException('Rating must be a whole number from 1 to 5');
+    }
+
+    const { allowed, reason } = await this.canReview(agentId, userId);
+    if (!allowed) throw new ForbiddenException(reason);
+
+    await this.prisma.agentReview.upsert({
+      where: { agentId_authorId: { agentId, authorId: userId } },
+      create: { agentId, authorId: userId, rating, comment },
+      update: { rating, comment },
+    });
+
+    return this.recomputeRating(agentId);
+  }
+
+  async deleteReview(agentId: string, userId: string, isAdmin = false) {
+    const review = await this.prisma.agentReview.findFirst({
+      where: { agentId, ...(isAdmin ? {} : { authorId: userId }) },
+    });
+    if (!review) throw new NotFoundException('Review not found');
+    await this.prisma.agentReview.delete({ where: { id: review.id } });
+    return this.recomputeRating(agentId);
+  }
+
+  async listReviews(agentId: string, pagination: PaginationDto) {
+    const [data, total] = await Promise.all([
+      this.prisma.agentReview.findMany({
+        where: { agentId },
+        skip: pagination.skip,
+        take: pagination.limit ?? 20,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          // First name only — a review is public, the reviewer's full identity
+          // need not be.
+          author: { select: { firstName: true, avatarUrl: true } },
+        },
+      }),
+      this.prisma.agentReview.count({ where: { agentId } }),
+    ]);
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
+  }
+
+  /**
+   * Recalculate and cache the agent's score.
+   *
+   * Cached on AgentProfile rather than aggregated per request because the
+   * directory sorts by it on every page load, and sorting on a computed
+   * aggregate across the whole table does not stay cheap.
+   */
+  private async recomputeRating(agentId: string) {
+    const stats = await this.prisma.agentReview.aggregate({
+      where: { agentId },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+    return this.prisma.agentProfile.update({
+      where: { id: agentId },
+      data: {
+        // Stored to one decimal — the UI shows "4.5", and keeping full float
+        // noise makes ordering look arbitrary between near-identical agents.
+        ratingAverage: Math.round((stats._avg.rating ?? 0) * 10) / 10,
+        ratingCount: stats._count.rating,
+      },
+      select: { id: true, ratingAverage: true, ratingCount: true },
+    });
+  }
+
   // ─── Admin: listing control ───────────────────────────────────────────────
 
   /** Manual override — used by billing when a fee lapses, and by admins. */
