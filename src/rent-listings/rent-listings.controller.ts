@@ -1,10 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { RentListingStatus, UserRole } from '@prisma/client';
+import { PropertyCategory, RentListingStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
@@ -21,6 +21,13 @@ class BrowseRentListingsDto extends PaginationDto {
   @IsString()
   @MaxLength(120)
   q?: string;
+
+  /// Rent listings have no category of their own — they inherit the parent
+  /// development's, so this filters on property.category (drives /rent/villas,
+  /// /rent/commercial and friends).
+  @IsOptional()
+  @IsEnum(PropertyCategory)
+  category?: PropertyCategory;
 }
 
 @ApiTags('Rent Listings')
@@ -33,8 +40,9 @@ export class RentListingsController {
   @ApiOperation({ summary: 'Public: browse rent listings' })
   @ApiQuery({ name: 'city', required: false })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'category', enum: PropertyCategory, required: false })
   findAll(@Query() query: BrowseRentListingsDto) {
-    return this.service.findAll(query, query.city, query.q);
+    return this.service.findAll(query, query.city, query.q, query.category);
   }
 
   @Public()

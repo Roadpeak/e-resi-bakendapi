@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { RentListingStatus, UserRole } from '@prisma/client';
+import { PropertyCategory, RentListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
@@ -71,10 +71,12 @@ export class RentListingsService {
 
   // ─── Public: list ──────────────────────────────────────────────────────────
 
-  async findAll(pagination: PaginationDto, city?: string, q?: string) {
+  async findAll(pagination: PaginationDto, city?: string, q?: string, category?: PropertyCategory) {
     const where: Record<string, unknown> = {
       status: { not: RentListingStatus.ARCHIVED },
       ...(city && { city: { contains: city, mode: 'insensitive' } }),
+      // A rent listing's type comes from the development it belongs to.
+      ...(category && { property: { category } }),
       ...(q && {
         // "search by area, building or listing" — match location too, not just the name
         OR: [
