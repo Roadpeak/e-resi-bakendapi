@@ -91,18 +91,41 @@ export class PropertiesService {
 
     await this.syncOrders(created.id);
 
-    // A new development lands in the review queue. Admins had no signal for
-    // this before — the queue was poll-only.
-    await this.events.propertySubmitted(created.name, developer.companyName, created.id);
-
-    // Any services picked with it are work someone has to schedule.
-    const orders = await this.prisma.productionOrder.findMany({
-      where: { propertyId: created.id, status: 'ORDERED' },
-      select: { label: true, amount: true, currency: true },
-    });
-    await this.events.productionOrdered(created.name, developer.companyName, orders);
+    // Admin notifications email every active admin, and a send is only as
+    // fast as the mail provider. Awaiting that fan-out made creating a
+    // development hang past the gateway timeout whenever mail was slow — the
+    // developer saw a 504 for a property that had in fact been created, and
+    // retried, producing duplicates.
+    //
+    // The property is saved by this point, so notifying is follow-up work: it
+    // runs detached and its failure is logged rather than returned.
+    void this.notifyAdminsOfSubmission(created.id, created.name, developer.companyName);
 
     return created;
+  }
+
+  /** Fire-and-forget admin alerts for a new submission. Never throws. */
+  private async notifyAdminsOfSubmission(
+    propertyId: string,
+    propertyName: string,
+    companyName: string,
+  ): Promise<void> {
+    try {
+      // A new development lands in the review queue. Admins had no signal for
+      // this before — the queue was poll-only.
+      await this.events.propertySubmitted(propertyName, companyName, propertyId);
+
+      // Any services picked with it are work someone has to schedule.
+      const orders = await this.prisma.productionOrder.findMany({
+        where: { propertyId, status: 'ORDERED' },
+        select: { label: true, amount: true, currency: true },
+      });
+      await this.events.productionOrdered(propertyName, companyName, orders);
+    } catch (err) {
+      this.logger.error(
+        `Could not notify admins about ${propertyName}: ${(err as Error).message}`,
+      );
+    }
   }
 
   // ─── Public list ──────────────────────────────────────────────────────────
