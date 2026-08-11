@@ -5,6 +5,12 @@ import { randomBytes } from 'crypto';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import { extname, join } from 'path';
 
+/**
+ * Cloudinary's plain upload_stream rejects anything over 100MB. Switching a
+ * little below that keeps a safety margin for multipart overhead.
+ */
+const CHUNKED_UPLOAD_THRESHOLD = 90 * 1024 * 1024;
+
 export type UploadFolder = 'properties' | 'rentals' | 'avatars' | 'logos' | 'documents' | 'tours';
 
 type CloudinaryResourceType = 'image' | 'video' | 'raw';
@@ -72,16 +78,27 @@ export class StorageService {
 
     try {
       const result = await new Promise<UploadApiResponse>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            public_id: publicId,
-            resource_type: resourceType,
-            // keep the original filename as context for the media library
-            context: { original_name: originalName },
-            overwrite: false,
-          },
-          (err, res) => (err || !res ? reject(err ?? new Error('Empty upload response')) : resolve(res)),
-        );
+        const options = {
+          public_id: publicId,
+          resource_type: resourceType,
+          // keep the original filename as context for the media library
+          context: { original_name: originalName },
+          overwrite: false,
+        } as const;
+
+        const callback = (err: unknown, res?: UploadApiResponse) =>
+          (err || !res ? reject(err ?? new Error('Empty upload response')) : resolve(res));
+
+        // upload_stream caps at 100MB. Tour videos routinely exceed that, so
+        // anything large goes through the chunked uploader instead — same
+        // result, sent in pieces Cloudinary will accept.
+        const stream = buffer.byteLength > CHUNKED_UPLOAD_THRESHOLD
+          ? cloudinary.uploader.upload_chunked_stream(
+              { ...options, chunk_size: 20 * 1024 * 1024 },
+              callback,
+            )
+          : cloudinary.uploader.upload_stream(options, callback);
+
         stream.end(buffer);
       });
 

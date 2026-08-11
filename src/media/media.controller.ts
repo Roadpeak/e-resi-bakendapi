@@ -42,10 +42,14 @@ export class MediaController {
   @Post('upload')
   @ApiBearerAuth()
   @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  // Tour videos are the largest thing uploaded here and routinely exceed the
+  // old 50MB cap. Multer buffers the whole file in memory, so this is a
+  // deliberate ceiling rather than an open door: a handful of concurrent
+  // uploads at this size is what the container can hold.
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 500 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, folder: { type: 'string' } } } })
-  @ApiOperation({ summary: 'Upload a file to Cloudinary via the API (max 50MB)' })
+  @ApiOperation({ summary: 'Upload a file to Cloudinary via the API (max 500MB)' })
   upload(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder?: string,
