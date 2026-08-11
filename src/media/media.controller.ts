@@ -31,8 +31,15 @@ export class MediaController {
 
   @Post('presign')
   @ApiBearerAuth()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get signed Cloudinary direct-upload parameters' })
+  // Agents upload verification documents and profile photos through the same
+  // path, so restricting this to developers would push them onto the
+  // memory-bound server route.
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Signed parameters for uploading straight to Cloudinary. Returns '
+      + 'direct=false when Cloudinary is unconfigured, in which case the client '
+      + 'should post to /media/upload instead.',
+  })
   getPresignedUrl(@Body() dto: PresignUploadDto) {
     return this.service.getPresignedUrl(dto);
   }
@@ -42,14 +49,18 @@ export class MediaController {
   @Post('upload')
   @ApiBearerAuth()
   @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
-  // Tour videos are the largest thing uploaded here and routinely exceed the
-  // old 50MB cap. Multer buffers the whole file in memory, so this is a
-  // deliberate ceiling rather than an open door: a handful of concurrent
-  // uploads at this size is what the container can hold.
+  // Fallback path only — clients presign and upload straight to Cloudinary,
+  // which is what makes multi-gigabyte videos possible. This route buffers the
+  // whole file in memory, so its ceiling stays modest on purpose: raising it
+  // to match the direct path would let a few concurrent uploads exhaust the
+  // container and take the whole API down, not just the upload.
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 500 * 1024 * 1024 } }))
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, folder: { type: 'string' } } } })
-  @ApiOperation({ summary: 'Upload a file to Cloudinary via the API (max 500MB)' })
+  @ApiOperation({
+    summary: 'Fallback upload through the API (max 500MB). Prefer /media/presign '
+      + 'and uploading straight to Cloudinary — that path has no size ceiling here.',
+  })
   upload(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder?: string,

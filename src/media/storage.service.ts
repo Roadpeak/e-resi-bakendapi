@@ -155,33 +155,61 @@ export class StorageService {
   async presignedUploadUrl(
     folder: UploadFolder,
     _originalName: string,
-    _mimeType: string,
+    mimeType: string,
     _expiresIn = 300,
   ): Promise<{
     uploadUrl: string;
     key: string;
     fileUrl: string;
-    fields: Record<string, string | number>;
+    /** Null when Cloudinary is unconfigured — callers fall back to the API. */
+    fields: Record<string, string | number> | null;
+    resourceType: CloudinaryResourceType;
+    /** False in sandbox: the caller must post to the API instead. */
+    direct: boolean;
   }> {
+    const resourceType = this.resourceTypeFor(mimeType);
+
+    // Without credentials there is nothing to sign, and handing back a URL
+    // that cannot work would fail at the browser with no useful error.
+    if (this.localMode) {
+      return {
+        uploadUrl: '',
+        key: '',
+        fileUrl: '',
+        fields: null,
+        resourceType,
+        direct: false,
+      };
+    }
+
     const publicId = this.buildPublicId(folder);
     const timestamp = Math.floor(Date.now() / 1000);
     const apiSecret = this.config.get<string>('CLOUDINARY_API_SECRET', '');
+
+    // Every parameter the browser sends must be in the signature, or
+    // Cloudinary rejects the upload. resource_type is part of the URL rather
+    // than the form, so it is deliberately not signed here.
     const signature = cloudinary.utils.api_sign_request(
       { public_id: publicId, timestamp },
       apiSecret,
     );
 
     return {
-      uploadUrl: `https://api.cloudinary.com/v1_1/${this.cloudName}/auto/upload`,
-      key: publicId,
-      // final URL depends on the detected resource type — image is the common case
-      fileUrl: `https://res.cloudinary.com/${this.cloudName}/image/upload/${publicId}`,
+      // Pinned to the detected resource type rather than `auto`: `auto`
+      // decides server-side, which would leave us guessing the delivery URL.
+      uploadUrl: `https://api.cloudinary.com/v1_1/${this.cloudName}/${resourceType}/upload`,
+      key: `${resourceType}:${publicId}`,
+      // Previously hardcoded to /image/, so every direct-uploaded video came
+      // back with a URL that 404s.
+      fileUrl: `https://res.cloudinary.com/${this.cloudName}/${resourceType}/upload/${publicId}`,
       fields: {
         public_id: publicId,
         timestamp,
         signature,
         api_key: this.config.get<string>('CLOUDINARY_API_KEY', ''),
       },
+      resourceType,
+      direct: true,
     };
   }
 }
