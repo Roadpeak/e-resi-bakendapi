@@ -39,10 +39,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    // A thrown object may carry a machine-readable `code` alongside its
+    // message — clients branch on that rather than string-matching the
+    // human text, which changes freely.
+    const payload = (typeof message === 'object' && message !== null
+      ? message as Record<string, unknown>
+      : {});
+    const errorCode = typeof payload.error === 'string' && payload.error !== errorMessage
+      ? payload.error
+      : undefined;
+
     response.status(status).json({
       success: false,
       statusCode: status,
       error: errorMessage,
+      ...(errorCode && { code: errorCode }),
+      // Extra context the thrower attached, e.g. which email needs verifying.
+      ...(typeof payload.email === 'string' && { email: payload.email }),
       path: request.url,
       timestamp: new Date().toISOString(),
     });

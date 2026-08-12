@@ -159,7 +159,19 @@ export class AuthService {
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
     if (!user.isActive) throw new ForbiddenException('Account is disabled');
-    if (!user.emailVerified) throw new ForbiddenException('Please verify your email before logging in');
+
+    // Carries a machine-readable code so the client can open the OTP step
+    // instead of showing a dead-end error. Accounts created while mail was
+    // down never got their code, and a plain message left them stuck with no
+    // way to ask for another.
+    if (!user.emailVerified) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email to continue',
+        email: user.email,
+      });
+    }
 
     const rawRefresh = this.generateToken();
     const hashedRefresh = this.sha256(rawRefresh);
