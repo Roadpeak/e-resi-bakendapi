@@ -365,6 +365,17 @@ model DeveloperProfile {
   /// whichever are present rather than a fixed set of icons.
   socials           Json?
 
+  // ─── Mini-site brand defaults ────────────────────────────────────────────
+  //
+  // Set once here and every development inherits them, so a developer with
+  // ten projects brands them all in one place. A development may still
+  // override any of these — see the matching fields on Property.
+
+  /// Brand accent as #rrggbb, inherited by all this developer's developments.
+  brandColor        String?
+  /// Curated font pairing key, inherited unless a development overrides it.
+  brandFont         String?
+
   properties        Property[]
   rentListings      RentListing[]
   listingFeeRuns    ListingFeeRun[]
@@ -626,6 +637,35 @@ model Property {
   features            String[]
   completionDate      DateTime?
   submissionData      Json?
+
+  // ─── Mini-site branding ──────────────────────────────────────────────────
+  //
+  // The public page is the developer's own sales site, shared directly with
+  // their buyers, so it carries their identity rather than ours. Every field
+  // here is nullable and falls back to the developer's defaults, so a
+  // development inherits a coherent look without anyone configuring it.
+
+  /// Brand accent as #rrggbb. Tints are derived at render, so one colour in
+  /// yields a whole palette — a developer cannot produce an unreadable theme.
+  brandColor          String?
+  /// Curated pairing key (see BRAND_FONTS). Deliberately not free-form: one
+  /// bad font would undermine a tour the developer paid six figures for.
+  brandFont           String?
+  /// Opening treatment — full-bleed video, split, or cinematic.
+  heroStyle           String?
+  /// Section ids in display order. Empty means the default order.
+  sectionOrder        String[]
+  /// Section ids to omit entirely for this development.
+  hiddenSections      String[]
+  /// Primary call to action — "Book a viewing", "Request price list"…
+  ctaLabel            String?
+  /// Vanity host, e.g. "tours.developer.co.ke". Unique because it routes.
+  customDomain        String?           @unique
+  /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a
+  /// small "Tours by e-resi" mark, which is what stops the mini-site being a
+  /// standalone microsite a developer could just take elsewhere.
+  whiteLabel          Boolean           @default(false)
+
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 

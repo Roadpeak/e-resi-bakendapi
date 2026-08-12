@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -10,6 +11,7 @@ import { ProductionOrdersService } from '../production-tiers/production-orders.s
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
 import type { QueryPropertiesDto } from './dto/query-properties.dto.js';
+import type { UpdateBrandingDto } from './dto/update-branding.dto.js';
 import type { UpdatePropertyDto } from './dto/update-property.dto.js';
 
 function slugify(name: string): string {
@@ -270,6 +272,63 @@ export class PropertiesService {
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
+
+  /**
+   * Update the mini-site branding for one development.
+   *
+   * Kept apart from update() because these are presentation settings, edited
+   * from the customise screen rather than the listing form. White-label and
+   * custom domains are commercial tiers, so both are admin-gated here — a
+   * developer toggling whiteLabel themselves would remove our attribution
+   * without ever paying for it.
+   */
+  async updateBranding(
+    slug: string,
+    userId: string,
+    userRole: UserRole,
+    dto: UpdateBrandingDto,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      include: { developer: true },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+
+    const isAdmin = userRole === UserRole.ADMIN;
+    if (!isAdmin && dto.whiteLabel !== undefined) {
+      throw new ForbiddenException('White-label is enabled by e-resi on your plan');
+    }
+    if (!isAdmin && dto.customDomain !== undefined) {
+      throw new ForbiddenException('Custom domains are set up by e-resi on your plan');
+    }
+
+    if (dto.customDomain) {
+      // Domains route requests, so a duplicate would make resolution ambiguous.
+      const clash = await this.prisma.property.findFirst({
+        where: { customDomain: dto.customDomain, NOT: { slug } },
+        select: { slug: true },
+      });
+      if (clash) throw new BadRequestException('That domain is already in use');
+    }
+
+    return this.prisma.property.update({
+      where: { slug },
+      data: {
+        ...(dto.brandColor !== undefined && { brandColor: dto.brandColor }),
+        ...(dto.brandFont !== undefined && { brandFont: dto.brandFont }),
+        ...(dto.heroStyle !== undefined && { heroStyle: dto.heroStyle }),
+        ...(dto.sectionOrder !== undefined && { sectionOrder: dto.sectionOrder }),
+        ...(dto.hiddenSections !== undefined && { hiddenSections: dto.hiddenSections }),
+        ...(dto.ctaLabel !== undefined && { ctaLabel: dto.ctaLabel }),
+        ...(dto.customDomain !== undefined && { customDomain: dto.customDomain || null }),
+        ...(dto.whiteLabel !== undefined && { whiteLabel: dto.whiteLabel }),
+      },
+    });
+  }
 
   async update(slug: string, userId: string, userRole: UserRole, dto: UpdatePropertyDto) {
     const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true } });

@@ -16,6 +16,7 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CreatePropertyDto } from './dto/create-property.dto.js';
 import { QueryPropertiesDto } from './dto/query-properties.dto.js';
+import { UpdateBrandingDto } from './dto/update-branding.dto.js';
 import { UpdatePropertyDto } from './dto/update-property.dto.js';
 import { NearbyPlacesService } from './nearby-places.service.js';
 import { PropertiesService } from './properties.service.js';
@@ -109,6 +110,18 @@ export class PropertiesController {
     @Body() dto: UpdatePropertyDto,
   ) {
     return this.propertiesService.update(slug, user.id, user.role, dto);
+  }
+
+  @Patch(':slug/branding')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer/Admin: update mini-site branding' })
+  updateBranding(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Body() dto: UpdateBrandingDto,
+  ) {
+    return this.propertiesService.updateBranding(slug, user.id, user.role, dto);
   }
 
   @Patch(':slug/status')
