@@ -324,8 +324,11 @@ export class PropertiesService {
         ...(dto.sectionOrder !== undefined && { sectionOrder: dto.sectionOrder }),
         ...(dto.hiddenSections !== undefined && { hiddenSections: dto.hiddenSections }),
         ...(dto.ctaLabel !== undefined && { ctaLabel: dto.ctaLabel }),
+        ...(dto.navbarStyle !== undefined && { navbarStyle: dto.navbarStyle }),
+        ...(dto.navbarTheme !== undefined && { navbarTheme: dto.navbarTheme }),
+        ...(dto.heroOverlay !== undefined && { heroOverlay: dto.heroOverlay as boolean }),
         ...(dto.customDomain !== undefined && { customDomain: dto.customDomain || null }),
-        ...(dto.whiteLabel !== undefined && { whiteLabel: dto.whiteLabel }),
+        ...(dto.whiteLabel !== undefined && { whiteLabel: dto.whiteLabel as boolean }),
       },
     });
   }

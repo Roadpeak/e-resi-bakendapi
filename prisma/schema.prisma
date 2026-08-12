@@ -659,6 +659,15 @@ model Property {
   hiddenSections      String[]
   /// Primary call to action — "Book a viewing", "Request price list"…
   ctaLabel            String?
+  /// SOLID or FLOATING — whether the navbar is pinned flush or floats clear.
+  navbarStyle         String?
+  /// LIGHT, DARK or BRAND. Foreground text is derived, never chosen, so a
+  /// dark bar cannot end up carrying dark text.
+  navbarTheme         String?
+  /// Whether the hero keeps its gradient overlay. Defaults true: the overlay
+  /// is what keeps the overlaid status chips legible, so turning it off is a
+  /// deliberate choice for renders that do not need it.
+  heroOverlay         Boolean           @default(true)
   /// Vanity host, e.g. "tours.developer.co.ke". Unique because it routes.
   customDomain        String?           @unique
   /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a

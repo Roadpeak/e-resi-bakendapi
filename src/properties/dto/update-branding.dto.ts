@@ -8,11 +8,14 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Curated font pairings — kept in step with the frontend BRAND_FONTS. */
 export const BRAND_FONT_KEYS = ['MODERN', 'LUXURY', 'MINIMAL', 'BOLD'] as const;
 export const HERO_STYLE_KEYS = ['CINEMATIC', 'SPLIT', 'MINIMAL'] as const;
+export const NAVBAR_STYLE_KEYS = ['SOLID', 'FLOATING'] as const;
+export const NAVBAR_THEME_KEYS = ['LIGHT', 'DARK', 'BRAND'] as const;
 
 /**
  * Mini-site branding for one development.
@@ -51,6 +54,31 @@ export class UpdateBrandingDto {
   @IsString({ each: true })
   hiddenSections?: string[];
 
+  @ApiPropertyOptional({ enum: NAVBAR_STYLE_KEYS })
+  @IsOptional()
+  @IsIn(NAVBAR_STYLE_KEYS as unknown as string[])
+  navbarStyle?: string;
+
+  @ApiPropertyOptional({ enum: NAVBAR_THEME_KEYS })
+  @IsOptional()
+  @IsIn(NAVBAR_THEME_KEYS as unknown as string[])
+  navbarTheme?: string;
+
+  @ApiPropertyOptional({ description: 'Keep the gradient overlay on the hero image' })
+  @IsOptional()
+  // The global pipe runs with enableImplicitConversion, which coerces any
+  // non-empty string to `true` — so "maybe" silently turned the overlay ON
+  // instead of being rejected. Convert explicitly from the values a client can
+  // legitimately send, and leave anything else as-is so @IsBoolean rejects it.
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1') return true;
+    if (value === 'false' || value === '0') return false;
+    return value;
+  })
+  @IsBoolean()
+  heroOverlay?: unknown;
+
   @ApiPropertyOptional({ example: 'Book a viewing' })
   @IsOptional()
   @IsString()
@@ -69,6 +97,14 @@ export class UpdateBrandingDto {
 
   @ApiPropertyOptional({ description: 'Remove e-resi attribution (top tier only)' })
   @IsOptional()
+  // Same implicit-conversion hazard as heroOverlay above. It matters more
+  // here: this is a paid tier, so a stray string must not read as "enabled".
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true' || value === '1') return true;
+    if (value === 'false' || value === '0') return false;
+    return value;
+  })
   @IsBoolean()
-  whiteLabel?: boolean;
+  whiteLabel?: unknown;
 }
