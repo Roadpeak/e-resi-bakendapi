@@ -34,9 +34,12 @@ export class AnalyticsController {
   @ApiQuery({ name: 'days', required: false, type: Number })
   propertyStats(
     @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
     @Query('days') days?: string,
   ) {
-    return this.service.propertyStats(slug, days ? parseInt(days, 10) : 30);
+    return this.service.miniSiteReport(
+      slug, user.id, user.role, days ? parseInt(days, 10) : 30,
+    );
   }
 
   @Get('developer/overview')

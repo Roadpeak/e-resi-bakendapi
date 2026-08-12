@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { AnalyticsEventType, Prisma } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { AnalyticsEventType, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 interface TrackEventDto {
@@ -31,35 +31,171 @@ export class AnalyticsService {
 
   // ─── Property stats (developer dashboard) ────────────────────────────────
 
-  async propertyStats(propertySlug: string, days = 30) {
-    const property = await this.prisma.property.findUnique({ where: { slug: propertySlug } });
-    if (!property) return null;
+  /**
+   * The mini-site engagement report a developer sees for one development.
+   *
+   * This is what makes the mini-site defensible: "4,200 opened it, 380 spent
+   * over two minutes in the tour, unit B4 leads three weeks running" is
+   * something no standalone microsite can tell them, and it is the evidence
+   * a recurring fee is eventually argued from. A bare view count is not.
+   *
+   * `userId`/`userRole` are required rather than optional — this previously
+   * took a slug alone, which let any signed-in developer read a competitor's
+   * numbers just by guessing a slug.
+   */
+  async miniSiteReport(
+    propertySlug: string,
+    userId: string,
+    userRole: UserRole,
+    days = 30,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug: propertySlug },
+      include: { developer: true, units: { select: { id: true, name: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const scope = { propertyId: property.id, createdAt: { gte: since } };
 
-    const [events, inquiriesCount, bookingsCount, savedCount] = await Promise.all([
-      this.prisma.analyticsEvent.groupBy({
-        by: ['type'],
-        where: { propertyId: property.id, createdAt: { gte: since } },
-        _count: { type: true },
-      }),
-      this.prisma.inquiry.count({ where: { propertyId: property.id, createdAt: { gte: since } } }),
-      this.prisma.booking.count({ where: { propertyId: property.id, createdAt: { gte: since } } }),
-      this.prisma.savedProperty.count({ where: { propertyId: property.id } }),
-    ]);
+    const [byType, sessions, sources, tourEvents, unitEvents, inquiries, bookings, saved] =
+      await Promise.all([
+        this.prisma.analyticsEvent.groupBy({
+          by: ['type'],
+          where: scope,
+          _count: { type: true },
+        }),
+        // Distinct sessions, not raw hits: one person refreshing five times is
+        // one interested buyer, and inflating that would mislead the developer.
+        this.prisma.analyticsEvent.findMany({
+          where: { ...scope, type: AnalyticsEventType.PAGE_VIEW },
+          select: { sessionId: true },
+          distinct: ['sessionId'],
+        }),
+        this.prisma.analyticsEvent.groupBy({
+          by: ['source'],
+          where: { ...scope, type: AnalyticsEventType.PAGE_VIEW },
+          _count: { source: true },
+        }),
+        this.prisma.analyticsEvent.findMany({
+          where: {
+            ...scope,
+            type: { in: [AnalyticsEventType.TOUR_START, AnalyticsEventType.TOUR_COMPLETE] },
+          },
+          select: { type: true, metadata: true },
+        }),
+        this.prisma.analyticsEvent.findMany({
+          where: { ...scope, type: AnalyticsEventType.UNIT_VIEWED },
+          select: { metadata: true, sessionId: true },
+        }),
+        this.prisma.inquiry.count({ where: scope }),
+        this.prisma.booking.count({ where: scope }),
+        this.prisma.savedProperty.count({ where: { propertyId: property.id } }),
+      ]);
 
-    const eventMap = Object.fromEntries(events.map((e) => [e.type, e._count.type]));
+    const counts = Object.fromEntries(byType.map((e) => [e.type, e._count.type]));
+
+    // Per-tour split, so a developer can see which format their buyers
+    // actually use — that decides what is worth producing next.
+    //
+    // `timed` counts only completions that actually carry a duration. Events
+    // recorded before dwell tracking existed have null metadata, and averaging
+    // total seconds over *all* completions let those zero-second rows drag the
+    // reported average down — understating engagement on exactly the metric a
+    // developer is being asked to pay for.
+    const tours: Record<
+      string,
+      { starts: number; completes: number; timed: number; totalSeconds: number }
+    > = {};
+    for (const e of tourEvents) {
+      const meta = (e.metadata ?? {}) as { tour?: string; seconds?: number };
+      const key = meta.tour ?? 'UNKNOWN';
+      tours[key] ??= { starts: 0, completes: 0, timed: 0, totalSeconds: 0 };
+      if (e.type === AnalyticsEventType.TOUR_START) {
+        tours[key].starts += 1;
+      } else {
+        tours[key].completes += 1;
+        const seconds = Number(meta.seconds);
+        if (Number.isFinite(seconds) && seconds > 0) {
+          tours[key].timed += 1;
+          tours[key].totalSeconds += seconds;
+        }
+      }
+    }
+
+    const unitNames = new Map(property.units.map((u) => [u.id, u.name]));
+    const unitTally = new Map<string, { name: string; views: number; sessions: Set<string> }>();
+    for (const e of unitEvents) {
+      const meta = (e.metadata ?? {}) as { unitId?: string; unitName?: string };
+      if (!meta.unitId) continue;
+      const row = unitTally.get(meta.unitId) ?? {
+        name: unitNames.get(meta.unitId) ?? meta.unitName ?? 'Unit',
+        views: 0,
+        sessions: new Set<string>(),
+      };
+      row.views += 1;
+      if (e.sessionId) row.sessions.add(e.sessionId);
+      unitTally.set(meta.unitId, row);
+    }
+
+    const tourStarts = counts[AnalyticsEventType.TOUR_START] ?? 0;
+    const tourCompletes = counts[AnalyticsEventType.TOUR_COMPLETE] ?? 0;
+    const totalSeconds = Object.values(tours).reduce((a, t) => a + t.totalSeconds, 0);
+    const timedCompletes = Object.values(tours).reduce((a, t) => a + t.timed, 0);
+    const views = counts[AnalyticsEventType.PAGE_VIEW] ?? 0;
 
     return {
-      period: `last ${days} days`,
-      views: eventMap[AnalyticsEventType.PAGE_VIEW] ?? 0,
-      tourStarts: eventMap[AnalyticsEventType.TOUR_START] ?? 0,
-      tourCompletes: eventMap[AnalyticsEventType.TOUR_COMPLETE] ?? 0,
-      inquiries: inquiriesCount,
-      bookings: bookingsCount,
-      saved: savedCount,
+      property: { id: property.id, slug: property.slug, name: property.name },
+      period: { days, since: since.toISOString() },
+      headline: {
+        views,
+        uniqueVisitors: sessions.length,
+        tourStarts,
+        tourCompletes,
+        shares: counts[AnalyticsEventType.SHARE] ?? 0,
+        inquiries,
+        bookings,
+        saved,
+        /** Share of visitors who opened a tour at all. */
+        tourOpenRate: views ? Math.round((tourStarts / views) * 100) : 0,
+        /** Share of tour openers who stayed past the engagement threshold. */
+        tourEngagementRate: tourStarts ? Math.round((tourCompletes / tourStarts) * 100) : 0,
+        /**
+         * Average dwell across viewings that recorded a duration. Divided by
+         * `timedCompletes`, not `tourCompletes`: pre-instrumentation rows have
+         * no duration and would otherwise pull this toward zero.
+         */
+        averageTourSeconds: timedCompletes ? Math.round(totalSeconds / timedCompletes) : 0,
+      },
+      tours: Object.entries(tours)
+        .map(([tour, t]) => ({
+          tour,
+          starts: t.starts,
+          completes: t.completes,
+          averageSeconds: t.timed ? Math.round(t.totalSeconds / t.timed) : 0,
+        }))
+        .sort((a, b) => b.starts - a.starts),
+      // Where the traffic came from — the number that shows a developer how
+      // much our marketplace adds on top of the links they share themselves.
+      sources: sources
+        .map((s) => ({ source: s.source ?? 'Direct', visits: s._count.source }))
+        .sort((a, b) => b.visits - a.visits),
+      topUnits: [...unitTally.entries()]
+        .map(([unitId, r]) => ({
+          unitId,
+          name: r.name,
+          views: r.views,
+          uniqueViewers: r.sessions.size,
+        }))
+        .sort((a, b) => b.views - a.views)
+        .slice(0, 10),
     };
   }
+
 
   // ─── Developer overview ───────────────────────────────────────────────────
 
