@@ -14,6 +14,7 @@ export class AdminService {
       liveProperties,
       pendingReview,
       kybPending,
+      agentKycPending,
       activeReservations,
       openInquiries,
       failedPayments,
@@ -25,6 +26,7 @@ export class AdminService {
       this.prisma.property.count({ where: { status: PropertyStatus.ACTIVE } }),
       this.prisma.property.count({ where: { status: PropertyStatus.DRAFT } }),
       this.prisma.developerProfile.count({ where: { kybStatus: KybStatus.PENDING } }),
+      this.prisma.agentProfile.count({ where: { kybStatus: KybStatus.PENDING } }),
       this.prisma.reservation.count({ where: { expiresAt: { gt: new Date() } } }),
       this.prisma.inquiry.count({ where: { status: 'NEW' } }),
       this.prisma.payment.count({ where: { status: PaymentStatus.FAILED } }),
@@ -48,7 +50,7 @@ export class AdminService {
       rentListings,
       reservations: { active: activeReservations },
       revenue: { collected: revenueAgg._sum.amount ?? 0 },
-      queues: { kybPending, pendingReview, failedPayments, openInquiries },
+      queues: { kybPending, agentKycPending, pendingReview, failedPayments, openInquiries },
     };
   }
 
