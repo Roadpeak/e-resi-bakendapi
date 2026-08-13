@@ -127,7 +127,22 @@ export class RentListingsService {
       where: { slug },
       include: {
         developer: true,
-        property: { select: { id: true, slug: true, name: true, heroImageUrl: true, has3DTour: true, hasCinematicTour: true } },
+        property: {
+          select: {
+            id: true, slug: true, name: true, heroImageUrl: true,
+            has3DTour: true, hasCinematicTour: true,
+            // A rental is units inside a building, so the development's
+            // photography is what the listing page falls back to when the
+            // listing has none of its own. Without this the tenant sees a
+            // single hero image and nothing else.
+            media: {
+              orderBy: { order: 'asc' },
+              take: 12,
+              select: { url: true, title: true },
+            },
+            amenities: true,
+          },
+        },
         rentUnits: true,
         media: { orderBy: { order: 'asc' } },
         inquiries: false,
