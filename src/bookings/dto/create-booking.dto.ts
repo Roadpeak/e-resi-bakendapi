@@ -41,4 +41,11 @@ export class CreateBookingDto {
   @IsString()
   @MaxLength(500)
   message?: string;
+
+  @ApiPropertyOptional({
+    description: 'Agent who introduced this lead, from ?ref= on a shared link',
+  })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
 }

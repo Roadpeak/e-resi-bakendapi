@@ -16,12 +16,34 @@ export class BookingsService {
 
   // ─── Create (public or authenticated) ────────────────────────────────────
 
+
+  /**
+   * Validate a referral before crediting it.
+   *
+   * The id arrives from a query string on a link anyone can edit, so it is
+   * treated as a claim, not a fact: an unknown, unverified or delisted agent
+   * is ignored rather than rejected. Failing the lead would punish the buyer
+   * for a bad link — losing the credit only affects the referral.
+   */
+  private async resolveAgent(agentId?: string): Promise<string | null> {
+    if (!agentId) return null;
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { id: agentId },
+      select: { id: true, kybStatus: true },
+    });
+    if (!agent || agent.kybStatus !== 'APPROVED') return null;
+    return agent.id;
+  }
+
   async create(dto: CreateBookingDto, userId?: string) {
     const property = await this.prisma.property.findUnique({ where: { slug: dto.propertySlug } });
     if (!property) throw new NotFoundException('Property not found');
 
+    const agentId = await this.resolveAgent(dto.agentId);
+
     const booking = await this.prisma.booking.create({
       data: {
+        ...(agentId && { agentId }),
         propertyId: property.id,
         name: dto.name,
         email: dto.email,

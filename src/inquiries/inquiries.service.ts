@@ -20,6 +20,24 @@ export class InquiriesService {
 
   // ─── Submit (public / authenticated) ─────────────────────────────────────
 
+  /**
+   * Validate a referral before crediting it.
+   *
+   * The id arrives from a query string on a link anyone can edit, so it is
+   * treated as a claim, not a fact: an unknown, unverified or delisted agent
+   * is ignored rather than rejected. Failing the lead would punish the buyer
+   * for a bad link — losing the credit only affects the referral.
+   */
+  private async resolveAgent(agentId?: string): Promise<string | null> {
+    if (!agentId) return null;
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { id: agentId },
+      select: { id: true, kybStatus: true },
+    });
+    if (!agent || agent.kybStatus !== 'APPROVED') return null;
+    return agent.id;
+  }
+
   async create(dto: CreateInquiryDto, userId?: string) {
     if (!dto.propertySlug && !dto.rentListingId) {
       throw new BadRequestException('Either propertySlug or rentListingId is required');
@@ -37,8 +55,11 @@ export class InquiriesService {
       if (!listing) throw new NotFoundException('Rent listing not found');
     }
 
+    const agentId = await this.resolveAgent(dto.agentId);
+
     const inquiry = await this.prisma.inquiry.create({
       data: {
+        ...(agentId && { agentId }),
         name: dto.name,
         email: dto.email,
         phone: dto.phone,

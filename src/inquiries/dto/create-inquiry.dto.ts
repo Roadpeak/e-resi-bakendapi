@@ -37,4 +37,11 @@ export class CreateInquiryDto {
   @IsOptional()
   @IsString()
   interestedUnit?: string;
+
+  @ApiPropertyOptional({
+    description: 'Agent who introduced this lead, from ?ref= on a shared link',
+  })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
 }
