@@ -420,6 +420,37 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * A viewing has been confirmed. Carries the meeting link for a virtual
+   * tour, which is the only way the investor learns where to join.
+   */
+  async bookingConfirmed(
+    userId: string,
+    propertyName: string,
+    when: string,
+    meetingUrl: string | null,
+    bookingId: string,
+  ) {
+    const body = meetingUrl
+      ? `Your virtual viewing of ${propertyName} is confirmed for ${when}. Join here: ${meetingUrl}`
+      : `Your viewing of ${propertyName} is confirmed for ${when}.`;
+    // Emailed as well as in-app: a confirmed viewing is a commitment with a
+    // time attached, and the meeting link is useless if it is only ever
+    // visible inside an app the investor may not open again before it.
+    await this.toUser(
+      userId,
+      'BOOKING_CONFIRMED',
+      'Viewing confirmed',
+      body,
+      {
+        email: true,
+        cta: { label: 'View booking', path: '/account' },
+        resourceId: bookingId,
+        resourceType: 'Booking',
+      },
+    );
+  }
+
   async newBooking(propertyName: string, byName: string, bookingId: string) {
     await this.toAdmins(
       `Viewing booked — ${propertyName}`,

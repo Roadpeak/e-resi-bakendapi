@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BookingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
@@ -7,6 +7,8 @@ import type { CreateBookingDto } from './dto/create-booking.dto.js';
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: PlatformEventsService,
@@ -103,13 +105,52 @@ export class BookingsService {
       throw new ForbiddenException('You do not own this property');
     }
 
-    return this.prisma.booking.update({
+    // A virtual viewing with no link is not a viewing — both sides would
+    // turn up to nothing. Enforced here rather than in the UI so the rule
+    // holds for any caller.
+    const url = meetingUrl?.trim() || booking.meetingUrl;
+    if (status === BookingStatus.CONFIRMED && booking.type === 'VIRTUAL' && !url) {
+      throw new BadRequestException(
+        'Add the meeting link before confirming a virtual viewing',
+      );
+    }
+
+    const updated = await this.prisma.booking.update({
       where: { id },
       data: {
         status,
-        ...(meetingUrl && { meetingUrl }),
+        ...(meetingUrl !== undefined && { meetingUrl: meetingUrl.trim() || null }),
       },
     });
+
+    // Confirming used to change a status and tell nobody, so the person who
+    // asked for the viewing never learned it was happening. Detached: the
+    // booking is already saved, and a failed notification must not undo it.
+    if (status === BookingStatus.CONFIRMED) {
+      void this.notifyConfirmed(updated, booking.property.name);
+    }
+
+    return updated;
+  }
+
+  /** Tell the requester their viewing is on. Never throws. */
+  private async notifyConfirmed(
+    booking: { id: string; userId: string | null; type: string; date: Date; time: string; meetingUrl: string | null },
+    propertyName: string,
+  ): Promise<void> {
+    try {
+      if (!booking.userId) return; // guest booking — email only, handled by mail
+      const when = `${booking.date.toDateString()} at ${booking.time}`;
+      await this.events.bookingConfirmed(
+        booking.userId,
+        propertyName,
+        when,
+        booking.type === 'VIRTUAL' ? booking.meetingUrl : null,
+        booking.id,
+      );
+    } catch (err) {
+      this.logger.error(`Could not notify of booking ${booking.id}: ${(err as Error).message}`);
+    }
   }
 
   // ─── Admin: all bookings ──────────────────────────────────────────────────
