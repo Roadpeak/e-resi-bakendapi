@@ -28,8 +28,9 @@ export class ReservationsController {
     @Param('rentUnitId') rentUnitId: string,
     @CurrentUser() user: { id: string },
     @Body('expiresAt') expiresAt?: string,
+    @Body('agentId') agentId?: string,
   ) {
-    return this.service.createForRentUnit(rentUnitId, user.id, expiresAt);
+    return this.service.createForRentUnit(rentUnitId, user.id, expiresAt, agentId);
   }
 
   @Get()

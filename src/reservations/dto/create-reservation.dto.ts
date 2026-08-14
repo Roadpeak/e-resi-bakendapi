@@ -11,4 +11,11 @@ export class CreateReservationDto {
   @IsOptional()
   @IsDateString()
   expiresAt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Agent who introduced this buyer, from ?ref= on a shared link',
+  })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
 }

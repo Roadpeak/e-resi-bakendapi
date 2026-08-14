@@ -20,7 +20,30 @@ export class ReservationsService {
    * availability and, when the offer maps to a physical unit, reserves that
    * too so the for-sale and rental views stay consistent.
    */
-  async createForRentUnit(rentUnitId: string, userId: string, expiresAtIso?: string) {
+  /**
+   * Validate a referral before crediting it.
+   *
+   * Same rule as inquiries and bookings: the id comes from a query string on
+   * a link anyone can edit, so an unknown or unapproved agent is ignored
+   * rather than rejected. A reservation is the closest thing to a sale, so
+   * losing it over a bad referral would be the worst possible trade.
+   */
+  private async resolveAgent(agentId?: string): Promise<string | null> {
+    if (!agentId) return null;
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { id: agentId },
+      select: { id: true, kybStatus: true },
+    });
+    if (!agent || agent.kybStatus !== 'APPROVED') return null;
+    return agent.id;
+  }
+
+  async createForRentUnit(
+    rentUnitId: string,
+    userId: string,
+    expiresAtIso?: string,
+    referredBy?: string,
+  ) {
     const rentUnit = await this.prisma.rentUnit.findUnique({
       where: { id: rentUnitId },
       include: { rentListing: { select: { id: true, name: true, slug: true } } },
@@ -33,6 +56,10 @@ export class ReservationsService {
     const expiresAt = expiresAtIso
       ? new Date(expiresAtIso)
       : new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+    // Resolved outside the transaction: it is a read against unrelated data,
+    // and holding the row locks open for it would serialise reservations.
+    const agentId = await this.resolveAgent(referredBy);
 
     return this.prisma.$transaction(async (tx) => {
       await tx.rentUnit.update({
@@ -55,7 +82,7 @@ export class ReservationsService {
         data: { status: UnitStatus.RESERVED },
       });
       const reservation = await tx.reservation.create({
-        data: { unitId: rentUnit.unitId, userId, expiresAt },
+        data: { unitId: rentUnit.unitId, userId, expiresAt, ...(agentId && { agentId }) },
       });
       return { ...reservation, remaining: rentUnit.available - 1 };
     });
@@ -82,9 +109,11 @@ export class ReservationsService {
       ? new Date(dto.expiresAt)
       : new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours default
 
+    const agentId = await this.resolveAgent(dto.agentId);
+
     const [reservation] = await this.prisma.$transaction([
       this.prisma.reservation.create({
-        data: { unitId: dto.unitId, userId, expiresAt },
+        data: { unitId: dto.unitId, userId, expiresAt, ...(agentId && { agentId }) },
         include: {
           unit: { include: { property: { select: { slug: true, name: true } } } },
         },
