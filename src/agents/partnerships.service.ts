@@ -282,6 +282,92 @@ export class PartnershipsService {
     });
   }
 
+  /**
+   * What this partnership has actually produced.
+   *
+   * Both sides need this and for different reasons: the agent has to be able
+   * to show what they introduced, and the developer has to be able to see it
+   * before renewing or paying anything. Without it a partnership is a
+   * handshake with no record.
+   *
+   * Scoped to the developer's own properties so an agent's leads for one
+   * developer are never visible to another.
+   */
+  async leads(partnershipId: string, userId: string, days = 90) {
+    await this.assertMine(partnershipId, userId);
+    const p = await this.prisma.agentPartnership.findUnique({
+      where: { id: partnershipId },
+      select: { agentId: true, developerId: true },
+    });
+    if (!p) throw new NotFoundException('Partnership not found');
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const propertyIds = (
+      await this.prisma.property.findMany({
+        where: { developerId: p.developerId },
+        select: { id: true },
+      })
+    ).map((r) => r.id);
+
+    if (propertyIds.length === 0) {
+      return { period: { days }, totals: { inquiries: 0, bookings: 0, reservations: 0 }, recent: [] };
+    }
+
+    const scope = { agentId: p.agentId, createdAt: { gte: since } };
+    const [inquiries, bookings, reservations, recentInq, recentBkg] = await Promise.all([
+      this.prisma.inquiry.count({ where: { ...scope, propertyId: { in: propertyIds } } }),
+      this.prisma.booking.count({ where: { ...scope, propertyId: { in: propertyIds } } }),
+      this.prisma.reservation.count({
+        where: { ...scope, unit: { propertyId: { in: propertyIds } } },
+      }),
+      this.prisma.inquiry.findMany({
+        where: { ...scope, propertyId: { in: propertyIds } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true, name: true, createdAt: true, status: true,
+          property: { select: { name: true, slug: true } },
+        },
+      }),
+      this.prisma.booking.findMany({
+        where: { ...scope, propertyId: { in: propertyIds } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true, name: true, createdAt: true, status: true, type: true,
+          property: { select: { name: true, slug: true } },
+        },
+      }),
+    ]);
+
+    const recent = [
+      ...recentInq.map((r) => ({
+        kind: 'INQUIRY' as const,
+        id: r.id,
+        name: r.name,
+        status: String(r.status),
+        property: r.property?.name ?? '—',
+        createdAt: r.createdAt,
+      })),
+      ...recentBkg.map((r) => ({
+        kind: 'BOOKING' as const,
+        id: r.id,
+        name: r.name,
+        status: `${r.type} · ${r.status}`,
+        property: r.property?.name ?? '—',
+        createdAt: r.createdAt,
+      })),
+    ]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 12);
+
+    return {
+      period: { days },
+      totals: { inquiries, bookings, reservations },
+      recent,
+    };
+  }
+
   /** Active partners for a public profile — either direction. */
   async listPublicPartners(opts: { agentId?: string; developerId?: string }) {
     const where = {

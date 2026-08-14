@@ -86,6 +86,18 @@ export class PartnershipsController {
     return this.partnerships.getOne(id, user.id);
   }
 
+  @Get(':id/leads')
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
+  @ApiOperation({ summary: 'Leads this agent introduced under this partnership' })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  leads(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+    @Query('days') days?: string,
+  ) {
+    return this.partnerships.leads(id, user.id, days ? parseInt(days, 10) : 90);
+  }
+
   @Patch(':id/respond')
   @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Accept or decline — only the side that was asked' })

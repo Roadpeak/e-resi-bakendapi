@@ -444,6 +444,12 @@ model AgentProfile {
   /// Set when non-payment hid the profile, so the UI can explain why.
   suspendedAt       DateTime?
 
+  /// Leads this agent introduced. These are what a partnership is measured
+  /// on — without them neither side can see what the relationship produced.
+  attributedInquiries    Inquiry[]
+  attributedBookings     Booking[]
+  attributedReservations Reservation[]
+
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
@@ -996,6 +1002,13 @@ model Inquiry {
   message         String
   interestedUnit  String?
   status          InquiryStatus @default(NEW)
+  /// The agent who introduced this lead, when one did.
+  agentId         String?
+  agent           AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  /// Set when a reply turned this lead into a chat thread, so the inbox can
+  /// point at the conversation instead of dead-ending in email.
+  conversationId  String?
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -1029,6 +1042,12 @@ model Booking {
   property    Property      @relation(fields: [propertyId], references: [id])
   userId      String?
   user        User?         @relation(fields: [userId], references: [id])
+  /// The agent who introduced this buyer, when one did. Set from the ?ref=
+  /// on a shared link, or chosen by the developer when logging it manually.
+  /// SetNull rather than Cascade: losing an agent must not erase the
+  /// developer's booking.
+  agentId     String?
+  agent       AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   name        String
   email       String
   phone       String?
@@ -1058,6 +1077,10 @@ model Reservation {
   userId     String
   user       User             @relation(fields: [userId], references: [id])
   stage      ReservationStage @default(RESERVED)
+  /// The agent who introduced this buyer. The most valuable of the three
+  /// attributions — a reservation is the closest thing to a sale.
+  agentId    String?
+  agent      AgentProfile?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
   expiresAt  DateTime
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
@@ -1238,6 +1261,8 @@ model Conversation {
   @@index([initiatorId])
   @@index([counterpartyId])
   @@index([lastMessageAt])
+  /// Inquiries that were converted into this thread.
+  inquiries      Inquiry[]
 }
 
 model ChatMessage {

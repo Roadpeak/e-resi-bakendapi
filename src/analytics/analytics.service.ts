@@ -62,8 +62,11 @@ export class AnalyticsService {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const scope = { propertyId: property.id, createdAt: { gte: since } };
 
-    const [byType, sessions, sources, tourEvents, unitEvents, inquiries, bookings, saved] =
-      await Promise.all([
+    const [
+      byType, sessions, sources, tourEvents, unitEvents,
+      inquiries, bookings, saved, bookingSplit,
+      inquiriesByAgent, bookingsByAgent,
+    ] = await Promise.all([
         this.prisma.analyticsEvent.groupBy({
           by: ['type'],
           where: scope,
@@ -95,6 +98,25 @@ export class AnalyticsService {
         this.prisma.inquiry.count({ where: scope }),
         this.prisma.booking.count({ where: scope }),
         this.prisma.savedProperty.count({ where: { propertyId: property.id } }),
+        // Bookings split by type — a developer running virtual tours needs to
+        // know whether anyone actually takes them up on it.
+        this.prisma.booking.groupBy({
+          by: ['type', 'status'],
+          where: scope,
+          _count: { _all: true },
+        }),
+        // Which partnered agents introduced the leads on this development.
+        // Grouped rather than joined so an agent with no leads costs nothing.
+        this.prisma.inquiry.groupBy({
+          by: ['agentId'],
+          where: { ...scope, agentId: { not: null } },
+          _count: { _all: true },
+        }),
+        this.prisma.booking.groupBy({
+          by: ['agentId'],
+          where: { ...scope, agentId: { not: null } },
+          _count: { _all: true },
+        }),
       ]);
 
     const counts = Object.fromEntries(byType.map((e) => [e.type, e._count.type]));
@@ -148,6 +170,43 @@ export class AnalyticsService {
     const timedCompletes = Object.values(tours).reduce((a, t) => a + t.timed, 0);
     const views = counts[AnalyticsEventType.PAGE_VIEW] ?? 0;
 
+    // Resolve agent names in one query rather than per row.
+    const agentIds = [
+      ...new Set(
+        [...inquiriesByAgent, ...bookingsByAgent]
+          .map((r) => r.agentId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const agentRows = agentIds.length
+      ? await this.prisma.agentProfile.findMany({
+          where: { id: { in: agentIds } },
+          select: { id: true, displayName: true, kind: true },
+        })
+      : [];
+    const agentById = new Map(agentRows.map((a) => [a.id, a]));
+
+    const byAgent = agentIds
+      .map((id) => {
+        const a = agentById.get(id);
+        const inq = inquiriesByAgent.find((r) => r.agentId === id)?._count._all ?? 0;
+        const bkg = bookingsByAgent.find((r) => r.agentId === id)?._count._all ?? 0;
+        return {
+          agentId: id,
+          name: a?.displayName ?? 'Agent',
+          kind: a?.kind ?? null,
+          inquiries: inq,
+          bookings: bkg,
+          total: inq + bkg,
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    const bookingCount = (t: string, st?: string) =>
+      bookingSplit
+        .filter((r) => r.type === t && (st === undefined || r.status === st))
+        .reduce((n, r) => n + r._count._all, 0);
+
     return {
       property: { id: property.id, slug: property.slug, name: property.name },
       period: { days, since: since.toISOString() },
@@ -184,6 +243,26 @@ export class AnalyticsService {
       sources: sources
         .map((s) => ({ source: s.source ?? 'Direct', visits: s._count.source }))
         .sort((a, b) => b.visits - a.visits),
+      // The funnel a developer actually reads down: how many arrived, how
+      // many engaged with the tour they paid for, how many asked, how many
+      // booked. Each step as a share of the one above it, so a drop-off is
+      // visible rather than something to work out.
+      funnel: [
+        { step: 'Visited the page', value: sessions.length, of: sessions.length },
+        { step: 'Opened a tour', value: tourStarts, of: sessions.length },
+        { step: 'Watched it through', value: tourCompletes, of: tourStarts },
+        { step: 'Enquired', value: inquiries, of: sessions.length },
+        { step: 'Booked a viewing', value: bookings, of: sessions.length },
+      ],
+      bookingsByType: {
+        physical: bookingCount('PHYSICAL'),
+        virtual: bookingCount('VIRTUAL'),
+        confirmed: bookingSplit
+          .filter((r) => r.status === 'CONFIRMED')
+          .reduce((n, r) => n + r._count._all, 0),
+      },
+      /** Leads credited to partnered agents on this development. */
+      byAgent,
       topUnits: [...unitTally.entries()]
         .map(([unitId, r]) => ({
           unitId,
