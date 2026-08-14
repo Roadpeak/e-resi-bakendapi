@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PartnershipStatus, UserRole } from '@prisma/client';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
+import { Public } from '../common/decorators/public.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
@@ -51,6 +52,15 @@ export class PartnershipsController {
 
   // Literal routes stay above ':id' — the wildcard would otherwise swallow
   // "my-assignments" and try to load it as a partnership.
+
+  @Public()
+  @Get('public/developer/:developerId')
+  @ApiOperation({
+    summary: "Public: agents this developer actively works with, shown on their profile",
+  })
+  publicDeveloperPartners(@Param('developerId') developerId: string) {
+    return this.partnerships.listPublicPartners({ developerId });
+  }
 
   @Get('my-assignments')
   @Roles(UserRole.AGENT)

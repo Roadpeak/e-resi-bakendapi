@@ -89,6 +89,10 @@ export class InquiriesService {
           property: { select: { slug: true, name: true } },
           rentListing: { select: { slug: true, name: true } },
           replies: { orderBy: { createdAt: 'asc' } },
+          // Who introduced this lead, when a partnered agent did — the
+          // developer should see that on the lead itself, not only in a
+          // report.
+          agent: { select: { id: true, displayName: true } },
         },
       }),
       this.prisma.inquiry.count({ where }),
@@ -165,7 +169,60 @@ export class InquiriesService {
       }),
     ]);
 
+    // A reply used to be a database row and an email, and the thread died
+    // there — the person who enquired had nowhere to answer. When they have
+    // an account, the reply also opens (or reuses) a chat thread so the
+    // conversation can continue in one place.
+    //
+    // Detached and swallowed: the reply is already saved, and a chat failure
+    // must not fail the developer's response.
+    void this.linkConversation(id, senderId).catch(() => undefined);
+
     return reply;
+  }
+
+  /**
+   * Attach this inquiry to a chat thread between the two people.
+   *
+   * Guest inquiries have no userId, so there is nobody to open a thread with
+   * — those stay email-only, which is the correct outcome rather than a
+   * limitation to work around.
+   */
+  private async linkConversation(inquiryId: string, developerUserId: string): Promise<void> {
+    const inquiry = await this.prisma.inquiry.findUnique({
+      where: { id: inquiryId },
+      select: { id: true, userId: true, propertyId: true, rentListingId: true, conversationId: true },
+    });
+    if (!inquiry || !inquiry.userId || inquiry.conversationId) return;
+    if (inquiry.userId === developerUserId) return;
+
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        OR: [
+          { initiatorId: inquiry.userId, counterpartyId: developerUserId },
+          { initiatorId: developerUserId, counterpartyId: inquiry.userId },
+        ],
+        ...(inquiry.propertyId ? { propertyId: inquiry.propertyId } : {}),
+      },
+      select: { id: true },
+    });
+
+    const conversationId = existing?.id ?? (
+      await this.prisma.conversation.create({
+        data: {
+          initiatorId: inquiry.userId,
+          counterpartyId: developerUserId,
+          propertyId: inquiry.propertyId,
+          rentListingId: inquiry.rentListingId,
+        },
+        select: { id: true },
+      })
+    ).id;
+
+    await this.prisma.inquiry.update({
+      where: { id: inquiryId },
+      data: { conversationId },
+    });
   }
 
   // ─── Update status ────────────────────────────────────────────────────────
