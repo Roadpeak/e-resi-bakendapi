@@ -320,6 +320,7 @@ export class PropertiesService {
       data: {
         ...(dto.brandColor !== undefined && { brandColor: dto.brandColor }),
         ...(dto.brandFont !== undefined && { brandFont: dto.brandFont }),
+        ...(dto.templateKey !== undefined && { templateKey: dto.templateKey }),
         ...(dto.heroStyle !== undefined && { heroStyle: dto.heroStyle }),
         ...(dto.sectionOrder !== undefined && { sectionOrder: dto.sectionOrder }),
         ...(dto.hiddenSections !== undefined && { hiddenSections: dto.hiddenSections }),

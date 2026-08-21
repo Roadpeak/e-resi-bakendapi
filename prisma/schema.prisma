@@ -375,6 +375,8 @@ model DeveloperProfile {
   brandColor        String?
   /// Curated font pairing key, inherited unless a development overrides it.
   brandFont         String?
+  /// Default mini-site template, inherited unless a development overrides it.
+  templateKey       String?
 
   properties        Property[]
   rentListings      RentListing[]
@@ -657,6 +659,10 @@ model Property {
   /// Curated pairing key (see BRAND_FONTS). Deliberately not free-form: one
   /// bad font would undermine a tour the developer paid six figures for.
   brandFont           String?
+  /// Mini-site template key (see MINI_SITE_TEMPLATES). Decides the page shell —
+  /// navbar, hero, section chrome — not the sections themselves, which are
+  /// shared so every development gets the same functionality whatever it picks.
+  templateKey         String?
   /// Opening treatment — full-bleed video, split, or cinematic.
   heroStyle           String?
   /// Section ids in display order. Empty means the default order.

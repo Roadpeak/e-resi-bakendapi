@@ -13,6 +13,16 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Curated font pairings — kept in step with the frontend BRAND_FONTS. */
 export const BRAND_FONT_KEYS = ['MODERN', 'LUXURY', 'MINIMAL', 'BOLD'] as const;
+/**
+ * Mini-site template keys — kept in step with the frontend
+ * MINI_SITE_TEMPLATES. Enumerated rather than free-form for the same reason as
+ * fonts: an unknown key would fall back silently and the developer would be
+ * left wondering why their choice did nothing.
+ */
+export const TEMPLATE_KEYS = [
+  'CLASSIC', 'EDITORIAL', 'CONFIDENT', 'STATEMENT',
+  'LUXE_DARK', 'SHOWCASE', 'ARCHITECTURAL', 'WARM_LUXE',
+] as const;
 export const HERO_STYLE_KEYS = ['CINEMATIC', 'SPLIT', 'MINIMAL'] as const;
 export const NAVBAR_STYLE_KEYS = ['SOLID', 'FLOATING'] as const;
 export const NAVBAR_THEME_KEYS = ['LIGHT', 'DARK', 'BRAND'] as const;
@@ -36,6 +46,11 @@ export class UpdateBrandingDto {
   @IsOptional()
   @IsIn(BRAND_FONT_KEYS as unknown as string[])
   brandFont?: string;
+
+  @ApiPropertyOptional({ enum: TEMPLATE_KEYS })
+  @IsOptional()
+  @IsIn(TEMPLATE_KEYS as unknown as string[])
+  templateKey?: string;
 
   @ApiPropertyOptional({ enum: HERO_STYLE_KEYS })
   @IsOptional()
