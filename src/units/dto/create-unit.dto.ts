@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { UnitStatus } from '@prisma/client';
 
 export class CreateUnitDto {
@@ -36,6 +36,18 @@ export class CreateUnitDto {
   @IsNumber()
   @Min(0)
   price: number;
+
+  @ApiPropertyOptional({
+    example: 'USD',
+    description:
+      'Currency for this unit\'s price. Defaults to the property\'s currency '
+      + 'when omitted — a development priced in USD should not have to repeat '
+      + 'itself on every unit.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO code' })
+  currency?: string;
 
   @ApiPropertyOptional({ enum: UnitStatus })
   @IsOptional()

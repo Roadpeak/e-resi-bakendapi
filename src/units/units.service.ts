@@ -31,6 +31,11 @@ export class UnitsService {
         bathrooms: dto.bathrooms ?? 1,
         sqm: dto.sqm,
         price: dto.price,
+        // Inherited from the development rather than left to the column
+        // default. A developer who priced their development in USD set that
+        // once, on the property; falling back to the schema's "KES" published
+        // their USD prices as shillings — a 130× error in the buyer's favour.
+        currency: (dto.currency ?? property.currency ?? 'KES').toUpperCase(),
         status: dto.status ?? 'AVAILABLE',
         features: dto.features ?? [],
       },
@@ -91,6 +96,7 @@ export class UnitsService {
         ...(dto.bathrooms !== undefined && { bathrooms: dto.bathrooms }),
         ...(dto.sqm !== undefined && { sqm: dto.sqm }),
         ...(dto.price !== undefined && { price: dto.price }),
+        ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.features !== undefined && { features: dto.features }),
       },
