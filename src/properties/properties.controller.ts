@@ -146,4 +146,20 @@ export class PropertiesController {
   ) {
     return this.propertiesService.archive(slug, user.id, user.role);
   }
+
+  /**
+   * Separate from the archive route above rather than a flag on it: these are
+   * different actions with different consequences, and an irreversible delete
+   * should never be one query parameter away from a reversible hide.
+   */
+  @Delete(':slug/permanent')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer/Admin: permanently delete a draft or archived property' })
+  remove(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.propertiesService.remove(slug, user.id, user.role);
+  }
 }

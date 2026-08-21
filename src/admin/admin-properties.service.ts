@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyStatus } from '@prisma/client';
+import { clearDeleteBlockers } from '../properties/delete-blockers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
@@ -120,10 +121,16 @@ export class AdminPropertiesService {
   }
 
   /**
-   * Permanently delete a property. Media, units, tours and reservations cascade
-   * with it; rent listings, bookings and inquiries deliberately do not, so those
-   * are checked up front — otherwise Postgres rejects the delete with a foreign
-   * key error that tells the admin nothing about what is actually in the way.
+   * Permanently delete a property.
+   *
+   * Media, units, tours and floor plans cascade with it. Bookings, enquiries,
+   * rent listings, reservations and analytics deliberately do not — they record
+   * what real people did — so for a published listing they are reported as
+   * blockers rather than quietly removed.
+   *
+   * A draft is the exception: it was never visible to a buyer, so those rows
+   * are its developer's own test data, and no screen anywhere can clear them.
+   * See clearDeleteBlockers.
    *
    * Archiving via setStatus is the reversible option; this is not.
    */
@@ -136,21 +143,36 @@ export class AdminPropertiesService {
     });
     if (!property) throw new NotFoundException('Property not found');
 
-    const blockers = [
-      ['rent listing', property._count.rentListings],
-      ['booking', property._count.bookings],
-      ['inquiry', property._count.inquiries],
-    ].filter(([, n]) => (n as number) > 0)
-      .map(([label, n]) => `${n} ${label}${(n as number) === 1 ? '' : 's'}`);
+    // A draft was never published, so anything attached to it came from the
+    // developer's own testing rather than from a buyer. Refusing to delete it
+    // stranded those listings permanently: nothing in any UI can clear a
+    // booking or an inquiry, so the only exit was a manual database edit.
+    //
+    // A live listing is a different matter — a real buyer's booking is a
+    // record we must not silently destroy, so the guard stands there.
+    const isDraft = property.status === PropertyStatus.DRAFT;
 
-    if (blockers.length) {
-      throw new BadRequestException(
-        `${property.name} still has ${blockers.join(', ')}. `
-        + 'Remove those first, or archive the property instead of deleting it.',
-      );
+    if (!isDraft) {
+      const blockers = [
+        ['rent listing', property._count.rentListings],
+        ['booking', property._count.bookings],
+        ['inquiry', property._count.inquiries],
+      ].filter(([, n]) => (n as number) > 0)
+        .map(([label, n]) => `${n} ${label}${(n as number) === 1 ? '' : 's'}`);
+
+      if (blockers.length) {
+        throw new BadRequestException(
+          `${property.name} still has ${blockers.join(', ')}. `
+          + 'Remove those first, or archive the property instead of deleting it.',
+        );
+      }
     }
 
-    await this.prisma.property.delete({ where: { slug } });
+    await this.prisma.$transaction(async (tx) => {
+      if (isDraft) await clearDeleteBlockers(tx, property.id);
+      await tx.property.delete({ where: { slug } });
+    });
+
     return property;
   }
 

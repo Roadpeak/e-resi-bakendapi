@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { clearDeleteBlockers } from './delete-blockers.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
@@ -453,5 +454,67 @@ export class PropertiesService {
 
   async archive(slug: string, userId: string, userRole: UserRole) {
     return this.setStatus(slug, userId, userRole, PropertyStatus.ARCHIVED);
+  }
+
+  /**
+   * Permanently delete a listing the developer owns.
+   *
+   * Archiving alone left no way to remove a development that should never have
+   * existed — a duplicate, a typo, a draft abandoned halfway. Those sat in the
+   * dashboard forever, and the only recourse was to ask us.
+   *
+   * Deliberately narrower than the admin's equivalent: a developer may delete
+   * a draft or an archived listing, never a live one. A live listing has been
+   * seen by buyers and may carry their bookings, so taking it down is a
+   * status change that we keep a record of, not an erasure.
+   */
+  async remove(slug: string, userId: string, userRole: UserRole) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      include: {
+        developer: true,
+        _count: { select: { bookings: true, inquiries: true, rentListings: true } },
+      },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+
+    const deletable: PropertyStatus[] = [PropertyStatus.DRAFT, PropertyStatus.ARCHIVED];
+    if (!deletable.includes(property.status)) {
+      throw new BadRequestException(
+        `${property.name} is live. Archive it first — deleting a published `
+        + 'listing would remove viewings and enquiries buyers have already made.',
+      );
+    }
+
+    // An archived listing was live once, so it can hold a real buyer's
+    // booking. Deleting it would destroy that record silently.
+    if (property.status === PropertyStatus.ARCHIVED) {
+      const blockers = [
+        ['rent listing', property._count.rentListings],
+        ['booking', property._count.bookings],
+        ['enquiry', property._count.inquiries],
+      ].filter(([, n]) => (n as number) > 0)
+        .map(([label, n]) => `${n} ${label}${(n as number) === 1 ? '' : 's'}`);
+
+      if (blockers.length) {
+        throw new BadRequestException(
+          `${property.name} still has ${blockers.join(', ')} against it, so it `
+          + 'cannot be deleted. It stays archived and hidden from buyers.',
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (property.status === PropertyStatus.DRAFT) {
+        await clearDeleteBlockers(tx, property.id);
+      }
+      await tx.property.delete({ where: { slug } });
+    });
+
+    return { message: `${property.name} deleted` };
   }
 }
