@@ -51,6 +51,29 @@ function pruneSectionCopy(input: Record<string, object>) {
   return out;
 }
 
+/**
+ * The frontend's fallback presentation. Must match DEFAULT_PRICE_DISPLAY in
+ * web/apps/web/lib/units/unit-types.ts.
+ */
+const DEFAULT_PRICE_DISPLAY = 'from';
+
+/**
+ * Store only the choices that differ from the default.
+ *
+ * A developer who leaves every type alone should persist nothing, so "has this
+ * been customised?" stays answerable and the stored default never diverges
+ * from the rendered one.
+ */
+function pruneUnitPriceDisplay(input: Record<string, string>) {
+  const out: Record<string, string> = {};
+  for (const [typeKey, mode] of Object.entries(input ?? {})) {
+    if (typeof mode === 'string' && mode && mode !== DEFAULT_PRICE_DISPLAY) {
+      out[typeKey] = mode;
+    }
+  }
+  return out;
+}
+
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
@@ -348,6 +371,12 @@ export class PropertiesService {
         // with dead sections nobody can see or remove.
         ...(dto.sectionCopy !== undefined && {
           sectionCopy: pruneSectionCopy(dto.sectionCopy),
+        }),
+        // Entries matching the default are dropped rather than stored: it is
+        // the frontend's fallback anyway, and keeping them would freeze this
+        // property against any future change to that default.
+        ...(dto.unitPriceDisplay !== undefined && {
+          unitPriceDisplay: pruneUnitPriceDisplay(dto.unitPriceDisplay),
         }),
         ...(dto.ctaLabel !== undefined && { ctaLabel: dto.ctaLabel }),
         ...(dto.navbarStyle !== undefined && { navbarStyle: dto.navbarStyle }),

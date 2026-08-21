@@ -141,6 +141,51 @@ export class IsSectionCopyMap implements ValidatorConstraintInterface {
   }
 }
 
+/** How a unit type's price is presented to buyers. */
+export const PRICE_DISPLAYS = ['exact', 'from', 'range', 'hidden'] as const;
+
+/**
+ * Shape check for the per-unit-type price display map.
+ *
+ * Keyed by unit type key ("bed-2", "penthouse"), which is derived from the
+ * development's own inventory rather than declared here — so, like sectionCopy,
+ * the keys cannot be DTO properties and the whitelisting pipe would reject
+ * every one of them.
+ *
+ * Keys are deliberately not validated against a live type list. Inventory
+ * changes: a developer who sells out their penthouses, or renames a unit,
+ * would otherwise have a saved preference rejected on the next unrelated save.
+ * An unknown key is inert on the frontend, which falls back to the default.
+ */
+@ValidatorConstraint({ name: 'isUnitPriceDisplayMap', async: false })
+export class IsUnitPriceDisplayMap implements ValidatorConstraintInterface {
+  private reason = 'unitPriceDisplay is malformed';
+
+  validate(value: unknown): boolean {
+    if (value === undefined || value === null) return true;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      this.reason = 'unitPriceDisplay must be an object keyed by unit type';
+      return false;
+    }
+
+    for (const [typeKey, mode] of Object.entries(value as Record<string, unknown>)) {
+      if (!/^[a-z0-9][a-z0-9_-]{0,40}$/i.test(typeKey)) {
+        this.reason = `"${typeKey}" is not a valid unit type key`;
+        return false;
+      }
+      if (typeof mode !== 'string' || !(PRICE_DISPLAYS as readonly string[]).includes(mode)) {
+        this.reason = `unitPriceDisplay.${typeKey} must be one of: ${PRICE_DISPLAYS.join(', ')}`;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  defaultMessage(): string {
+    return this.reason;
+  }
+}
+
 /**
  * Mini-site branding for one development.
  *
@@ -196,6 +241,17 @@ export class UpdateBrandingDto {
   // treating the ids as unexpected fields.
   @Validate(IsSectionCopyMap)
   sectionCopy?: Record<string, SectionCopyDto>;
+
+  @ApiPropertyOptional({
+    description: 'How each unit type\'s price is shown, keyed by unit type key',
+    example: { 'bed-1': 'exact', 'bed-3': 'range', penthouse: 'hidden' },
+  })
+  @IsOptional()
+  @IsObject()
+  // Hand-validated for the same reason as sectionCopy: the keys are derived
+  // unit type ids, not declared properties.
+  @Validate(IsUnitPriceDisplayMap)
+  unitPriceDisplay?: Record<string, string>;
 
   @ApiPropertyOptional({ enum: NAVBAR_STYLE_KEYS })
   @IsOptional()
