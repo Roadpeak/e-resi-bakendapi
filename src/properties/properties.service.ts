@@ -32,6 +32,25 @@ async function uniqueSlug(prisma: PrismaService, base: string): Promise<string> 
   return slug;
 }
 
+/**
+ * Drop blank fields and sections that end up empty.
+ *
+ * A blank string and an absent key mean the same thing to the renderer — the
+ * template's own wording — so storing blanks would only bloat the row and make
+ * "has this been customised?" harder to answer.
+ */
+function pruneSectionCopy(input: Record<string, object>) {
+  const out: Record<string, Record<string, string>> = {};
+  for (const [sectionId, fields] of Object.entries(input ?? {})) {
+    const kept: Record<string, string> = {};
+    for (const [key, value] of Object.entries((fields ?? {}) as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.trim()) kept[key] = value.trim();
+    }
+    if (Object.keys(kept).length) out[sectionId] = kept;
+  }
+  return out;
+}
+
 @Injectable()
 export class PropertiesService {
   private readonly logger = new Logger(PropertiesService.name);
@@ -324,6 +343,12 @@ export class PropertiesService {
         ...(dto.heroStyle !== undefined && { heroStyle: dto.heroStyle }),
         ...(dto.sectionOrder !== undefined && { sectionOrder: dto.sectionOrder }),
         ...(dto.hiddenSections !== undefined && { hiddenSections: dto.hiddenSections }),
+        // Stored as given, minus empty entries: a developer who clears every
+        // field for a section should leave no key behind, or the JSON grows
+        // with dead sections nobody can see or remove.
+        ...(dto.sectionCopy !== undefined && {
+          sectionCopy: pruneSectionCopy(dto.sectionCopy),
+        }),
         ...(dto.ctaLabel !== undefined && { ctaLabel: dto.ctaLabel }),
         ...(dto.navbarStyle !== undefined && { navbarStyle: dto.navbarStyle }),
         ...(dto.navbarTheme !== undefined && { navbarTheme: dto.navbarTheme }),

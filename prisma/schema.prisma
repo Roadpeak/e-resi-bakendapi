@@ -669,6 +669,16 @@ model Property {
   sectionOrder        String[]
   /// Section ids to omit entirely for this development.
   hiddenSections      String[]
+  /// Per-section copy overrides, keyed by section id:
+  ///   { "units": { "heading": "…", "body": "…",
+  ///                "ctaLabel": "…", "ctaHref": "…" } }
+  ///
+  /// Json rather than a table because it is a small, whole-object edit saved
+  /// with the rest of the branding — a child table would add a join and a
+  /// migration for every new field, for data no query ever filters on. Every
+  /// field is optional and blank falls back to the template's own wording, so
+  /// a development that sets nothing renders exactly as it does today.
+  sectionCopy         Json?
   /// Primary call to action — "Book a viewing", "Request price list"…
   ctaLabel            String?
   /// SOLID or FLOATING — whether the navbar is pinned flush or floats clear.
