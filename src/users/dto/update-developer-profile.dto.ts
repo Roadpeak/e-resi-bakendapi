@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, MaxLength, Min,
+  IsEmail, IsInt, IsObject, IsOptional, IsString, IsUrl, Matches, MaxLength, Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -67,6 +67,15 @@ export class UpdateDeveloperProfileDto {
   @IsString()
   @Matches(/^\+?[0-9]{7,15}$/, { message: 'phone must be digits, optionally starting with +' })
   phone?: string;
+
+  @ApiPropertyOptional({
+    example: 'sales@acmedevelopers.co.ke',
+    description: 'Public sales address shown on the developer profile. Not the account login.',
+  })
+  @IsOptional()
+  @IsEmail({}, { message: 'email must be a valid address' })
+  @MaxLength(120)
+  email?: string;
 
   @ApiPropertyOptional({ example: '254712345678', description: 'wa.me-ready number: digits only, no +' })
   @IsOptional()

@@ -110,6 +110,7 @@ export class UsersService {
         ...(dto.website !== undefined && { website: dto.website }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
         ...(dto.phone !== undefined && { phone: dto.phone }),
+        ...(dto.email !== undefined && { email: dto.email }),
         ...(dto.whatsapp !== undefined && { whatsapp: dto.whatsapp }),
         ...(dto.location !== undefined && { location: dto.location }),
         ...(dto.socials !== undefined && { socials: dto.socials as object }),

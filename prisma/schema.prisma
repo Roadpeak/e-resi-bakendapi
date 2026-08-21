@@ -354,6 +354,11 @@ model DeveloperProfile {
   /// Public contact — shown on the developer's card and profile page.
   /// Separate from User.phone, which is the account owner's private login contact.
   phone             String?
+  /// Public sales address, for buyers who would rather write than call.
+  /// Deliberately not User.email: that is the login the account is secured
+  /// with, and publishing it on a page anyone can read would hand out one
+  /// half of the developer's own credentials.
+  email             String?
   /// Full wa.me-ready number (digits only, no +), so the WhatsApp icon can
   /// deep-link straight into a chat without any client-side reformatting.
   whatsapp          String?
