@@ -7,7 +7,18 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
+import { GoogleStrategy } from './strategies/google.strategy.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
+
+/**
+ * Google sign-in is optional infrastructure. Registering the strategy without
+ * credentials makes passport throw at construction, which would take the whole
+ * API down — so environments that have not configured Google simply run
+ * without it, and /auth/google 404s instead.
+ */
+const googleProviders = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+  ? [GoogleStrategy]
+  : [];
 
 @Module({
   imports: [
@@ -24,6 +35,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
   providers: [
     AuthService,
     JwtStrategy,
+    ...googleProviders,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

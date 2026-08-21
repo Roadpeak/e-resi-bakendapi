@@ -8,12 +8,17 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { resolveAppUrl } from '../common/app-url.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { AuthService } from './auth.service.js';
+import { GoogleOAuthGuard } from './guards/google-oauth.guard.js';
+import type { GoogleProfile } from './strategies/google.strategy.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
@@ -21,10 +26,25 @@ import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { SendVerificationCodeDto, VerifyCodeDto } from './dto/verify-code.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
+/**
+ * The role chosen before the redirect, carried in OAuth `state`.
+ *
+ * Anything unrecognised falls back to INVESTOR rather than throwing: `state`
+ * is round-tripped through a third party and a malformed value should not cost
+ * the user their sign-in. Only these two are ever accepted, so a tampered
+ * value cannot mint a developer or agent account.
+ */
+function parseOAuthRole(state: string): 'INVESTOR' | 'TENANT' {
+  return state.toUpperCase() === 'TENANT' ? 'TENANT' : 'INVESTOR';
+}
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Public()
   @Post('register')
@@ -42,6 +62,48 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     return this.authService.login(dto, res);
+  }
+
+  /**
+   * Starts the Google flow. `role` is the account type chosen on the register
+   * screen; it is passed through OAuth `state` and only applied when creating a
+   * new account. Anything other than INVESTOR or TENANT is treated as INVESTOR
+   * — developer and agent accounts need verification this flow cannot collect.
+   */
+  @Public()
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  @ApiOperation({ summary: 'Start Google sign-in (Investor / Tenant)' })
+  googleAuth(): void {
+    // The guard issues the redirect to Google; nothing runs here.
+  }
+
+  @Public()
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  @ApiOperation({ summary: 'Google OAuth callback — redirects back to the app' })
+  async googleCallback(
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const appUrl = resolveAppUrl(this.config);
+
+    try {
+      const profile = req.user as GoogleProfile | undefined;
+      if (!profile) throw new Error('No profile returned from Google');
+
+      const role = parseOAuthRole((req.query.state as string) ?? '');
+      const { accessToken } = await this.authService.googleSignIn(profile, role, res);
+
+      // The access token goes back in the URL fragment, not the query string:
+      // a fragment is never sent to the server and stays out of access logs,
+      // Referer headers and the browser history entry the server sees. The
+      // refresh token is already set as an httpOnly cookie by googleSignIn.
+      res.redirect(`${appUrl}/google/complete#access_token=${encodeURIComponent(accessToken)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Google sign-in failed';
+      res.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}`);
+    }
   }
 
   @Post('logout')

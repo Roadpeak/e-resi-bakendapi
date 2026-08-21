@@ -186,6 +186,89 @@ export class AuthService {
     return { accessToken: this.signAccess(user), user: this.sanitize(user) };
   }
 
+  // ─── Google OAuth ───────────────────────────────────────────────────────────
+
+  /**
+   * Sign in, or create an account, from a verified Google profile.
+   *
+   * `role` is the one chosen on the register screen and carried through the
+   * OAuth round-trip. It is only honoured when creating a new account — an
+   * existing user keeps whatever role they already have, so this endpoint can
+   * never be used to change one.
+   *
+   * Only INVESTOR and TENANT are accepted. Developer and agent accounts need
+   * KYB/KYC, company details and document uploads that a one-click flow would
+   * skip, leaving an account that looks complete but cannot list anything.
+   */
+  async googleSignIn(
+    profile: {
+      googleId: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      avatarUrl?: string;
+      emailVerified: boolean;
+    },
+    role: 'INVESTOR' | 'TENANT',
+    res: Response,
+  ): Promise<{ accessToken: string; user: SafeUser }> {
+    let user = await this.prisma.user.findUnique({ where: { email: profile.email } });
+
+    if (user) {
+      if (!user.isActive) throw new ForbiddenException('Account is disabled');
+
+      // An account that signed up with a password can also use Google, as long
+      // as Google vouches for the same address. Link the provider on first use
+      // rather than refusing, which would strand the user with two ways in and
+      // only one that works.
+      const patch: Record<string, unknown> = { lastLoginAt: new Date() };
+      if (!user.oauthProvider) {
+        patch.oauthProvider = 'google';
+        patch.oauthId = profile.googleId;
+      }
+      // Google has already proved the address. Honouring that clears the
+      // email-verification wall for accounts that never completed our own code
+      // step — they would otherwise be locked out despite a valid sign-in.
+      if (!user.emailVerified && profile.emailVerified) {
+        patch.emailVerified = true;
+      }
+      if (!user.avatarUrl && profile.avatarUrl) {
+        patch.avatarUrl = profile.avatarUrl;
+      }
+
+      user = await this.prisma.user.update({ where: { id: user.id }, data: patch });
+    } else {
+      user = await this.prisma.user.create({
+        data: {
+          email: profile.email,
+          // No password: the column is nullable precisely so an OAuth account
+          // has no credential to guess. login() already rejects users without
+          // one, so this cannot be used to bypass the password check.
+          password: null,
+          firstName: profile.firstName,
+          lastName: profile.lastName || profile.firstName,
+          avatarUrl: profile.avatarUrl,
+          role,
+          oauthProvider: 'google',
+          oauthId: profile.googleId,
+          // Trust Google's verification; otherwise a brand-new Google account
+          // would be bounced to an email-code step it can never satisfy.
+          emailVerified: profile.emailVerified,
+          lastLoginAt: new Date(),
+        },
+      });
+    }
+
+    const rawRefresh = this.generateToken();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { refreshToken: this.sha256(rawRefresh) },
+    });
+    this.setRefreshCookie(res, user.id, rawRefresh);
+
+    return { accessToken: this.signAccess(user), user: this.sanitize(user) };
+  }
+
   // ─── Logout ─────────────────────────────────────────────────────────────────
 
   async logout(userId: string, res: Response): Promise<{ message: string }> {
