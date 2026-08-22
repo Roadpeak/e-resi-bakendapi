@@ -91,6 +91,29 @@ export class TwinsService {
       );
     }
 
+    /**
+     * Refuse an oversized model before spending the upload.
+     *
+     * A .glb is stored as a raw file, and raw files are capped far lower than
+     * images or video — 10 MB on Cloudinary's free tier. Sending 45 MB up to
+     * be rejected wastes the developer's bandwidth and returns an error from
+     * storage rather than one that says what to do, so the check happens here
+     * where the numbers and the remedy are both known.
+     */
+    const limitMb = Number(process.env.RAW_UPLOAD_LIMIT_MB ?? 10);
+    const sizeMb = summary.bytes / 1048576;
+
+    if (limitMb > 0 && sizeMb > limitMb) {
+      throw new BadRequestException(
+        `That model is ${sizeMb.toFixed(1)} MB, over the ${limitMb} MB limit for 3D files. `
+        + (summary.compression === 'none'
+          ? 'It is uncompressed — Draco or Meshopt usually cuts geometry by 70–90%'
+          : 'Decimate the mesh')
+        + (summary.ktx2 ? '' : ' and bake textures to KTX2')
+        + `, or raise the storage plan's raw file cap.`,
+      );
+    }
+
     const { url } = await this.storage.upload(
       'tours',
       file.originalname,

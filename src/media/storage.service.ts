@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import { randomBytes } from 'crypto';
@@ -108,8 +108,40 @@ export class StorageService {
         sizeBytes: result.bytes ?? buffer.byteLength,
       };
     } catch (err) {
-      this.logger.error(`Cloudinary upload failed: ${publicId}`, err as Error);
-      throw new InternalServerErrorException('File upload failed');
+      const e = err as { http_code?: number; message?: string };
+      const message = e?.message ?? String(err);
+      const mb = (buffer.byteLength / 1048576).toFixed(1);
+
+      this.logger.error(
+        `Cloudinary upload failed: ${publicId} (${resourceType}, ${mb} MB) — `
+        + `http ${e?.http_code ?? '?'}: ${message}`,
+      );
+
+      /**
+       * Say what actually went wrong.
+       *
+       * A generic 500 sent whoever uploaded a 45 MB model off to check quotas
+       * and network — the real cause was a storage limit that no amount of
+       * retrying would clear. A size rejection is something the person on the
+       * other end can act on, so it is passed through rather than flattened.
+       *
+       * Cloudinary caps non-image, non-video files far lower than media on
+       * every plan, and lower still on the free tier; a .glb travels as raw.
+       */
+      const tooLarge = e?.http_code === 413
+        || /file size too large|maximum is|too large/i.test(message);
+
+      if (tooLarge) {
+        throw new BadRequestException(
+          `That file is ${mb} MB, which is over the storage limit for this file type. `
+          + 'Compress the model with Draco or Meshopt and bake its textures to KTX2 — '
+          + 'that usually brings a scan under the limit — or raise the plan\'s raw file cap.',
+        );
+      }
+
+      throw new InternalServerErrorException(
+        `Upload failed: ${message.slice(0, 200)}`,
+      );
     }
   }
 
