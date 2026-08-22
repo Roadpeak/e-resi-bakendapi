@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomBytes } from 'crypto';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import { extname, join } from 'path';
@@ -24,6 +25,22 @@ type CloudinaryResourceType = 'image' | 'video' | 'raw';
  *   knows which Cloudinary namespace to target.
  * - Delivery URLs are Cloudinary `secure_url`s (CDN-backed, transformable).
  */
+/**
+ * Where uploaded files live.
+ *
+ * Two stores, split by what each is good at:
+ *
+ *   images            Cloudinary — transforms, srcsets, f_auto
+ *   video, raw, glb   DigitalOcean Spaces — no meaningful per-file cap
+ *
+ * Environment:
+ *   SPACES_BUCKET, SPACES_REGION, SPACES_ACCESS_KEY, SPACES_SECRET_KEY
+ *   SPACES_ENDPOINT       optional, defaults to <region>.digitaloceanspaces.com
+ *   SPACES_CDN_BASE_URL   optional, falls back to the origin host
+ *
+ * With none of those set, everything goes to Cloudinary exactly as before, so
+ * the code can ship ahead of the secrets.
+ */
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
@@ -31,11 +48,51 @@ export class StorageService {
   private readonly cloudName: string;
   /** True when no real Cloudinary credentials exist — files go to local disk. */
   private readonly localMode: boolean;
+  private readonly s3: S3Client | null;
+  private readonly spacesBucket: string;
+  private readonly spacesBase: string;
+  private readonly spacesEnabled: boolean;
 
   constructor(private readonly config: ConfigService) {
     this.cloudName = config.get<string>('CLOUDINARY_CLOUD_NAME', '');
     this.baseFolder = config.get<string>('CLOUDINARY_FOLDER', 'e-resi');
     this.localMode = !this.cloudName || this.cloudName.startsWith('your_');
+
+    /**
+     * Anything that is not an image goes to Spaces.
+     *
+     * Cloudinary caps non-image files far below images on every plan — 10 MB
+     * on the free tier — and a .glb is stored as a raw file, so a scan of any
+     * real building is refused. Spaces has no practical per-file limit and
+     * costs a fraction of the Cloudinary tier that would lift the cap.
+     *
+     * Images stay on Cloudinary: transforms, srcsets and f_auto are what it is
+     * actually good at, and nothing about an image was ever the problem.
+     */
+    const bucket = config.get<string>('SPACES_BUCKET', '');
+    const region = config.get<string>('SPACES_REGION', 'fra1');
+    const accessKey = config.get<string>('SPACES_ACCESS_KEY', '');
+    const secretKey = config.get<string>('SPACES_SECRET_KEY', '');
+
+    this.spacesBucket = bucket;
+    // Falls back to the origin URL, so the CDN can be switched on in the DO
+    // console later without a deploy.
+    this.spacesBase = config.get<string>('SPACES_CDN_BASE_URL', '')
+      || `https://${bucket}.${region}.digitaloceanspaces.com`;
+
+    // Configured only when there is something to configure — a half-set
+    // environment should fall back to Cloudinary rather than fail at upload.
+    this.spacesEnabled = Boolean(bucket && accessKey && secretKey)
+      && !accessKey.startsWith('your_');
+
+    this.s3 = this.spacesEnabled
+      ? new S3Client({
+          region,
+          endpoint: config.get<string>('SPACES_ENDPOINT', `https://${region}.digitaloceanspaces.com`),
+          forcePathStyle: false,
+          credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+        })
+      : null;
 
     cloudinary.config({
       cloud_name: this.cloudName,
@@ -55,8 +112,14 @@ export class StorageService {
     return `${this.baseFolder}/${folder}/${randomBytes(12).toString('hex')}`;
   }
 
-  /** Reconstruct our `<resourceType>:<publicId>` key from a Cloudinary delivery URL. */
+  /** Reconstruct our `<store>:<id>` key from a delivery URL. */
   keyFromUrl(url: string): string | null {
+    // Spaces, with or without the CDN host, and whatever the bucket is called:
+    // matching on the provider rather than the bucket name means renaming the
+    // bucket does not orphan every file already stored in it.
+    const spaces = url.match(/\/\/([^/.]+)\.[^/]*digitaloceanspaces\.com\/(.+)$/);
+    if (spaces) return `spaces:${spaces[2]}`;
+
     // https://res.cloudinary.com/<cloud>/<resource>/upload/[transforms/]v123/<publicId>.<ext>
     const match = url.match(
       /res\.cloudinary\.com\/[^/]+\/(image|video|raw)\/upload\/(?:[^/]+\/)*?(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]+)?$/,
@@ -74,6 +137,13 @@ export class StorageService {
     if (this.localMode) return this.uploadLocal(folder, originalName, buffer);
 
     const resourceType = this.resourceTypeFor(mimeType);
+
+    // Everything that is not an image, when Spaces is configured. See the
+    // constructor for why.
+    if (this.spacesEnabled && resourceType !== 'image') {
+      return this.uploadToSpaces(folder, originalName, buffer, mimeType);
+    }
+
     const publicId = this.buildPublicId(folder);
 
     try {
@@ -145,6 +215,48 @@ export class StorageService {
     }
   }
 
+  /**
+   * Store a file in Spaces.
+   *
+   * Keys keep the `<store>:<id>` shape the rest of the system already uses, so
+   * delete() can dispatch on the prefix and older Cloudinary keys keep working
+   * untouched.
+   */
+  private async uploadToSpaces(
+    folder: UploadFolder,
+    originalName: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<{ url: string; key: string; sizeBytes: number }> {
+    const ext = extname(originalName).toLowerCase();
+    const key = `${this.baseFolder}/${folder}/${randomBytes(12).toString('hex')}${ext}`;
+
+    try {
+      await this.s3!.send(new PutObjectCommand({
+        Bucket: this.spacesBucket,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        ACL: 'public-read',
+        // Keys are random and a file is never rewritten, so anything fetched
+        // once can be cached indefinitely.
+        CacheControl: 'public, max-age=31536000, immutable',
+      }));
+
+      return {
+        url: `${this.spacesBase}/${key}`,
+        key: `spaces:${key}`,
+        sizeBytes: buffer.byteLength,
+      };
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      this.logger.error(
+        `Spaces upload failed: ${key} (${(buffer.byteLength / 1048576).toFixed(1)} MB) — ${message}`,
+      );
+      throw new InternalServerErrorException(`Upload failed: ${message.slice(0, 200)}`);
+    }
+  }
+
   /** [SANDBOX] Cloudinary not configured — persist to ./uploads and serve statically. */
   private async uploadLocal(
     folder: UploadFolder,
@@ -165,6 +277,20 @@ export class StorageService {
   async delete(key: string): Promise<void> {
     if (key.startsWith('local:')) {
       await unlink(join(process.cwd(), 'uploads', key.slice(6))).catch(() => {});
+      return;
+    }
+
+    if (key.startsWith('spaces:')) {
+      try {
+        await this.s3?.send(new DeleteObjectCommand({
+          Bucket: this.spacesBucket,
+          Key: key.slice('spaces:'.length),
+        }));
+      } catch (err) {
+        // Same as Cloudinary below: a file left behind costs pennies, a failed
+        // response costs the user their action.
+        this.logger.warn(`Spaces delete failed: ${key}`, err as Error);
+      }
       return;
     }
     const [resourceType, publicId] = key.includes(':')
@@ -200,6 +326,20 @@ export class StorageService {
     direct: boolean;
   }> {
     const resourceType = this.resourceTypeFor(mimeType);
+
+    /**
+     * Non-images go through the API when Spaces is in play.
+     *
+     * upload() routes them to Spaces, so signing a direct-to-Cloudinary upload
+     * here would put the same kind of file in two different stores depending
+     * on which path the client happened to take — and a video uploaded direct
+     * would still meet the cap this move exists to escape. `direct: false`
+     * makes the client post to the API instead, which it already handles as
+     * the sandbox fallback.
+     */
+    if (this.spacesEnabled && resourceType !== 'image') {
+      return { uploadUrl: '', key: '', fileUrl: '', fields: null, resourceType, direct: false };
+    }
 
     // Without credentials there is nothing to sign, and handing back a URL
     // that cannot work would fail at the browser with no useful error.
