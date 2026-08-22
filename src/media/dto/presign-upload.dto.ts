@@ -5,6 +5,10 @@ const ALLOWED_MIME_TYPES = [
   'image/jpeg', 'image/png', 'image/webp', 'image/avif',
   'video/mp4', 'video/webm', 'video/quicktime',
   'application/pdf',
+  // Digital twins. Browsers rarely know glTF by name — most report a .glb as
+  // octet-stream — so both are accepted and the server checks the file's own
+  // magic bytes rather than trusting the label.
+  'model/gltf-binary', 'model/gltf+json', 'application/octet-stream',
 ];
 
 export class PresignUploadDto {

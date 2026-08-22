@@ -38,6 +38,9 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get mediaAsset() { return prismaInstance.mediaAsset; }
   get cinematicScene() { return prismaInstance.cinematicScene; }
   get tourSection3D() { return prismaInstance.tourSection3D; }
+  get digitalTwin() { return prismaInstance.digitalTwin; }
+  get twinWaypoint() { return prismaInstance.twinWaypoint; }
+  get twinTag() { return prismaInstance.twinTag; }
   get tourScene3D() { return prismaInstance.tourScene3D; }
   get tourSceneVR() { return prismaInstance.tourSceneVR; }
   get floorPlan() { return prismaInstance.floorPlan; }

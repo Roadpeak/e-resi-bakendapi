@@ -722,6 +722,7 @@ model Property {
   media               MediaAsset[]
   cinematicScenes     CinematicScene[]
   tourSections3D      TourSection3D[]
+  digitalTwin         DigitalTwin?
   tourScenesVR        TourSceneVR[]
   rentListings        RentListing[]
   savedBy             SavedProperty[]
@@ -904,6 +905,105 @@ model CinematicScene {
 // ─────────────────────────────────────────────
 // 3D TOUR
 // ─────────────────────────────────────────────
+
+/// A real, navigable model of a building — the thing a "3D tour" actually is.
+///
+/// Distinct from TourSection3D, which stores photographs and clips arranged as
+/// a slideshow. This holds geometry: a glTF binary the viewer loads and the
+/// visitor walks through, orbits as a dollhouse and reads as a floor plan.
+///
+/// One per property. A development with several buildings ships one model
+/// containing them all, because a single mesh loads once and a visitor moving
+/// between blocks should not wait for a second download.
+model DigitalTwin {
+  id            String   @id @default(cuid())
+  propertyId    String   @unique
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  /// The published .glb — Draco or Meshopt compressed, KTX2 textures.
+  meshUrl       String
+  /// A heavily decimated shell loaded first, so the dollhouse appears while
+  /// the detailed geometry is still streaming. Optional: a small model does
+  /// not need one.
+  proxyUrl      String?
+
+  /// Metres per model unit. Almost always 1 — glTF is metre-scaled by
+  /// definition — but a model exported from a unit-less tool is not, and
+  /// publishing measurements from an unverified scale would hand a buyer
+  /// confident wrong numbers.
+  scale         Float    @default(1)
+  /// Confirmed on site against a known dimension. Measurement stays hidden in
+  /// the viewer until this is true.
+  scaleVerified Boolean  @default(false)
+
+  /// Reported at upload so the delivery budget is visible rather than
+  /// discovered on a phone over mobile data.
+  triangles     Int?
+  fileSizeBytes Int?
+
+  /// Where the camera starts, in model space. Without this the viewer has to
+  /// guess, and a model whose origin sits off in a corner opens on nothing.
+  originX       Float    @default(0)
+  originY       Float    @default(0)
+  originZ       Float    @default(0)
+
+  /// Storey labels, bottom to top — drives the floor selector.
+  floors        String[]
+
+  capturedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  waypoints     TwinWaypoint[]
+  tags          TwinTag[]
+}
+
+/// One stop on the guided tour: where the camera goes and what it says there.
+model TwinWaypoint {
+  id          String      @id @default(cuid())
+  twinId      String
+  twin        DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
+
+  label       String
+  /// Shown over the model when the tour reaches this stop.
+  caption     String?
+  /// Which route this belongs to — "Full tour", "Kitchen", "Amenities".
+  route       String?
+
+  /// Camera position and the point it looks at, both in model space.
+  posX        Float
+  posY        Float
+  posZ        Float
+  lookX       Float       @default(0)
+  lookY       Float       @default(0)
+  lookZ       Float       @default(0)
+
+  /// Which storey this stop is on, indexing DigitalTwin.floors.
+  floor       Int         @default(0)
+  order       Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  @@index([twinId])
+}
+
+/// A pin on a specific point of the building, with something to say about it.
+model TwinTag {
+  id        String      @id @default(cuid())
+  twinId    String
+  twin      DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
+
+  title     String
+  body      String?
+  /// Anchored in model space, so the pin stays on the fitting it describes as
+  /// the camera moves.
+  posX      Float
+  posY      Float
+  posZ      Float
+  floor     Int         @default(0)
+  createdAt DateTime    @default(now())
+
+  @@index([twinId])
+}
 
 model TourSection3D {
   id         String        @id @default(cuid())
