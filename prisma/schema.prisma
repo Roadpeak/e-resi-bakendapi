@@ -107,6 +107,14 @@ enum CinematicSceneCategory {
   UNIT_TYPE
 }
 
+/// What a digital twin depicts. Drives how the switcher groups them.
+enum TwinKind {
+  BUILDING
+  UNIT
+  AMENITY
+  ROOM
+}
+
 enum TourCameraPreset {
   AERIAL
   STREET
@@ -722,7 +730,7 @@ model Property {
   media               MediaAsset[]
   cinematicScenes     CinematicScene[]
   tourSections3D      TourSection3D[]
-  digitalTwin         DigitalTwin?
+  digitalTwins        DigitalTwin[]
   tourScenesVR        TourSceneVR[]
   rentListings        RentListing[]
   savedBy             SavedProperty[]
@@ -906,19 +914,31 @@ model CinematicScene {
 // 3D TOUR
 // ─────────────────────────────────────────────
 
-/// A real, navigable model of a building — the thing a "3D tour" actually is.
+/// A real, navigable model — the thing a "3D tour" actually is.
 ///
 /// Distinct from TourSection3D, which stores photographs and clips arranged as
 /// a slideshow. This holds geometry: a glTF binary the viewer loads and the
 /// visitor walks through, orbits as a dollhouse and reads as a floor plan.
 ///
-/// One per property. A development with several buildings ships one model
-/// containing them all, because a single mesh loads once and a visitor moving
-/// between blocks should not wait for a second download.
+/// Several per property, because a development is not one thing to scan. The
+/// whole building, a show unit, the amenity deck and each unit type are
+/// separate captures at different times, and a buyer choosing "Kitchen" should
+/// load the kitchen rather than wait for a tower they did not ask for.
 model DigitalTwin {
   id            String   @id @default(cuid())
-  propertyId    String   @unique
+  propertyId    String
   property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  /// What this model is of — "Full building", "2 Bed Show Unit", "Amenities".
+  /// Shown as the label on the switcher a visitor picks from.
+  label         String   @default("Full building")
+  /// Groups the switcher: BUILDING, UNIT, AMENITY, ROOM.
+  kind          TwinKind @default(BUILDING)
+  /// A still for the switcher tile, so a visitor sees what they are choosing.
+  posterUrl     String?
+  /// Which model opens first. Exactly one per property should carry it.
+  isPrimary     Boolean  @default(false)
+  order         Int      @default(0)
 
   /// The published .glb — Draco or Meshopt compressed, KTX2 textures.
   meshUrl       String
@@ -956,6 +976,8 @@ model DigitalTwin {
 
   waypoints     TwinWaypoint[]
   tags          TwinTag[]
+
+  @@index([propertyId])
 }
 
 /// One stop on the guided tour: where the camera goes and what it says there.

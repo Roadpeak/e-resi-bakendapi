@@ -32,16 +32,23 @@ export class TwinsService {
     private readonly storage: StorageService,
   ) {}
 
-  /** The twin as the viewer needs it, or null when a property has none. */
-  async get(slug: string) {
+  /**
+   * Every model for a property, the one to open first at the front.
+   *
+   * A list rather than a single record: a development is captured in pieces —
+   * the building, a show unit, the amenity deck — and the viewer offers them
+   * as a switcher.
+   */
+  async list(slug: string) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
       select: { id: true },
     });
     if (!property) throw new NotFoundException('Property not found');
 
-    return this.prisma.digitalTwin.findUnique({
+    return this.prisma.digitalTwin.findMany({
       where: { propertyId: property.id },
+      orderBy: [{ isPrimary: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
       include: {
         waypoints: { orderBy: { order: 'asc' } },
         tags: true,
@@ -60,8 +67,9 @@ export class TwinsService {
     slug: string,
     role: UserRole,
     file: { originalname: string; buffer: Buffer; mimetype: string },
-    kind: 'mesh' | 'proxy' = 'mesh',
+    opts: { kind?: 'mesh' | 'proxy'; twinId?: string; label?: string; twinKind?: string } = {},
   ) {
+    const kind = opts.kind ?? 'mesh';
     if (role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only e-resi staff can publish a 3D model');
     }
@@ -90,23 +98,41 @@ export class TwinsService {
       file.mimetype,
     );
 
-    const twin = await this.prisma.digitalTwin.upsert({
+    /**
+     * Replacing a named model, or adding another to the property.
+     *
+     * A twinId means "this capture again, re-exported"; its absence means a
+     * new thing has been captured — the amenity deck, a show unit — and gets
+     * its own record so a visitor can choose between them.
+     */
+    const existingCount = await this.prisma.digitalTwin.count({
       where: { propertyId: property.id },
-      create: {
-        propertyId: property.id,
-        ...(kind === 'proxy'
-          // A proxy is meaningless on its own, so it stands in as the mesh
-          // until the full model arrives.
-          ? { meshUrl: url, proxyUrl: url }
-          : { meshUrl: url }),
-        triangles: summary.triangles,
-        fileSizeBytes: summary.bytes,
-      },
-      update: kind === 'proxy'
-        ? { proxyUrl: url }
-        : { meshUrl: url, triangles: summary.triangles, fileSizeBytes: summary.bytes },
-      include: { waypoints: { orderBy: { order: 'asc' } }, tags: true },
     });
+
+    const twin = opts.twinId
+      ? await this.prisma.digitalTwin.update({
+          where: { id: opts.twinId },
+          data: kind === 'proxy'
+            ? { proxyUrl: url }
+            : { meshUrl: url, triangles: summary.triangles, fileSizeBytes: summary.bytes },
+          include: { waypoints: { orderBy: { order: 'asc' } }, tags: true },
+        })
+      : await this.prisma.digitalTwin.create({
+          data: {
+            propertyId: property.id,
+            label: opts.label?.trim() || 'Full building',
+            kind: (opts.twinKind as never) ?? 'BUILDING',
+            // The first model uploaded is the one the viewer opens on.
+            isPrimary: existingCount === 0,
+            order: existingCount,
+            // A proxy alone is not a model, so it stands in until a full one
+            // is uploaded against this record.
+            ...(kind === 'proxy' ? { meshUrl: url, proxyUrl: url } : { meshUrl: url }),
+            triangles: summary.triangles,
+            fileSizeBytes: summary.bytes,
+          },
+          include: { waypoints: { orderBy: { order: 'asc' } }, tags: true },
+        });
 
     // The flag now means something: a property claims a 3D tour because it has
     // a model, not because someone ticked a box.
@@ -118,10 +144,19 @@ export class TwinsService {
     return { twin, summary, warnings: warningsFor(summary) };
   }
 
-  async update(slug: string, role: UserRole, dto: UpsertTwinDto) {
+  async update(twinId: string, role: UserRole, dto: UpsertTwinDto) {
     if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
 
-    const twin = await this.requireTwin(slug);
+    const twin = await this.requireTwin(twinId);
+
+    // Only one model opens by default, so promoting one demotes the rest.
+    if (dto.isPrimary) {
+      await this.prisma.digitalTwin.updateMany({
+        where: { propertyId: twin.propertyId },
+        data: { isPrimary: false },
+      });
+    }
+
     return this.prisma.digitalTwin.update({
       where: { id: twin.id },
       data: {
@@ -132,32 +167,53 @@ export class TwinsService {
         ...(dto.originY !== undefined && { originY: dto.originY }),
         ...(dto.originZ !== undefined && { originZ: dto.originZ }),
         ...(dto.capturedAt !== undefined && { capturedAt: new Date(dto.capturedAt) }),
+        ...(dto.label !== undefined && { label: dto.label }),
+        ...(dto.kind !== undefined && { kind: dto.kind as never }),
+        ...(dto.posterUrl !== undefined && { posterUrl: dto.posterUrl }),
+        ...(dto.isPrimary !== undefined && { isPrimary: dto.isPrimary }),
+        ...(dto.order !== undefined && { order: dto.order }),
       },
       include: { waypoints: { orderBy: { order: 'asc' } }, tags: true },
     });
   }
 
-  async remove(slug: string, role: UserRole) {
+  async remove(twinId: string, role: UserRole) {
     if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
 
-    const twin = await this.requireTwin(slug);
+    const twin = await this.requireTwin(twinId);
     await this.prisma.digitalTwin.delete({ where: { id: twin.id } });
 
-    // Nothing left to tour, so stop claiming there is.
-    await this.prisma.property.update({
-      where: { id: twin.propertyId },
-      data: { has3DTour: false },
+    const left = await this.prisma.digitalTwin.findMany({
+      where: { propertyId: twin.propertyId },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     });
+
+    // Removing the model a property opened on would otherwise leave the
+    // switcher with nothing selected.
+    if (twin.isPrimary && left.length) {
+      await this.prisma.digitalTwin.update({
+        where: { id: left[0].id },
+        data: { isPrimary: true },
+      });
+    }
+
+    // Nothing left to tour, so stop claiming there is.
+    if (!left.length) {
+      await this.prisma.property.update({
+        where: { id: twin.propertyId },
+        data: { has3DTour: false },
+      });
+    }
 
     return { message: 'Model removed' };
   }
 
   // ─── Waypoints ─────────────────────────────────────────────────────────────
 
-  async addWaypoint(slug: string, role: UserRole, dto: CreateWaypointDto) {
+  async addWaypoint(twinId: string, role: UserRole, dto: CreateWaypointDto) {
     if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
 
-    const twin = await this.requireTwin(slug);
+    const twin = await this.requireTwin(twinId);
     const count = await this.prisma.twinWaypoint.count({ where: { twinId: twin.id } });
 
     return this.prisma.twinWaypoint.create({
@@ -188,10 +244,10 @@ export class TwinsService {
 
   // ─── Tags ──────────────────────────────────────────────────────────────────
 
-  async addTag(slug: string, role: UserRole, dto: CreateTagDto) {
+  async addTag(twinId: string, role: UserRole, dto: CreateTagDto) {
     if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
 
-    const twin = await this.requireTwin(slug);
+    const twin = await this.requireTwin(twinId);
     return this.prisma.twinTag.create({
       data: {
         twinId: twin.id,
@@ -213,18 +269,9 @@ export class TwinsService {
     return { message: 'Tag removed' };
   }
 
-  private async requireTwin(slug: string) {
-    const property = await this.prisma.property.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
-    if (!property) throw new NotFoundException('Property not found');
-
-    const twin = await this.prisma.digitalTwin.findUnique({
-      where: { propertyId: property.id },
-    });
-    if (!twin) throw new NotFoundException('This property has no 3D model yet');
-
+  private async requireTwin(twinId: string) {
+    const twin = await this.prisma.digitalTwin.findUnique({ where: { id: twinId } });
+    if (!twin) throw new NotFoundException('That 3D model could not be found');
     return twin;
   }
 }

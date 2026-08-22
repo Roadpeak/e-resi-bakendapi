@@ -1,10 +1,38 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsArray, IsBoolean, IsDateString, IsInt, IsNotEmpty, IsNumber,
+  IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber,
   IsOptional, IsString, MaxLength, Min,
 } from 'class-validator';
 
 export class UpsertTwinDto {
+  @ApiPropertyOptional({ example: '2 Bed Show Unit' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  label?: string;
+
+  @ApiPropertyOptional({ enum: ['BUILDING', 'UNIT', 'AMENITY', 'ROOM'] })
+  @IsOptional()
+  @IsIn(['BUILDING', 'UNIT', 'AMENITY', 'ROOM'])
+  kind?: string;
+
+  @ApiPropertyOptional({ description: 'Still shown on the switcher tile' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  posterUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Which model the viewer opens on' })
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  order?: number;
+
   @ApiPropertyOptional({ example: 1, description: 'Metres per model unit' })
   @IsOptional()
   @IsNumber()

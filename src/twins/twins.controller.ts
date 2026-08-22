@@ -18,9 +18,9 @@ export class TwinsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Public: the 3D model, its stops and tags' })
-  get(@Param('slug') slug: string) {
-    return this.service.get(slug);
+  @ApiOperation({ summary: 'Public: every 3D model for a property, with stops and tags' })
+  list(@Param('slug') slug: string) {
+    return this.service.list(slug);
   }
 
   /**
@@ -41,40 +41,49 @@ export class TwinsController {
     @CurrentUser() user: { role: UserRole },
     @UploadedFile() file: { originalname: string; buffer: Buffer; mimetype: string },
     @Query('kind') kind?: 'mesh' | 'proxy',
+    /** Replaces this model rather than adding another. */
+    @Query('twinId') twinId?: string,
+    @Query('label') label?: string,
+    @Query('twinKind') twinKind?: string,
   ) {
-    return this.service.uploadMesh(slug, user.role, file, kind === 'proxy' ? 'proxy' : 'mesh');
+    return this.service.uploadMesh(slug, user.role, file, {
+      kind: kind === 'proxy' ? 'proxy' : 'mesh',
+      twinId,
+      label,
+      twinKind,
+    });
   }
 
-  @Patch()
+  @Patch(':twinId')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin: scale, floors and capture details' })
+  @ApiOperation({ summary: 'Admin: label, kind, scale, floors and capture details' })
   update(
-    @Param('slug') slug: string,
+    @Param('twinId') twinId: string,
     @CurrentUser() user: { role: UserRole },
     @Body() dto: UpsertTwinDto,
   ) {
-    return this.service.update(slug, user.role, dto);
+    return this.service.update(twinId, user.role, dto);
   }
 
-  @Delete()
+  @Delete(':twinId')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Admin: remove the model' })
-  remove(@Param('slug') slug: string, @CurrentUser() user: { role: UserRole }) {
-    return this.service.remove(slug, user.role);
+  @ApiOperation({ summary: 'Admin: remove one model' })
+  remove(@Param('twinId') twinId: string, @CurrentUser() user: { role: UserRole }) {
+    return this.service.remove(twinId, user.role);
   }
 
-  @Post('waypoints')
+  @Post(':twinId/waypoints')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Admin: add a stop to the guided tour' })
   addWaypoint(
-    @Param('slug') slug: string,
+    @Param('twinId') twinId: string,
     @CurrentUser() user: { role: UserRole },
     @Body() dto: CreateWaypointDto,
   ) {
-    return this.service.addWaypoint(slug, user.role, dto);
+    return this.service.addWaypoint(twinId, user.role, dto);
   }
 
   @Delete('waypoints/:id')
@@ -85,16 +94,16 @@ export class TwinsController {
     return this.service.removeWaypoint(id, user.role);
   }
 
-  @Post('tags')
+  @Post(':twinId/tags')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Admin: pin a tag in the model' })
   addTag(
-    @Param('slug') slug: string,
+    @Param('twinId') twinId: string,
     @CurrentUser() user: { role: UserRole },
     @Body() dto: CreateTagDto,
   ) {
-    return this.service.addTag(slug, user.role, dto);
+    return this.service.addTag(twinId, user.role, dto);
   }
 
   @Delete('tags/:id')
