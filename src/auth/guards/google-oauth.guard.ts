@@ -1,4 +1,4 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 
@@ -12,6 +12,27 @@ import type { Request } from 'express';
  */
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
+  private readonly logger = new Logger(GoogleOAuthGuard.name);
+
+  /**
+   * Turn a strategy failure into something the user can act on.
+   *
+   * Anything thrown in here happens before the controller runs, so its
+   * try/catch never sees it and the visitor gets a raw 500 JSON body at a
+   * Google callback URL — with the real cause visible only in server logs.
+   * Logging it here and rethrowing keeps the diagnosis while letting the
+   * exception filter render a page rather than a stack trace.
+   */
+  handleRequest<TUser>(err: unknown, user: TUser, info: unknown): TUser {
+    if (err || !user) {
+      const reason = err instanceof Error
+        ? err.message
+        : String((info as { message?: string })?.message ?? info ?? 'unknown');
+      this.logger.error(`Google sign-in failed before the callback ran: ${reason}`);
+    }
+    return super.handleRequest(err, user, info, null as never);
+  }
+
   getAuthenticateOptions(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request>();
     const role = String(req.query.role ?? '').toUpperCase();

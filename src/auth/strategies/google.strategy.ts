@@ -32,8 +32,19 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         config.get<string>('GOOGLE_CALLBACK_URL')
         ?? `${resolveAppUrl(config)}/api/auth/google/callback`,
       scope: ['email', 'profile'],
-      // The chosen role rides along in `state`; without this passport drops it.
-      state: true,
+      // Deliberately NOT `state: true`. That switches passport-oauth2 to its
+      // session-backed state store, which stores the value on the outbound
+      // leg and verifies it on the callback — and throws "OAuth 2.0
+      // authentication requires session support when using state" when there
+      // is no session. This API is stateless JWT with no session middleware,
+      // so every callback failed with a raw 500: the throw happens inside the
+      // guard, before the controller's try/catch can turn it into a redirect.
+      //
+      // The role still travels: GoogleOAuthGuard passes `state` as a string
+      // per request, which passport forwards as a plain query parameter. That
+      // is safe here because the value is not a secret and is not trusted —
+      // the callback re-validates it down to INVESTOR or TENANT rather than
+      // believing whatever comes back.
     });
   }
 
