@@ -55,10 +55,22 @@ export class ToursController {
     return this.service.list3DTour(slug);
   }
 
+  /**
+   * 3D and VR are staff-only from here down.
+   *
+   * Both need a capture rig — a scanner or a 360° camera — and an upload from
+   * anything else succeeds while producing something broken: a warped headset
+   * scene, or a tour of nothing. That fails the worst way, looking finished to
+   * whoever uploaded it and wrong to the buyer. Cinematic stays open to
+   * developers, because an ordinary film is something they can genuinely make.
+   *
+   * Enforced here as well as hidden in the dashboard: a cached page or a
+   * direct call would otherwise still write.
+   */
   @Post('3d/sections')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: add a 3D tour section' })
+  @ApiOperation({ summary: 'Admin: add a 3D tour section' })
   addSection(
     @Param('slug') slug: string,
     @CurrentUser() user: { id: string; role: UserRole },
@@ -68,9 +80,9 @@ export class ToursController {
   }
 
   @Post('3d/sections/:sectionId/scenes')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: add a scene to a 3D tour section' })
+  @ApiOperation({ summary: 'Admin: add a scene to a 3D tour section' })
   addScene(
     @Param('sectionId') sectionId: string,
     @CurrentUser() user: { id: string; role: UserRole },
@@ -80,9 +92,9 @@ export class ToursController {
   }
 
   @Delete('3d/sections/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: remove a 3D tour section (and its scenes)' })
+  @ApiOperation({ summary: 'Admin: remove a 3D tour section (and its scenes)' })
   removeSection(
     @Param('id') id: string,
     @CurrentUser() user: { id: string; role: UserRole },
@@ -91,9 +103,9 @@ export class ToursController {
   }
 
   @Delete('3d/scenes/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: remove a single 3D tour scene' })
+  @ApiOperation({ summary: 'Admin: remove a single 3D tour scene' })
   remove3DScene(
     @Param('id') id: string,
     @CurrentUser() user: { id: string; role: UserRole },
@@ -111,9 +123,9 @@ export class ToursController {
   }
 
   @Post('vr')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: add a VR tour scene' })
+  @ApiOperation({ summary: 'Admin: add a VR scene' })
   addVRScene(
     @Param('slug') slug: string,
     @CurrentUser() user: { id: string; role: UserRole },
@@ -123,9 +135,9 @@ export class ToursController {
   }
 
   @Delete('vr/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: remove a VR tour scene' })
+  @ApiOperation({ summary: 'Admin: remove a VR scene' })
   removeVRScene(
     @Param('id') id: string,
     @CurrentUser() user: { id: string; role: UserRole },
