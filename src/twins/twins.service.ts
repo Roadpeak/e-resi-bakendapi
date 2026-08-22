@@ -157,11 +157,18 @@ export class TwinsService {
           include: { waypoints: { orderBy: { order: 'asc' } }, tags: true },
         });
 
-    // The flag now means something: a property claims a 3D tour because it has
-    // a model, not because someone ticked a box.
+    /**
+     * The flags now mean something: a property claims these tours because it
+     * has a model, not because someone ticked a box.
+     *
+     * Both, because one model is both tours — the same geometry viewed on a
+     * monitor or walked in a headset. Setting only has3DTour left the VR page
+     * working but unadvertised: no badge on the listing, no link from the 3D
+     * viewer, reachable only by typing the URL.
+     */
     await this.prisma.property.update({
       where: { id: property.id },
-      data: { has3DTour: true },
+      data: { has3DTour: true, hasVRTour: true },
     });
 
     return { twin, summary, warnings: warningsFor(summary) };
@@ -220,11 +227,22 @@ export class TwinsService {
       });
     }
 
-    // Nothing left to tour, so stop claiming there is.
+    /**
+     * Nothing left to tour, so stop claiming there is.
+     *
+     * The older scene-based tours are counted before clearing either flag: a
+     * property can hold both a model and legacy 360° stills, and deleting the
+     * model must not un-advertise a panorama tour that still works.
+     */
     if (!left.length) {
+      const [scenes3D, scenesVR] = await Promise.all([
+        this.prisma.tourScene3D.count({ where: { section: { propertyId: twin.propertyId } } }),
+        this.prisma.tourSceneVR.count({ where: { propertyId: twin.propertyId } }),
+      ]);
+
       await this.prisma.property.update({
         where: { id: twin.propertyId },
-        data: { has3DTour: false },
+        data: { has3DTour: scenes3D > 0, hasVRTour: scenesVR > 0 },
       });
     }
 
