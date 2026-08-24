@@ -242,6 +242,19 @@ export class ToursService {
     if (userRole !== UserRole.ADMIN && plan.property.developer.userId !== userId) {
       throw new ForbiddenException('Access denied');
     }
+    /**
+     * Release the units pointing at it first.
+     *
+     * Unit.floorPlanId is a bare column with no foreign key, so deleting the
+     * plan leaves those units holding a dead id — and the unit page treats a
+     * set-but-missing plan as "already resolved", so it would show no layout
+     * at all rather than falling back to the matching one.
+     */
+    await this.prisma.unit.updateMany({
+      where: { floorPlanId: id },
+      data: { floorPlanId: null },
+    });
+
     await this.prisma.floorPlan.delete({ where: { id } });
     return { message: 'Floor plan deleted' };
   }

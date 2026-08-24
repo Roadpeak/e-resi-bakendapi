@@ -38,6 +38,7 @@ export class UnitsService {
         currency: (dto.currency ?? property.currency ?? 'KES').toUpperCase(),
         status: dto.status ?? 'AVAILABLE',
         features: dto.features ?? [],
+        floorPlanId: dto.floorPlanId,
       },
     });
   }
@@ -74,9 +75,31 @@ export class UnitsService {
     });
     if (!unit) throw new NotFoundException('Unit not found');
 
-    const floorPlan = unit.floorPlanId
+    /**
+     * The unit's own layout.
+     *
+     * A developer can name the plan explicitly, and that always wins. Most
+     * have not: floorPlanId is null on every unit in production, while the
+     * plans themselves exist and are already labelled by bedroom count
+     * ("Type B — 2 Bedroom"). So when nothing is linked, the plan matching
+     * this unit's bedroom count is used — which is how a buyer would read the
+     * brochure anyway.
+     *
+     * Only when exactly one plan matches. Two 2-bed layouts are a real case,
+     * and guessing between them would show the wrong rooms with no sign that
+     * it was a guess.
+     */
+    let floorPlan = unit.floorPlanId
       ? await this.prisma.floorPlan.findUnique({ where: { id: unit.floorPlanId } })
       : null;
+
+    if (!floorPlan) {
+      const matches = await this.prisma.floorPlan.findMany({
+        where: { propertyId: unit.propertyId, bedrooms: unit.bedrooms },
+        orderBy: { order: 'asc' },
+      });
+      if (matches.length === 1) floorPlan = matches[0];
+    }
 
     return { ...unit, floorPlan };
   }
@@ -99,6 +122,9 @@ export class UnitsService {
         ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.features !== undefined && { features: dto.features }),
+        // An empty string clears the link, so the bedroom fallback takes over
+        // again rather than the unit being stuck on a plan that was removed.
+        ...(dto.floorPlanId !== undefined && { floorPlanId: dto.floorPlanId || null }),
       },
     });
   }

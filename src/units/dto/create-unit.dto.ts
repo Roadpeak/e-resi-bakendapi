@@ -59,4 +59,16 @@ export class CreateUnitDto {
   @IsArray()
   @IsString({ each: true })
   features?: string[];
+
+  /**
+   * The layout this unit is built to.
+   *
+   * Optional because the unit page falls back to the plan matching the
+   * bedroom count. Naming one matters where a bedroom count has several
+   * layouts, which is exactly when the fallback declines to guess.
+   */
+  @ApiPropertyOptional({ description: 'Floor plan this unit uses', example: 'clx123abc' })
+  @IsOptional()
+  @IsString()
+  floorPlanId?: string;
 }
