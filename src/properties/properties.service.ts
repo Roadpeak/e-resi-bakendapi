@@ -416,6 +416,11 @@ export class PropertiesService {
         ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
         ...(dto.features !== undefined && { features: dto.features }),
+        ...(dto.unitFeatures !== undefined && { unitFeatures: dto.unitFeatures }),
+        ...(dto.petsAllowed !== undefined && { petsAllowed: dto.petsAllowed }),
+        ...(dto.petPolicy !== undefined && { petPolicy: dto.petPolicy }),
+        ...(dto.leaseTerms !== undefined && { leaseTerms: dto.leaseTerms }),
+        ...(dto.areaDescription !== undefined && { areaDescription: dto.areaDescription }),
         ...(dto.completionDate !== undefined && { completionDate: new Date(dto.completionDate) }),
         // Previously accepted by the DTO but never written, so editing a
         // submission silently discarded any change to the selected services.

@@ -656,8 +656,25 @@ model Property {
   /// below, which holds nearby landmarks the development does NOT own
   /// (schools, hospitals, malls) and carries a distance to each.
   features            String[]
+  /// On-site facilities that belong to a home rather than the development —
+  /// fitted kitchen, ensuite, balcony, DSQ. Split from `features` because a
+  /// buyer reads "what comes with my apartment" and "what the building has"
+  /// as two different questions, and answering both from one list forces them
+  /// to work out which is which.
+  unitFeatures        String[]
   completionDate      DateTime?
   submissionData      Json?
+
+  // ─── House rules ─────────────────────────────────────────────────────────
+  /// Null means "not stated" rather than "no pets" — a blank policy and a
+  /// no-pets policy are different answers, and showing the second when the
+  /// developer meant the first loses them tenants.
+  petsAllowed         Boolean?
+  petPolicy           String?
+  leaseTerms          String?
+  /// The neighbourhood in the developer's own words. Distinct from
+  /// `description`, which sells the building.
+  areaDescription     String?
 
   // ─── Mini-site branding ──────────────────────────────────────────────────
   //

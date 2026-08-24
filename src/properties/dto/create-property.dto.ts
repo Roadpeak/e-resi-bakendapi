@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -114,6 +115,38 @@ export class CreatePropertyDto {
   @IsArray()
   @IsString({ each: true })
   features?: string[];
+
+  @ApiPropertyOptional({
+    description: "What comes with a home, as opposed to what the building has",
+    example: ['fitted kitchen', 'ensuite', 'balcony'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  unitFeatures?: string[];
+
+  @ApiPropertyOptional({ description: 'Null means not stated, not "no pets"' })
+  @IsOptional()
+  @IsBoolean()
+  petsAllowed?: boolean;
+
+  @ApiPropertyOptional({ example: 'Cats and small dogs. KES 3,000/month per pet.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  petPolicy?: string;
+
+  @ApiPropertyOptional({ example: 'Minimum 12 months. Two months deposit.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  leaseTerms?: string;
+
+  @ApiPropertyOptional({ description: 'The neighbourhood in the developer\'s own words' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  areaDescription?: string;
 
   @ApiPropertyOptional({ example: '2026-12-01T00:00:00.000Z' })
   @IsOptional()
