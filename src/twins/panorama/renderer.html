@@ -1,0 +1,186 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Panorama bake</title>
+<style>
+  html, body { margin: 0; background: #000; }
+  canvas { display: block; }
+</style>
+<!--
+  The panorama baker.
+
+  Loaded in a headless browser by PanoramaService, which drives it through
+  window.bake(). It exists as a page rather than as Node code because there is
+  no dependable headless WebGL on the server: three.js needs a real GL context
+  to resolve Draco, KTX2 and the material graph exactly as the viewer will, and
+  Chrome is the only implementation that agrees with the browsers buyers use.
+
+  Rendering here rather than in the visitor's browser is the whole point of the
+  approach. A panorama is rendered once, offline, with no frame budget — so it
+  can carry shadow and lighting quality a real-time viewer cannot afford, and
+  the visitor downloads a photograph instead of a mesh.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./three.module.js",
+    "three/addons/": "./addons/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+/**
+ * Lighting the bake.
+ *
+ * Two kinds of model arrive here and they want opposite treatment.
+ *
+ * An architectural export is usually KHR_materials_unlit with its lighting
+ * already painted into the textures — the cove strips and pendants you see are
+ * pixels, not lights. Nothing below touches such a model, and that is correct:
+ * the bake should reproduce what the artist lit, not relight it.
+ *
+ * A conventionally-lit model needs something, and indoors a directional key is
+ * the wrong instrument — it arrives from one outdoor direction and leaves the
+ * wall behind it black however bright it is. RoomEnvironment is an enclosing
+ * box of emitters, so every surface receives something whichever way it faces.
+ * It is kept dim on purpose: enough to lift unlit faces off pure black, not
+ * enough to flatten the contrast the model's own lights create.
+ */
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.45;
+scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+/**
+ * Punch up the model's own lights.
+ *
+ * glTF stores light intensity in candela, and exporters vary by orders of
+ * magnitude in what they write for what looked right in the authoring tool.
+ * A single multiplier applied to whatever the file carries preserves the
+ * lighting design while lifting an interior that exported dark.
+ */
+const LIGHT_GAIN = 2.4;
+
+let model = null;
+
+/** Load the model once; every viewpoint renders from the same scene. */
+window.loadModel = async (url) => {
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('./draco/');
+  const loader = new GLTFLoader();
+  loader.setDRACOLoader(draco);
+
+  const gltf = await loader.loadAsync(url);
+  model = gltf.scene;
+
+  /**
+   * The same transform the viewer applies.
+   *
+   * The waypoints were authored against the viewer's world space — centred on
+   * x/z, resting on the ground — so baking from the model's authored origin
+   * would put every panorama somewhere else in the building. This is the one
+   * place the two must agree exactly.
+   */
+  const box = new THREE.Box3().setFromObject(model);
+  const centre = box.getCenter(new THREE.Vector3());
+  model.position.set(-centre.x, -box.min.y, -centre.z);
+
+  // The model's own lights, lifted.
+  //
+  // Shadow casting is deliberately left off. Six cube faces per waypoint, each
+  // re-rendering the depth map for every light in the scene, is more than
+  // software rasterisation will finish in reasonable time — and an interior
+  // carrying its own cove and pendant lighting already reads as lit without it.
+  let lights = 0;
+  let unlit = 0;
+  let meshes = 0;
+  model.traverse((node) => {
+    if (node.isLight) {
+      node.intensity *= LIGHT_GAIN;
+      lights += 1;
+    }
+    if (node.isMesh) {
+      meshes += 1;
+      for (const m of Array.isArray(node.material) ? node.material : [node.material]) {
+        if (m && m.isMeshBasicMaterial) unlit += 1;
+      }
+    }
+  });
+
+  scene.add(model);
+  return { ok: true, lights, unlit, meshes };
+};
+
+/**
+ * Render one viewpoint to an equirectangular image.
+ *
+ * Via a cube camera rather than by ray-marching: six perspective renders of a
+ * scene is something a GPU is built for, and the equirectangular conversion is
+ * a single fullscreen pass afterwards. The alternative — one very wide
+ * perspective camera — cannot cover a sphere at all.
+ */
+window.bake = async (x, y, z, width) => {
+  const size = Math.max(512, Math.min(2048, Math.round(width / 4)));
+  const cubeTarget = new THREE.WebGLCubeRenderTarget(size, {
+    generateMipmaps: true,
+    minFilter: THREE.LinearMipmapLinearFilter,
+  });
+  const cubeCam = new THREE.CubeCamera(0.05, 400, cubeTarget);
+  cubeCam.position.set(x, y, z);
+  cubeCam.update(renderer, scene);
+
+  // Cube → equirectangular, as one fullscreen triangle.
+  const height = Math.round(width / 2);
+  renderer.setSize(width, height, false);
+
+  const quadScene = new THREE.Scene();
+  const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const material = new THREE.ShaderMaterial({
+    uniforms: { map: { value: cubeTarget.texture } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform samplerCube map;
+      #define PI 3.141592653589793
+      void main() {
+        // Longitude/latitude from pixel position, then a direction vector.
+        float lon = (vUv.x - 0.5) * 2.0 * PI;
+        float lat = (vUv.y - 0.5) * PI;
+        vec3 dir = vec3(
+          cos(lat) * sin(lon),
+          sin(lat),
+          cos(lat) * cos(lon)
+        );
+        gl_FragColor = textureCube(map, dir);
+      }
+    `,
+  });
+  quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+
+  renderer.setRenderTarget(null);
+  renderer.render(quadScene, quadCam);
+
+  const data = renderer.domElement.toDataURL('image/jpeg', 0.88);
+  cubeTarget.dispose();
+  material.dispose();
+  return data;
+};
+
+window.__ready = true;
+</script>

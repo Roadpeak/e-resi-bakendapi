@@ -1020,6 +1020,18 @@ model TwinWaypoint {
   /// Which storey this stop is on, indexing DigitalTwin.floors.
   floor       Int         @default(0)
   order       Int         @default(0)
+
+  /// A 360° image rendered from this exact spot, if one has been baked.
+  ///
+  /// Present turns the stop into a place a visitor stands inside rather than a
+  /// camera position to fly to: the viewer shows the panorama and crossfades
+  /// to the next, which is how the reference viewers avoid moving a camera
+  /// through walls at all. Absent — an off-plan development, or a model baked
+  /// before this stop was added — falls back to the live model.
+  panoramaUrl String?
+  /// Set when the panorama was rendered, so a stale bake can be spotted.
+  panoramaAt  DateTime?
+
   createdAt   DateTime    @default(now())
 
   @@index([twinId])

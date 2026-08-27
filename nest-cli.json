@@ -3,6 +3,14 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      {
+        "include": "twins/panorama/**/*",
+        "exclude": "twins/panorama/**/*.ts",
+        "outDir": "dist/src",
+        "watchAssets": true
+      }
+    ]
   }
 }
