@@ -16,6 +16,8 @@
     "start:prod": "node dist/src/main",
     "seed:admin": "node dist/prisma/seed-admin.js",
     "seed:admin:dev": "tsx prisma/seed-admin.ts",
+    "seed:tour": "node dist/prisma/seed-tour.js",
+    "seed:tour:dev": "tsx prisma/seed-tour.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",

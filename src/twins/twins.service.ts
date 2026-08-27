@@ -9,6 +9,7 @@ import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../media/storage.service.js';
 import { summariseGlb, GlbError, type GlbSummary } from './glb.js';
+import { PanoramaService } from './panorama/panorama.service.js';
 import type { UpsertTwinDto, CreateWaypointDto, CreateTagDto } from './dto/twin.dto.js';
 
 /**
@@ -30,6 +31,7 @@ export class TwinsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly panorama: PanoramaService,
   ) {}
 
   /**
@@ -281,6 +283,71 @@ export class TwinsService {
       throw new NotFoundException('Waypoint not found');
     });
     return { message: 'Stop removed' };
+  }
+
+  /**
+   * Render a 360° image from every waypoint on this twin.
+   *
+   * Triggered rather than automatic, and for the whole set at once. A bake is
+   * around twenty-five seconds a viewpoint and needs a browser, so doing it
+   * inside addWaypoint would hold a request open for the length of it and pay
+   * the browser launch again for every stop — while an author is still moving
+   * waypoints around and will only invalidate it. One call after the stops are
+   * placed is both the cheaper shape and the one that matches how the work is
+   * actually done.
+   *
+   * `stale` re-bakes only what changed, which is the common case: one waypoint
+   * nudged, not the tour rebuilt.
+   */
+  async bakePanoramas(twinId: string, role: UserRole, opts: { stale?: boolean } = {}) {
+    if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+
+    const twin = await this.requireTwin(twinId);
+    if (!twin.meshUrl) throw new BadRequestException('This twin has no model to render from');
+
+    if (!this.panorama.available()) {
+      // Not an error: a deployment without Chrome still serves the live-model
+      // walkthrough, and saying so is more useful than a 500.
+      throw new BadRequestException(
+        'Panorama rendering is unavailable on this server — no browser engine is installed',
+      );
+    }
+
+    const waypoints = await this.prisma.twinWaypoint.findMany({
+      where: { twinId: twin.id },
+      orderBy: { order: 'asc' },
+    });
+    if (!waypoints.length) throw new BadRequestException('Place at least one stop first');
+
+    const todo = opts.stale ? waypoints.filter((w) => !w.panoramaUrl) : waypoints;
+    if (!todo.length) return { baked: 0, total: waypoints.length, message: 'Every stop is already rendered' };
+
+    // meshUrl is already absolute — storage returns a fetchable URL from both
+    // the Cloudinary and the local-disk path — so the headless browser can pull
+    // it directly.
+    const baked = await this.panorama.bake(
+      twin.meshUrl,
+      todo.map((w) => ({ id: w.id, posX: w.posX, posY: w.posY, posZ: w.posZ })),
+    );
+
+    await Promise.all(
+      baked.map((p) =>
+        this.prisma.twinWaypoint.update({
+          where: { id: p.waypointId },
+          data: { panoramaUrl: p.url, panoramaAt: new Date() },
+        }),
+      ),
+    );
+
+    this.logger.log(`Baked ${baked.length}/${todo.length} panoramas for twin ${twin.id}`);
+    return {
+      baked: baked.length,
+      total: waypoints.length,
+      message:
+        baked.length === todo.length
+          ? `Rendered ${baked.length} ${baked.length === 1 ? 'view' : 'views'}`
+          : `Rendered ${baked.length} of ${todo.length} — check the server log`,
+    };
   }
 
   // ─── Tags ──────────────────────────────────────────────────────────────────

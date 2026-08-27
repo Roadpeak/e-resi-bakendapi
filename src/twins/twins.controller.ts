@@ -94,6 +94,24 @@ export class TwinsController {
     return this.service.removeWaypoint(id, user.role);
   }
 
+  /**
+   * Long-running by nature — around twenty-five seconds per stop, in a browser.
+   * Kept synchronous because it is an admin action taken once after placing the
+   * stops, and an author watching it finish is better served than one polling a
+   * job they have no other reason to care about.
+   */
+  @Post(':twinId/panoramas')
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: render a 360° view from every stop' })
+  bakePanoramas(
+    @Param('twinId') twinId: string,
+    @CurrentUser() user: { role: UserRole },
+    @Query('stale') stale?: string,
+  ) {
+    return this.service.bakePanoramas(twinId, user.role, { stale: stale === 'true' });
+  }
+
   @Post(':twinId/tags')
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
