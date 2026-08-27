@@ -26,8 +26,11 @@ COPY . .
 RUN NODE_OPTIONS="--experimental-require-module" pnpm exec prisma generate
 RUN pnpm run build
 # Drop dev deps for the runtime image.
+# CI=true: pnpm refuses to purge node_modules without a TTY unless it believes
+# it is running in CI. GitHub Actions sets this for us, so the failure only
+# shows up in a local `docker build` — setting it here makes both paths work.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm prune --prod
+    CI=true pnpm prune --prod
 
 # ─── runtime ─────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION} AS runtime

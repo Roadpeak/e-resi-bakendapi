@@ -10,8 +10,14 @@
  * anyone upgraded, and a bake that silently renders against a different three.js
  * than the viewer is exactly the class of bug that takes a day to find.
  *
- * Runs from `pnpm build` and from `postinstall`, so a fresh checkout and a
- * production build both get them without anyone remembering to.
+ * Runs from `pnpm build`, and deliberately NOT from `postinstall`.
+ *
+ * postinstall looks like the tidier hook and breaks the Docker build. The deps
+ * stage copies only package.json and the lockfile before installing, so this
+ * file does not exist yet when the hook fires — and `pnpm prune --prod` runs
+ * install hooks a second time, in a stage that has no reason to carry scripts/
+ * either. Tying it to the build is both sufficient (the build is the only thing
+ * that needs the assets) and honest about when it can actually run.
  */
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';

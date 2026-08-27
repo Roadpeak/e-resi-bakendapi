@@ -7,7 +7,6 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "node scripts/sync-panorama-assets.mjs && nest build",
-    "postinstall": "node scripts/sync-panorama-assets.mjs",
     "sync:panorama": "node scripts/sync-panorama-assets.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
