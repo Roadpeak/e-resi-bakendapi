@@ -10,7 +10,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../media/storage.service.js';
 import { summariseGlb, GlbError, type GlbSummary } from './glb.js';
 import { PanoramaService } from './panorama/panorama.service.js';
-import type { UpsertTwinDto, CreateWaypointDto, CreateTagDto } from './dto/twin.dto.js';
+import type {
+  UpsertTwinDto,
+  CreateWaypointDto,
+  UpdateWaypointDto,
+  CreateTagDto,
+} from './dto/twin.dto.js';
 
 /**
  * Digital twins — the building geometry behind a 3D tour.
@@ -275,6 +280,75 @@ export class TwinsService {
         order: dto.order ?? count,
       },
     });
+  }
+
+  /**
+   * Edit a stop in place.
+   *
+   * Moving one invalidates its panorama — the image was rendered from the old
+   * spot, and showing it from the new one would put the visitor somewhere the
+   * caption does not describe. So a change of position clears panoramaUrl,
+   * which puts the stop back in the queue for the next `?stale=true` bake
+   * rather than leaving a quietly wrong image in place.
+   *
+   * Re-aiming does not clear it. The panorama is a full sphere: where the
+   * camera looks is a viewer-side heading, not something baked into the image,
+   * so changing the look direction costs nothing to re-render.
+   */
+  async updateWaypoint(id: string, role: UserRole, dto: UpdateWaypointDto) {
+    if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+
+    const existing = await this.prisma.twinWaypoint.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Waypoint not found');
+
+    const moved =
+      (dto.posX !== undefined && dto.posX !== existing.posX) ||
+      (dto.posY !== undefined && dto.posY !== existing.posY) ||
+      (dto.posZ !== undefined && dto.posZ !== existing.posZ);
+
+    return this.prisma.twinWaypoint.update({
+      where: { id },
+      data: {
+        ...dto,
+        ...(moved ? { panoramaUrl: null, panoramaAt: null } : {}),
+      },
+    });
+  }
+
+  /**
+   * Put the stops in a given order.
+   *
+   * One transaction rather than a request per stop: a drag that reorders six
+   * stops would otherwise be six round trips, and a failure halfway leaves the
+   * tour in an order nobody chose.
+   */
+  async reorderWaypoints(twinId: string, role: UserRole, ids: string[]) {
+    if (role !== UserRole.ADMIN) throw new ForbiddenException('Admin only');
+
+    const twin = await this.requireTwin(twinId);
+    const owned = await this.prisma.twinWaypoint.findMany({
+      where: { twinId: twin.id },
+      select: { id: true },
+    });
+    const ownedIds = new Set(owned.map((w) => w.id));
+
+    // Reject an id from another twin rather than silently skipping it: a
+    // mismatch means the client is out of date, and reordering half a tour is
+    // worse than refusing.
+    const foreign = ids.filter((id) => !ownedIds.has(id));
+    if (foreign.length) {
+      throw new BadRequestException('Some stops do not belong to this model');
+    }
+    if (ids.length !== owned.length) {
+      throw new BadRequestException(
+        `Expected ${owned.length} stops, got ${ids.length} — reload and try again`,
+      );
+    }
+
+    await this.prisma.$transaction(
+      ids.map((id, order) => this.prisma.twinWaypoint.update({ where: { id }, data: { order } })),
+    );
+    return { message: 'Order saved' };
   }
 
   async removeWaypoint(id: string, role: UserRole) {

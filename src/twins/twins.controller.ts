@@ -8,7 +8,12 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
-import { CreateTagDto, CreateWaypointDto, UpsertTwinDto } from './dto/twin.dto.js';
+import {
+  CreateTagDto,
+  CreateWaypointDto,
+  UpdateWaypointDto,
+  UpsertTwinDto,
+} from './dto/twin.dto.js';
 import { TwinsService } from './twins.service.js';
 
 @ApiTags('Digital twins')
@@ -84,6 +89,30 @@ export class TwinsController {
     @Body() dto: CreateWaypointDto,
   ) {
     return this.service.addWaypoint(twinId, user.role, dto);
+  }
+
+  @Patch('waypoints/:id')
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: edit a stop (moving it clears its panorama)' })
+  updateWaypoint(
+    @Param('id') id: string,
+    @CurrentUser() user: { role: UserRole },
+    @Body() dto: UpdateWaypointDto,
+  ) {
+    return this.service.updateWaypoint(id, user.role, dto);
+  }
+
+  @Patch(':twinId/waypoints/order')
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: reorder the stops' })
+  reorderWaypoints(
+    @Param('twinId') twinId: string,
+    @CurrentUser() user: { role: UserRole },
+    @Body() body: { ids: string[] },
+  ) {
+    return this.service.reorderWaypoints(twinId, user.role, body.ids ?? []);
   }
 
   @Delete('waypoints/:id')

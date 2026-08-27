@@ -102,6 +102,32 @@ export class CreateWaypointDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) order?: number;
 }
 
+/**
+ * Everything about a stop is editable, and every field is optional.
+ *
+ * Editing exists so that re-aiming a stop does not mean deleting and recreating
+ * it: a stop carries a baked panorama, and destroying the row to change its
+ * caption would throw away a render and break the "Inside" mode until someone
+ * noticed and re-baked. Partial by design — the authoring UI sends position and
+ * look together when the camera moves, and the label alone when it is renamed.
+ */
+export class UpdateWaypointDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) label?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) caption?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(60) route?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsNumber() posX?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() posY?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() posZ?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsNumber() lookX?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() lookY?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() lookZ?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) floor?: number;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) order?: number;
+}
+
 export class CreateTagDto {
   @ApiProperty({ example: 'Fitted kitchen' })
   @IsString()
