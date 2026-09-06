@@ -72,6 +72,22 @@ enum UnitStatus {
   SOLD
 }
 
+/// Who runs an owner-listed unit's rental: the investor themselves, the
+/// building's developer (left with them to manage), or a letting agent the
+/// owner engaged.
+enum RentManagerKind {
+  OWNER
+  DEVELOPER
+  AGENT
+}
+
+enum LettingStatus {
+  PENDING
+  ACTIVE
+  DECLINED
+  ENDED
+}
+
 enum FurnishingType {
   FURNISHED
   SEMI_FURNISHED
@@ -272,6 +288,9 @@ model User {
   agentReviews      AgentReview[]
   partnershipRequests   AgentPartnership[]    @relation("PartnershipRequester")
   dealEvents            DealEvent[]           @relation("DealEventActor")
+  unitOwnerships        UnitOwnership[]       @relation("UnitOwnerships")
+  ownedRentListings     RentListing[]         @relation("OwnedRentListings")
+  lettingEngagements    LettingEngagement[]   @relation("LettingEngagements")
   partnershipDocuments  PartnershipDocument[] @relation("PartnershipDocUploader")
   savedProperties   SavedProperty[]
   inquiries         Inquiry[]
@@ -492,6 +511,8 @@ model AgentProfile {
   clientRooms       ClientRoom[]
   mandateRequests   MandateRequest[]
   analyticsEvents   AnalyticsEvent[]
+  managedRentListings RentListing[]     @relation("ManagedRentListings")
+  lettingEngagements  LettingEngagement[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -639,6 +660,63 @@ model AgentReview {
   /// One review per person per agent — editing replaces rather than stacks.
   @@unique([agentId, authorId])
   @@index([agentId])
+}
+
+// ─────────────────────────────────────────────
+// UNIT OWNERSHIP & LETTING
+// ─────────────────────────────────────────────
+
+/// A unit that has passed into an investor's hands.
+///
+/// Created automatically when a reservation reaches TITLE_TRANSFERRED, or
+/// recorded by the developer for a sale that happened off-platform. This is
+/// the anchor everything owner-side hangs off: the owned unit is what an
+/// investor can list for rent, and the listing is what an agent can be
+/// engaged to run.
+model UnitOwnership {
+  id            String       @id @default(cuid())
+  unitId        String       @unique
+  unit          Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  ownerId       String
+  owner         User         @relation("UnitOwnerships", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// The reservation that completed into this ownership, when it happened
+  /// on-platform.
+  reservationId String?      @unique
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  /// Who recorded it manually — null when derived from a reservation.
+  recordedById  String?
+  createdAt     DateTime     @default(now())
+
+  rentListing   RentListing?
+
+  @@index([ownerId])
+}
+
+/// An owner engaging an agent to let their unit.
+///
+/// Mirrors the partnership handshake one level down: the owner invites, the
+/// agent accepts, and from acceptance the agent manages the listing and
+/// receives its inquiries — which is how "find me a tenant" actually works.
+/// One engagement per listing: a unit is let by one manager at a time.
+model LettingEngagement {
+  id            String        @id @default(cuid())
+  rentListingId String
+  rentListing   RentListing   @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
+  agentId       String
+  agent         AgentProfile  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  ownerId       String
+  owner         User          @relation("LettingEngagements", fields: [ownerId], references: [id], onDelete: Cascade)
+  status        LettingStatus @default(PENDING)
+  /// The owner's note to the agent — what they want, what it rents for.
+  message       String?
+  respondedAt   DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime      @default(now())
+
+  /// One live engagement per listing; re-inviting reuses the row.
+  @@unique([rentListingId, agentId])
+  @@index([agentId, status])
+  @@index([rentListingId])
 }
 
 // ─────────────────────────────────────────────
@@ -1100,6 +1178,7 @@ model Unit {
   reservations Reservation[]
   rentUnits    RentUnit[]
   deals        Deal[]
+  ownership    UnitOwnership?
 
   @@index([propertyId])
   @@index([status])
@@ -1138,9 +1217,26 @@ model RentListing {
   featuredCinematicSceneIds String[]
   isFeatured                Boolean           @default(false)
   tags                      String[]
+
+  /// Set when this listing is an investor letting out a unit they own.
+  /// developerId stays populated with the building's developer either way —
+  /// every public browse query keys on it — but management rights follow
+  /// ownerId/managerKind/managingAgentId, not developerId.
+  ownerId                   String?
+  owner                     User?             @relation("OwnedRentListings", fields: [ownerId], references: [id], onDelete: SetNull)
+  managerKind               RentManagerKind   @default(DEVELOPER)
+  managingAgentId           String?
+  managingAgent             AgentProfile?     @relation("ManagedRentListings", fields: [managingAgentId], references: [id], onDelete: SetNull)
+  /// The owned unit this listing offers. One listing per ownership — an
+  /// owner has one unit to let, and a second listing for it would just be
+  /// the double-allocation problem wearing a rental hat.
+  unitOwnershipId           String?           @unique
+  unitOwnership             UnitOwnership?    @relation(fields: [unitOwnershipId], references: [id], onDelete: SetNull)
+
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt
 
+  lettingEngagements        LettingEngagement[]
   rentUnits                 RentUnit[]
   media                     MediaAsset[]
   inquiries                 Inquiry[]
@@ -1575,6 +1671,7 @@ model Reservation {
   documents  Document[]
   payments   Payment[]
   deal       Deal?
+  ownership  UnitOwnership?
 
   @@index([unitId])
   @@index([userId])

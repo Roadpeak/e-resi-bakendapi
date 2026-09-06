@@ -128,7 +128,7 @@ export class MediaController {
   // ─── Rent listing media ────────────────────────────────────────────────────
 
   @Post('rent-listings/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN, UserRole.AGENT, UserRole.BUYER, UserRole.INVESTOR, UserRole.TENANT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: attach a media record to a rent listing' })
   addToRentListing(

@@ -6,12 +6,16 @@ import {
 } from '@nestjs/common';
 import { ReservationStage, UnitStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { OwnershipsService } from '../rent-listings/ownerships.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateReservationDto } from './dto/create-reservation.dto.js';
 
 @Injectable()
 export class ReservationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ownerships: OwnershipsService,
+  ) {}
 
   // ─── Create reservation ───────────────────────────────────────────────────
 
@@ -237,6 +241,15 @@ export class ReservationsService {
       this.prisma.reservation.update({ where: { id }, data: { stage } }),
       ...(updatedUnit ? [updatedUnit] : []),
     ]);
+
+    // Keys handed over → the unit formally belongs to the buyer, which is
+    // what unlocks their whole owner side: listing it for rent, engaging an
+    // agent. Idempotent, and deliberately after the transaction — a failed
+    // ownership grant must not unwind a recorded title transfer, and the
+    // grant can always be replayed.
+    if (stage === ReservationStage.TITLE_TRANSFERRED) {
+      await this.ownerships.grantFromReservation(id).catch(() => undefined);
+    }
 
     return updated;
   }

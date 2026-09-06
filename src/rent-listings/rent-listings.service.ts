@@ -1,36 +1,45 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyCategory, RentListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { slugify, uniqueSlug } from './slug.util.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import type { UpdateRentListingDto } from './dto/update-rent-listing.dto.js';
 import type { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 80);
-}
-
-async function uniqueSlug(prisma: PrismaService, base: string): Promise<string> {
-  let slug = base;
-  let counter = 1;
-  while (await prisma.rentListing.findUnique({ where: { slug } })) {
-    slug = `${base}-${counter++}`;
-  }
-  return slug;
-}
-
 @Injectable()
 export class RentListingsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Who may manage this listing.
+   *
+   * Developer listings answer to the developer, as always. An owner-listed
+   * unit answers to whoever the owner put in charge: themselves, the
+   * developer (when delegated), or the letting agent they engaged — and
+   * NOT to the developer merely because the unit sits in their building.
+   * An owner keeps edit rights over their own listing in every mode; hiring
+   * a manager is a delegation, not a surrender.
+   */
   private async assertOwner(rentListingId: string, userId: string, userRole: UserRole) {
     const listing = await this.prisma.rentListing.findUnique({
       where: { id: rentListingId },
-      include: { developer: true },
+      include: {
+        developer: true,
+        managingAgent: { select: { userId: true } },
+      },
     });
     if (!listing) throw new NotFoundException('Rent listing not found');
-    if (userRole !== UserRole.ADMIN && listing.developer.userId !== userId) {
-      throw new ForbiddenException('You do not own this rent listing');
+    if (userRole === UserRole.ADMIN) return listing;
+
+    const isOwner = listing.ownerId === userId;
+    const isManagingAgent = listing.managingAgent?.userId === userId;
+    const isDeveloper = listing.developer.userId === userId;
+    const developerMayManage =
+      isDeveloper && (listing.ownerId === null || listing.managerKind === 'DEVELOPER');
+
+    if (!isOwner && !isManagingAgent && !developerMayManage) {
+      throw new ForbiddenException('You do not manage this rent listing');
     }
     return listing;
   }

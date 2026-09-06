@@ -75,7 +75,9 @@ export class RentListingsController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  // Wide on purpose: owners (any customer role) and managing agents edit
+  // their own listings; the service's management check is the real gate.
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN, UserRole.AGENT, UserRole.BUYER, UserRole.INVESTOR, UserRole.TENANT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: update rent listing' })
   update(
@@ -87,7 +89,7 @@ export class RentListingsController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN, UserRole.AGENT, UserRole.BUYER, UserRole.INVESTOR, UserRole.TENANT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: change rent listing status' })
   setStatus(

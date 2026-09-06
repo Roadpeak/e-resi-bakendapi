@@ -50,12 +50,23 @@ export class InquiriesService {
       propertyId = property.id;
     }
 
+    let managingAgentId: string | null = null;
     if (dto.rentListingId) {
-      const listing = await this.prisma.rentListing.findUnique({ where: { id: dto.rentListingId } });
+      const listing = await this.prisma.rentListing.findUnique({
+        where: { id: dto.rentListingId },
+        select: { id: true, managerKind: true, managingAgentId: true },
+      });
       if (!listing) throw new NotFoundException('Rent listing not found');
+      // A listing an agent manages routes its inquiries to that agent by
+      // default — finding the tenant is exactly what they were engaged for.
+      // An explicit ?ref= attribution still wins: whoever brought the
+      // enquirer keeps the credit.
+      if (listing.managerKind === 'AGENT' && listing.managingAgentId) {
+        managingAgentId = listing.managingAgentId;
+      }
     }
 
-    const agentId = await this.resolveAgent(dto.agentId);
+    const agentId = (await this.resolveAgent(dto.agentId)) ?? managingAgentId;
 
     const inquiry = await this.prisma.inquiry.create({
       data: {

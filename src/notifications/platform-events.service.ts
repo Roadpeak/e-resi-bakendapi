@@ -378,6 +378,57 @@ export class PlatformEventsService {
     );
   }
 
+  /** A unit is now formally yours on the platform. */
+  async ownershipRecorded(userId: string, unitName: string, propertyName: string) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${unitName} at ${propertyName} is now yours`,
+      'Your ownership has been recorded. You can list the unit for rent — manage it yourself, '
+      + 'leave it with the developer, or engage an agent to find your tenant.',
+      { cta: { label: 'My units', path: '/account/units' } },
+    );
+  }
+
+  /** An owner delegated their unit's rental to the developer. */
+  async ownerListingDelegated(userId: string, listingName: string) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `A unit owner left ${listingName} with you to manage`,
+      'An investor in your development listed their unit for rent and chose you as the manager. '
+      + 'It appears under your rentals.',
+      { cta: { label: 'Open rentals', path: '/dashboard/rentals' } },
+    );
+  }
+
+  /** An owner invited an agent to let their unit. */
+  async lettingInvited(userId: string, listingName: string, engagementId: string) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `Letting invitation — ${listingName}`,
+      'A unit owner wants you to find them a tenant. Accept and the listing is yours to manage.',
+      {
+        cta: { label: 'View invitations', path: '/agent/lettings' },
+        resourceId: engagementId,
+        resourceType: 'LettingEngagement',
+      },
+    );
+  }
+
+  async lettingAnswered(userId: string, agentName: string, listingName: string, accepted: boolean) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      accepted ? `${agentName} is letting ${listingName}` : `${agentName} declined ${listingName}`,
+      accepted
+        ? `${agentName} accepted your invitation and now manages the listing — inquiries route to them.`
+        : `${agentName} declined the invitation. You can invite another agent from the directory.`,
+      { cta: { label: 'My units', path: '/account/units' } },
+    );
+  }
+
   async partnershipRequested(userId: string, fromName: string, partnershipId: string) {
     await this.toUser(
       userId,

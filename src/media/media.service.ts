@@ -73,11 +73,20 @@ export class MediaService {
   ) {
     const listing = await this.prisma.rentListing.findUnique({
       where: { id: rentListingId },
-      include: { developer: true },
+      include: { developer: true, managingAgent: { select: { userId: true } } },
     });
     if (!listing) throw new NotFoundException('Rent listing not found');
-    if (userRole !== UserRole.ADMIN && listing.developer.userId !== userId) {
-      throw new ForbiddenException('You do not own this rent listing');
+    // Owners photograph their own units — that is the entire point of an
+    // owner listing: the building's hero carries over, the interiors are
+    // theirs to shoot. Managing agents can upload too; the developer only
+    // when the listing is theirs or delegated to them.
+    const isOwner = listing.ownerId === userId;
+    const isManagingAgent = listing.managingAgent?.userId === userId;
+    const developerMayManage =
+      listing.developer.userId === userId &&
+      (listing.ownerId === null || listing.managerKind === 'DEVELOPER');
+    if (userRole !== UserRole.ADMIN && !isOwner && !isManagingAgent && !developerMayManage) {
+      throw new ForbiddenException('You do not manage this rent listing');
     }
 
     return this.prisma.mediaAsset.create({

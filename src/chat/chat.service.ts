@@ -68,8 +68,15 @@ export class ChatService {
           id: opts.agentId,
           kybStatus: 'APPROVED',
           isListed: true,
+          // Assignment, not just partnership: an agent works the specific
+          // properties they were handed, and only those may take over a
+          // property's chats.
           partnerships: {
-            some: { developerId: property.developerId, status: 'ACTIVE' },
+            some: {
+              developerId: property.developerId,
+              status: 'ACTIVE',
+              assignments: { some: { propertyId: property.id, isActive: true } },
+            },
           },
         },
         select: { id: true, userId: true, displayName: true },
@@ -118,10 +125,27 @@ export class ChatService {
       }
       const listing = await this.prisma.rentListing.findUnique({
         where: { slug: opts.rentListingSlug },
-        include: { developer: true },
+        include: {
+          developer: true,
+          owner: { select: { id: true } },
+          managingAgent: { select: { id: true, userId: true, displayName: true } },
+        },
       });
       if (!listing) throw new NotFoundException('Rent listing not found');
-      counterpartyId = listing.developer.userId;
+      // The conversation reaches whoever actually manages the letting: the
+      // engaged agent, the owner running it themselves, or the developer —
+      // their own listings and the ones owners delegated to them alike.
+      if (listing.managerKind === 'AGENT' && listing.managingAgent) {
+        counterpartyId = listing.managingAgent.userId;
+        agentId = listing.managingAgent.id;
+      } else if (listing.managerKind === 'OWNER' && listing.owner) {
+        counterpartyId = listing.owner.id;
+      } else {
+        counterpartyId = listing.developer.userId;
+      }
+      if (counterpartyId === userId) {
+        throw new BadRequestException('You cannot start a conversation with yourself');
+      }
       rentListingId = listing.id;
       subject = listing.name;
     } else {

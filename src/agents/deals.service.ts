@@ -162,6 +162,15 @@ export class DealsService {
       // else's development is a data-entry mistake, not a relationship.
       throw new BadRequestException("Property does not belong to this partnership's developer");
     }
+    if (partnership.assignments.length === 0) {
+      // A partnership alone is a relationship; the assignment is the scope.
+      // An agent works the specific properties they were handed — via the
+      // partnership page or the mandate pool — and a deal outside that scope
+      // is exactly what the assignment gate exists to prevent.
+      throw new BadRequestException(
+        'This property is not assigned to this partnership — assign it (or grant it via the mandate pool) first',
+      );
+    }
 
     if (dto.unitId) {
       const unit = await this.prisma.unit.findUnique({
