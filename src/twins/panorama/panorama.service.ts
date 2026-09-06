@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { StorageService } from '../../media/storage.service.js';
 import { CdpSession } from './cdp.js';
 
@@ -91,12 +92,20 @@ export class PanoramaService {
     const width = opts.width ?? 4096;
     let server: Server | null = null;
     let browser: ChildProcess | null = null;
+    let profileDir: string | null = null;
 
     try {
       const { server: s, port } = await this.serveAssets();
       server = s;
 
-      const { browser: b, wsUrl } = await this.launchChrome(chrome);
+      // Chromium refuses to start without a writable user data directory,
+      // and a hardened container running as a non-root user has no HOME it
+      // can use — "Failed to create headless user data directory" and an
+      // instant exit. An explicit temp dir works everywhere and lets each
+      // bake start from a cold, uncontended profile.
+      profileDir = await mkdtemp(join(tmpdir(), 'pano-chrome-'));
+
+      const { browser: b, wsUrl } = await this.launchChrome(chrome, profileDir);
       browser = b;
 
       return await this.renderAll(wsUrl, `http://127.0.0.1:${port}/renderer.html`, meshUrl, waypoints, width);
@@ -108,6 +117,7 @@ export class PanoramaService {
     } finally {
       browser?.kill();
       server?.close();
+      if (profileDir) await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 
@@ -149,9 +159,13 @@ export class PanoramaService {
   }
 
   /** Headless Chrome with a real GPU path, and its DevTools endpoint. */
-  private async launchChrome(chrome: string): Promise<{ browser: ChildProcess; wsUrl: string }> {
+  private async launchChrome(
+    chrome: string,
+    profileDir: string,
+  ): Promise<{ browser: ChildProcess; wsUrl: string }> {
     const browser = spawn(chrome, [
       '--headless=new',
+      `--user-data-dir=${profileDir}`,
       '--remote-debugging-port=0',
       '--disable-gpu-sandbox',
       // SwiftShader rather than a real GPU: a server has no display, and a
