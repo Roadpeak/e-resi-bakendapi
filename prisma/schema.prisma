@@ -1282,6 +1282,8 @@ model RentUnit {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
+  reservations      Reservation[]
+
   @@index([rentListingId])
   @@index([unitId])
 }
@@ -1670,6 +1672,12 @@ model Reservation {
   /// attributions — a reservation is the closest thing to a sale.
   agentId    String?
   agent      AgentProfile?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  /// Set only when the reservation came through a rental offer — that offer's
+  /// stock was decremented on create and is what a cancel must restore.
+  /// Sale-path reservations never touched rental stock, so they leave this
+  /// null and a cancel restores nothing.
+  rentUnitId String?
+  rentUnit   RentUnit?        @relation(fields: [rentUnitId], references: [id], onDelete: SetNull)
   expiresAt  DateTime
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt

@@ -86,7 +86,13 @@ export class ReservationsService {
         data: { status: UnitStatus.RESERVED },
       });
       const reservation = await tx.reservation.create({
-        data: { unitId: rentUnit.unitId, userId, expiresAt, ...(agentId && { agentId }) },
+        data: {
+          unitId: rentUnit.unitId,
+          userId,
+          expiresAt,
+          rentUnitId,
+          ...(agentId && { agentId }),
+        },
       });
       return { ...reservation, remaining: rentUnit.available - 1 };
     });
@@ -308,12 +314,16 @@ export class ReservationsService {
         where: { id: reservation.unitId },
         data: { status: UnitStatus.AVAILABLE },
       });
-      // Releasing a unit must also give the rental offer its stock back,
-      // otherwise availability drifts down every cancelled reservation.
-      await tx.rentUnit.updateMany({
-        where: { unitId: reservation.unitId },
-        data: { available: { increment: 1 } },
-      });
+      // Restore stock only to the rental offer this reservation decremented
+      // on create. A blanket increment by unitId would inflate availability
+      // for sale-path reservations (which never took stock) and for every
+      // other offer that happens to reference the same physical unit.
+      if (reservation.rentUnitId) {
+        await tx.rentUnit.update({
+          where: { id: reservation.rentUnitId },
+          data: { available: { increment: 1 } },
+        });
+      }
     });
 
     return { message: 'Reservation cancelled and unit released' };
