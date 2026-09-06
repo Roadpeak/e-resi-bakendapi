@@ -32,8 +32,35 @@ const PUBLIC_AGENT_SELECT = {
   socials: true,
   ratingAverage: true,
   ratingCount: true,
+  dealsCompleted: true,
+  closedVolume: true,
   createdAt: true,
 } as const;
+
+/**
+ * Directory badges, computed from the cached track record.
+ *
+ * Computed rather than stored: a badge is a threshold over numbers that
+ * already live on the row, and storing it would mean one more cache to keep
+ * honest. Thresholds are deliberately modest for a young market — the first
+ * badge must be reachable or the system reads as decoration.
+ */
+function badgesFor(agent: {
+  dealsCompleted: number;
+  closedVolume: number;
+  ratingAverage: number;
+  ratingCount: number;
+  yearsExperience: number | null;
+}): string[] {
+  const badges: string[] = [];
+  if (agent.dealsCompleted >= 10) badges.push('Top closer');
+  else if (agent.dealsCompleted >= 3) badges.push('Proven closer');
+  // 50M KES of settled sales — roughly three mid-market apartments.
+  if (agent.closedVolume >= 50_000_000) badges.push('High volume');
+  if (agent.ratingAverage >= 4.5 && agent.ratingCount >= 5) badges.push('Highly rated');
+  if ((agent.yearsExperience ?? 0) >= 10) badges.push('Veteran');
+  return badges;
+}
 
 @Injectable()
 export class AgentsService {
@@ -260,9 +287,14 @@ export class AgentsService {
         where,
         skip: pagination.skip,
         take: pagination.limit ?? 20,
-        // Rating decides the order, so the picker surfaces the agents people
-        // actually rated well. Ties fall back to who has more reviews.
+        // Proven closings outrank stars. A rating is an opinion; a
+        // completed deal is a fact the pipeline recorded — and ranking on it
+        // makes the directory self-reinforcing: the agents who actually use
+        // the platform to close rise, which is what a developer scanning the
+        // list needs surfaced first. Rating still breaks ties, so a new
+        // agent with happy clients is not buried under one old closing.
         orderBy: [
+          { dealsCompleted: 'desc' },
           { ratingAverage: 'desc' },
           { ratingCount: 'desc' },
           { createdAt: 'desc' },
@@ -271,7 +303,10 @@ export class AgentsService {
       }),
       this.prisma.agentProfile.count({ where }),
     ]);
-    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
+    return {
+      data: data.map((a) => ({ ...a, badges: badgesFor(a) })),
+      meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20),
+    };
   }
 
   async getPublic(id: string) {
@@ -289,7 +324,7 @@ export class AgentsService {
     });
     if (!listed) throw new NotFoundException('Agent not found');
 
-    return profile;
+    return { ...profile, badges: badgesFor(profile) };
   }
 
   // ─── Reviews ──────────────────────────────────────────────────────────────

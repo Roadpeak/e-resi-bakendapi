@@ -36,8 +36,29 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM node:${NODE_VERSION} AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
+# Chromium is here to render panoramas, not to browse.
+#
+# PanoramaService drives a headless browser because there is no dependable
+# headless WebGL in Node: three.js needs a real GL context to resolve Draco,
+# KTX2 and the material graph exactly as the viewer will, and Chrome is the only
+# implementation that agrees with the browsers buyers use. Alpine's build is
+# used rather than a downloaded Chrome for Testing because puppeteer's bundled
+# Chromium has no musl build.
+#
+# The font packages are not optional dressing: without them Chromium falls back
+# to boxes for every glyph, and any model carrying text in a texture atlas or a
+# label bakes as tofu. ttf-freefont covers Latin, font-noto-emoji the rest.
+#
+# This costs roughly 300MB on the image, carried by every replica for what is
+# an occasional admin request. Accepted deliberately: the alternative is a
+# second image and a queue, which is more infrastructure than the bake earns
+# until it runs often enough to need one.
 RUN apk add --no-cache tini openssl \
+      chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji \
     && addgroup -S app && adduser -S app -G app -u 1001
+
+# Where PanoramaService looks first, so it does not have to guess.
+ENV CHROME_PATH=/usr/bin/chromium-browser
 COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/package.json ./package.json

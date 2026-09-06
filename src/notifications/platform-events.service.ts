@@ -313,6 +313,45 @@ export class PlatformEventsService {
   }
 
   /** Someone wants to work with you — needs an answer, so it is addressed. */
+  /**
+   * Something moved on a deal — a stage, a commission state, a new note.
+   * One event type for all of it: the deal page is the source of truth and
+   * every one of these is an invitation to open it.
+   */
+  async dealUpdated(userId: string, propertyName: string, summary: string, dealId: string) {
+    await this.toUser(
+      userId,
+      'DEAL_UPDATED',
+      `Deal update — ${propertyName}`,
+      summary,
+      {
+        cta: { label: 'Open deal', path: `/dashboard/deals/${dealId}` },
+        resourceId: dealId,
+        resourceType: 'Deal',
+      },
+    );
+  }
+
+  /**
+   * A mandate was published, answered, or requested. Published ones fan out
+   * to every listed agent (email off — a launch alert is glanceable, not
+   * urgent); answers go to one person and do email.
+   */
+  async mandateUpdated(
+    userId: string,
+    title: string,
+    body: string,
+    mandateId: string,
+    opts: { email?: boolean } = {},
+  ) {
+    await this.toUser(userId, 'MANDATE_UPDATED', title, body, {
+      email: opts.email ?? false,
+      cta: { label: 'View mandates', path: '/dashboard/mandates' },
+      resourceId: mandateId,
+      resourceType: 'Mandate',
+    });
+  }
+
   async partnershipRequested(userId: string, fromName: string, partnershipId: string) {
     await this.toUser(
       userId,

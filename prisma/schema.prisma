@@ -174,6 +174,10 @@ enum NotificationType {
   KYB_APPROVED
   KYB_REJECTED
   PROPERTY_PUBLISHED
+  /// A deal you are party to moved stage, or its commission changed state.
+  DEAL_UPDATED
+  /// A developer opened a property to agents, or answered a mandate request.
+  MANDATE_UPDATED
   GENERAL
 }
 
@@ -267,6 +271,7 @@ model User {
   agentProfile      AgentProfile?
   agentReviews      AgentReview[]
   partnershipRequests   AgentPartnership[]    @relation("PartnershipRequester")
+  dealEvents            DealEvent[]           @relation("DealEventActor")
   partnershipDocuments  PartnershipDocument[] @relation("PartnershipDocUploader")
   savedProperties   SavedProperty[]
   inquiries         Inquiry[]
@@ -395,6 +400,8 @@ model DeveloperProfile {
   rentListings      RentListing[]
   listingFeeRuns    ListingFeeRun[]
   agentPartnerships AgentPartnership[]
+  deals             Deal[]
+  mandates          Mandate[]
 }
 
 /// A letting/sales agent — either a registered company or an individual
@@ -452,6 +459,15 @@ model AgentProfile {
   ratingAverage     Float      @default(0)
   ratingCount       Int        @default(0)
 
+  /// Cached from Deal whenever one completes, same pattern as the rating
+  /// columns: the directory ranks on proven closings, and ranking must not
+  /// cost an aggregate over every agent's deals per page view.
+  dealsCompleted    Int        @default(0)
+  /// Sum of completed deals' sale values, in KES major units. The other
+  /// half of the ranking signal — five closings of studio flats and five of
+  /// penthouses are different track records.
+  closedVolume      Float      @default(0)
+
   /// Hidden from the public directory when the monthly fee goes unpaid past
   /// its grace period. Distinct from kybStatus: the agent is still verified,
   /// just not currently listed, and reactivates on payment.
@@ -472,6 +488,9 @@ model AgentProfile {
   conversations     Conversation[]
   partnerships      AgentPartnership[]
   feeRuns           AgentFeeRun[]
+  deals             Deal[]
+  clientRooms       ClientRoom[]
+  mandateRequests   MandateRequest[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -516,6 +535,7 @@ model AgentPartnership {
 
   assignments  PropertyAssignment[]
   documents    PartnershipDocument[]
+  deals        Deal[]
 
   /// One partnership per pair — re-requesting reuses the row rather than
   /// stacking duplicates that would each need answering.
@@ -618,6 +638,287 @@ model AgentReview {
   /// One review per person per agent — editing replaces rather than stacks.
   @@unique([agentId, authorId])
   @@index([agentId])
+}
+
+// ─────────────────────────────────────────────
+// DEALS & COMMISSIONS
+// ─────────────────────────────────────────────
+
+/// Where a deal stands, from introduction to keys.
+///
+/// Deliberately coarser than ReservationStage: a reservation tracks the
+/// buyer's legal journey, a deal tracks the agent's commercial one, and the
+/// two only partially overlap — a deal exists before any unit is reserved
+/// and survives a reservation being swapped to a different unit.
+enum DealStage {
+  /// Introduced — an attributed lead, nothing committed yet.
+  LEAD
+  /// The client has viewed, remotely or in person, and remains interested.
+  VIEWING
+  /// A unit is held for this client.
+  RESERVED
+  /// Sale agreement signed. From here the commission is normally earned.
+  SPA_SIGNED
+  /// Sale completed. Terminal.
+  COMPLETED
+  /// Fell through at any point. Terminal.
+  LOST
+}
+
+/// The life of the agent's commission on a deal.
+///
+/// Modelled separately from DealStage because money lags paperwork: an SPA
+/// can be signed with the commission unpaid for months, and that gap —
+/// agents chasing developers for what they are owed — is the single
+/// loudest complaint agents have about this market. Making the gap visible
+/// to both sides, with timestamps, is the point of this enum.
+enum CommissionStatus {
+  /// No sale value agreed yet — nothing to compute.
+  NONE
+  /// Amount computed and frozen; the deal has not yet reached the point
+  /// where it is payable.
+  ACCRUED
+  /// The developer has confirmed it is payable. The clock is now visible.
+  DUE
+  /// Settled. Terminal unless disputed.
+  PAID
+  /// The agent contests the amount or the non-payment. Sticky until the
+  /// developer re-marks it, so a dispute cannot be quietly ignored.
+  DISPUTED
+}
+
+/// One client's journey to one purchase, worked by one agent for one
+/// developer.
+///
+/// This is the table that turns attribution into money. Inquiries, bookings
+/// and reservations record that an agent introduced someone; a Deal records
+/// what happened next — and its commission fields are the ledger both sides
+/// settle against, replacing the spreadsheet-and-WhatsApp trail these
+/// arguments currently live in.
+model Deal {
+  id            String           @id @default(cuid())
+  partnershipId String
+  partnership   AgentPartnership @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+
+  /// Denormalised from the partnership so each side's dashboard can query
+  /// its own deals without joining through it.
+  agentId       String
+  agent         AgentProfile     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  developerId   String
+  developer     DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+  propertyId    String
+  property      Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Set once the client settles on a unit. SetNull: deleting a unit must
+  /// not erase the commercial record of the deal it was part of.
+  unitId        String?
+  unit          Unit?            @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  /// The buyer, as the agent knows them. Plain fields rather than a User
+  /// relation: most introduced clients never create an account.
+  clientName    String
+  clientEmail   String?
+  clientPhone   String?
+
+  stage         DealStage        @default(LEAD)
+  /// When the stage last moved — staleness is a real signal on a pipeline.
+  stageChangedAt DateTime        @default(now())
+  /// Why a LOST deal was lost, for the post-mortem both sides can read.
+  lostReason    String?
+
+  /// Provenance — the attributed records this deal grew out of, when it
+  /// came through the platform rather than being logged manually.
+  inquiryId     String?          @unique
+  bookingId     String?          @unique
+  reservationId String?          @unique
+  reservation   Reservation?     @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  /// Agreed sale value in major units. Set by the developer — it is their
+  /// price sheet — and frozen into commissionAmount when accrued.
+  saleValue     Float?
+  currency      String           @default("KES")
+  /// Defaults from the assignment or partnership when unset here.
+  commissionPercent Float?
+  /// Computed once at accrual and stored, so a later change to the percent
+  /// or price never silently rewrites what an agent was already owed.
+  commissionAmount  Float?
+  commissionStatus  CommissionStatus @default(NONE)
+  commissionDueAt   DateTime?
+  commissionPaidAt  DateTime?
+  disputeReason     String?
+
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  events        DealEvent[]
+
+  @@index([agentId, stage])
+  @@index([developerId, stage])
+  @@index([partnershipId])
+  @@index([commissionStatus])
+}
+
+/// The audit trail on a deal. Append-only.
+///
+/// Commission arguments are memory arguments — who moved what, when, and
+/// what was promised. Every stage or commission change writes one of these,
+/// and both sides read the same history, which is what makes the ledger
+/// arbitrable rather than just another version of the argument.
+model DealEvent {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  actorId   String
+  actor     User     @relation("DealEventActor", fields: [actorId], references: [id], onDelete: Cascade)
+  /// STAGE_CHANGED, COMMISSION_SET, COMMISSION_DUE, COMMISSION_PAID,
+  /// COMMISSION_DISPUTED, COMMISSION_RESOLVED, NOTE — free text rather than
+  /// an enum so a new kind never needs a migration.
+  kind      String
+  /// Human-readable summary, written at the moment of the change when the
+  /// context to describe it still exists.
+  summary   String
+  createdAt DateTime @default(now())
+
+  @@index([dealId])
+}
+
+// ─────────────────────────────────────────────
+// CLIENT ROOMS
+// ─────────────────────────────────────────────
+
+/// A private shortlist an agent assembles for one client.
+///
+/// The diaspora sales motion in one object: an agent in Nairobi picks three
+/// developments, writes a note, and sends a single link to a buyer in
+/// London — who opens full immersive tours with the agent's name and
+/// WhatsApp on every page. View tracking tells the agent which property
+/// the client kept coming back to, which is what to lead with on the call.
+model ClientRoom {
+  id         String   @id @default(cuid())
+  agentId    String
+  agent      AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Unguessable share token — the room is private to whoever holds the
+  /// link, which is the same trust model as the WhatsApp thread it rides in.
+  token      String   @unique
+  title      String
+  /// Who it was made for, as the agent knows them. Shown to the client as
+  /// a greeting, never publicly.
+  clientName String?
+  /// The agent's covering note, shown at the top of the room.
+  note       String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  items      ClientRoomItem[]
+  views      ClientRoomView[]
+
+  @@index([agentId])
+}
+
+model ClientRoomItem {
+  id         String     @id @default(cuid())
+  roomId     String
+  room       ClientRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Display order — the agent leads with their strongest pick.
+  order      Int        @default(0)
+  /// Per-property note: "this one has the balcony you asked about".
+  note       String?
+
+  @@unique([roomId, propertyId])
+  @@index([roomId])
+}
+
+/// One thing the client did in a room. Aggregated for the agent's view
+/// counts; deliberately anonymous — the room knows what was looked at,
+/// never who beyond the link itself.
+model ClientRoomView {
+  id         String     @id @default(cuid())
+  roomId     String
+  room       ClientRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  /// Null for opening the room itself; set when a property was opened.
+  propertyId String?
+  /// OPEN or PROPERTY — matching the two things worth counting.
+  kind       String
+  createdAt  DateTime   @default(now())
+
+  @@index([roomId])
+}
+
+// ─────────────────────────────────────────────
+// MANDATES
+// ─────────────────────────────────────────────
+
+enum MandateStatus {
+  OPEN
+  CLOSED
+}
+
+enum MandateRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+/// A development opened to the agent network, commission stated up front.
+///
+/// Inverts the assignment flow. A PropertyAssignment is developer-initiated
+/// — it presumes the developer already knows which agent they want. A
+/// mandate is the developer saying "this is open, here are the terms" to
+/// every verified agent at once, which is how off-plan actually distributes
+/// in the markets where it works: published commission sheets, launch
+/// alerts, agents competing to bring buyers. The stated percent is binding
+/// on acceptance — it becomes the assignment's commission — so there is no
+/// negotiate-in-the-dark stage.
+model Mandate {
+  id                String           @id @default(cuid())
+  developerId       String
+  developer         DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  propertyId        String
+  property          Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// The offer, visible to every agent browsing the pool.
+  commissionPercent Float
+  /// Terms worth stating up front: payment timing, exclusivity, marketing
+  /// support.
+  notes             String?
+  status            MandateStatus    @default(OPEN)
+  /// Stop accepting once this many agents hold it. Null = uncapped.
+  maxAgents         Int?
+  closedAt          DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  requests          MandateRequest[]
+
+  /// One mandate per property — reopening reuses the row, so the pool never
+  /// shows the same development twice with different terms.
+  @@unique([propertyId])
+  @@index([status])
+  @@index([developerId])
+}
+
+/// An agent's hand up for a mandate. Accepting one creates the partnership
+/// (if none exists) and the property assignment in a single step.
+model MandateRequest {
+  id          String               @id @default(cuid())
+  mandateId   String
+  mandate     Mandate              @relation(fields: [mandateId], references: [id], onDelete: Cascade)
+  agentId     String
+  agent       AgentProfile         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// The agent's pitch — why them.
+  message     String?
+  status      MandateRequestStatus @default(PENDING)
+  respondedAt DateTime?
+  createdAt   DateTime             @default(now())
+
+  /// One request per agent per mandate — re-requesting reuses the row.
+  @@unique([mandateId, agentId])
+  @@index([agentId])
+  @@index([mandateId, status])
 }
 
 // ─────────────────────────────────────────────
@@ -757,6 +1058,9 @@ model Property {
   productionOrders    ProductionOrder[]
   analyticsEvents     AnalyticsEvent[]
   productionTier      ProductionTier?
+  deals               Deal[]
+  clientRoomItems     ClientRoomItem[]
+  mandate             Mandate?
 
   conversations Conversation[]
 
@@ -794,6 +1098,7 @@ model Unit {
 
   reservations Reservation[]
   rentUnits    RentUnit[]
+  deals        Deal[]
 
   @@index([propertyId])
   @@index([status])
@@ -1268,6 +1573,7 @@ model Reservation {
 
   documents  Document[]
   payments   Payment[]
+  deal       Deal?
 
   @@index([unitId])
   @@index([userId])
