@@ -191,4 +191,106 @@ export class UnitsService {
       activeReservation: reservations[0] ?? null,
     }));
   }
+
+
+  /**
+   * One unit's full management picture, for the developer.
+   *
+   * The portfolio row says who holds it; this page says everything — owner,
+   * live deal, platform reservation, its rental life (which listing offers
+   * it and who manages that), and the unit's own photos and videos as
+   * distinct from the building's shared gallery. Everything a developer
+   * needs to answer "what is the state of A-101" in one place.
+   */
+  async manage(unitId: string, userId: string) {
+    const unit = await this.prisma.unit.findUnique({
+      where: { id: unitId },
+      include: {
+        property: {
+          select: {
+            id: true, slug: true, name: true, heroImageUrl: true, city: true,
+            developerId: true, developer: { select: { userId: true } },
+          },
+        },
+        ownership: {
+          include: {
+            owner: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+            rentListing: {
+              select: {
+                id: true, slug: true, name: true, status: true, managerKind: true,
+                priceFrom: true, currency: true,
+                managingAgent: { select: { id: true, displayName: true } },
+              },
+            },
+          },
+        },
+        deals: {
+          where: { stage: { notIn: ['LOST'] } },
+          orderBy: { stageChangedAt: 'desc' },
+          include: {
+            agent: { select: { id: true, displayName: true, photoUrl: true, logoUrl: true } },
+          },
+        },
+        reservations: {
+          where: { stage: { notIn: ['CANCELLED'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { user: { select: { firstName: true, lastName: true, email: true } } },
+        },
+        rentUnits: {
+          include: {
+            rentListing: {
+              select: {
+                id: true, slug: true, name: true, status: true, managerKind: true,
+                ownerId: true,
+                managingAgent: { select: { id: true, displayName: true } },
+              },
+            },
+          },
+        },
+        media: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+      },
+    });
+    if (!unit || unit.property.developer.userId !== userId) {
+      throw new NotFoundException('Unit not found');
+    }
+    return unit;
+  }
+
+  /** Attach a photo or video to this specific unit. Developer-only. */
+  async addMedia(
+    unitId: string,
+    userId: string,
+    dto: { type: 'PHOTO' | 'VIDEO'; url: string; title?: string; sizeBytes?: number; mimeType?: string },
+  ) {
+    const unit = await this.prisma.unit.findUnique({
+      where: { id: unitId },
+      select: { id: true, property: { select: { developer: { select: { userId: true } } } } },
+    });
+    if (!unit || unit.property.developer.userId !== userId) {
+      throw new NotFoundException('Unit not found');
+    }
+    return this.prisma.mediaAsset.create({
+      data: {
+        unitId,
+        type: dto.type,
+        url: dto.url,
+        title: dto.title,
+        sizeBytes: dto.sizeBytes,
+        mimeType: dto.mimeType,
+      },
+    });
+  }
+
+  async removeMedia(unitId: string, mediaId: string, userId: string) {
+    const media = await this.prisma.mediaAsset.findFirst({
+      where: { id: mediaId, unitId },
+      select: { id: true, unit: { select: { property: { select: { developer: { select: { userId: true } } } } } } },
+    });
+    if (!media || media.unit?.property.developer.userId !== userId) {
+      throw new NotFoundException('Media not found');
+    }
+    await this.prisma.mediaAsset.delete({ where: { id: mediaId } });
+    return { message: 'Removed' };
+  }
 }

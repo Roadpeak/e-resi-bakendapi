@@ -79,4 +79,36 @@ export class UnitsPortfolioController {
   portfolio(@CurrentUser() user: { id: string }) {
     return this.unitsService.portfolio(user.id);
   }
+
+  @Get(':id/manage')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Developer: one unit's full state — owner, deals, rentals, media" })
+  manage(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.unitsService.manage(id, user.id);
+  }
+
+  @Post(':id/media')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Developer: attach a photo or video to this specific unit" })
+  addMedia(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+    @Body() dto: { type: 'PHOTO' | 'VIDEO'; url: string; title?: string; sizeBytes?: number; mimeType?: string },
+  ) {
+    return this.unitsService.addMedia(id, user.id, dto);
+  }
+
+  @Delete(':id/media/:mediaId')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer: remove a unit photo or video' })
+  removeMedia(
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.unitsService.removeMedia(id, mediaId, user.id);
+  }
 }
