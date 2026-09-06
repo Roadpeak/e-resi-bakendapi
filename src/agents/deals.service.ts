@@ -298,6 +298,20 @@ export class DealsService {
     }
     if (stage === deal.stage) return deal;
 
+    // The unit's status follows the deal that holds it. Reserving past a
+    // unit someone else already holds is refused before anything moves —
+    // this is the double-allocation guard, applied at the exact moment a
+    // second sale would otherwise begin.
+    const HOLDING: DealStage[] = [DealStage.RESERVED, DealStage.SPA_SIGNED, DealStage.COMPLETED];
+    const advancing =
+      deal.unitId && HOLDING.includes(stage) && !HOLDING.includes(deal.stage);
+    if (advancing) {
+      const holder = await this.unitHolder(deal.unitId!, dealId);
+      if (holder) {
+        throw new BadRequestException(`This unit is already held — ${holder}`);
+      }
+    }
+
     const updated = await this.prisma.deal.update({
       where: { id: dealId },
       data: {
@@ -307,6 +321,10 @@ export class DealsService {
       },
       include: DEAL_INCLUDE,
     });
+
+    if (deal.unitId) {
+      await this.syncUnitStatus(deal.unitId, dealId);
+    }
 
     await this.logEvent(
       dealId,
@@ -465,11 +483,108 @@ export class DealsService {
     return updated;
   }
 
+  /**
+   * Attach or change the unit a deal is about.
+   *
+   * Guarded against the market's classic failure: the same unit promised to
+   * two buyers by two different people. A unit already held — by another
+   * live deal at RESERVED or beyond, or by an active reservation — cannot be
+   * attached, and the error says who holds it so the two sides talk instead
+   * of colliding at the SPA.
+   */
+  async setUnit(dealId: string, userId: string, unitId: string | null) {
+    const deal = await this.assertMine(dealId, userId);
+    if (SETTLED(deal.stage, deal.commissionStatus)) {
+      throw new BadRequestException('A settled deal cannot change unit');
+    }
+
+    if (unitId) {
+      const unit = await this.prisma.unit.findUnique({
+        where: { id: unitId },
+        select: { id: true, name: true, propertyId: true, price: true },
+      });
+      if (!unit || unit.propertyId !== deal.propertyId) {
+        throw new BadRequestException('Unit does not belong to this deal\'s property');
+      }
+      const holder = await this.unitHolder(unitId, dealId);
+      if (holder) {
+        throw new BadRequestException(`${unit.name} is already held — ${holder}`);
+      }
+    }
+
+    const updated = await this.prisma.deal.update({
+      where: { id: dealId },
+      data: { unitId },
+      include: DEAL_INCLUDE,
+    });
+    await this.logEvent(
+      dealId,
+      userId,
+      'UNIT_SET',
+      unitId ? `Unit set: ${updated.unit?.name}` : 'Unit cleared',
+    );
+    return updated;
+  }
+
+  /**
+   * Who else holds this unit, as a human sentence — or null when free.
+   * "Held" means a live deal at RESERVED or beyond, or an active reservation.
+   */
+  private async unitHolder(unitId: string, excludeDealId?: string): Promise<string | null> {
+    const [otherDeal, reservation] = await Promise.all([
+      this.prisma.deal.findFirst({
+        where: {
+          unitId,
+          id: { not: excludeDealId },
+          stage: { in: [DealStage.RESERVED, DealStage.SPA_SIGNED, DealStage.COMPLETED] },
+        },
+        select: {
+          clientName: true,
+          agent: { select: { displayName: true } },
+        },
+      }),
+      this.prisma.reservation.findFirst({
+        where: { unitId, stage: { notIn: ['CANCELLED'] }, expiresAt: { gte: new Date() } },
+        select: { user: { select: { firstName: true, lastName: true } } },
+      }),
+    ]);
+    if (otherDeal) {
+      return `reserved for ${otherDeal.clientName} via ${otherDeal.agent.displayName}`;
+    }
+    if (reservation) {
+      return `reserved by ${reservation.user.firstName} ${reservation.user.lastName} on the platform`;
+    }
+    return null;
+  }
+
   /** A dated note on the record, visible to both sides. */
   async addNote(dealId: string, userId: string, note: string) {
     await this.assertMine(dealId, userId);
     await this.logEvent(dealId, userId, 'NOTE', note.trim());
     return this.getOne(dealId, userId);
+  }
+
+  /**
+   * Recompute a unit's status from whoever holds it now.
+   *
+   * Derived rather than toggled: a unit is SOLD if any completed deal holds
+   * it, RESERVED if any live deal at RESERVED+ or active reservation does,
+   * AVAILABLE otherwise. Deriving from the source rows means a deal moving
+   * backwards, or being lost, releases the unit automatically — no separate
+   * release path to forget.
+   */
+  private async syncUnitStatus(unitId: string, _movedDealId: string) {
+    const [completed, held, reservation] = await Promise.all([
+      this.prisma.deal.count({ where: { unitId, stage: DealStage.COMPLETED } }),
+      this.prisma.deal.count({
+        where: { unitId, stage: { in: [DealStage.RESERVED, DealStage.SPA_SIGNED] } },
+      }),
+      this.prisma.reservation.count({
+        where: { unitId, stage: { notIn: ['CANCELLED'] }, expiresAt: { gte: new Date() } },
+      }),
+    ]);
+    const status = completed > 0 ? 'SOLD' : held + reservation > 0 ? 'RESERVED' : 'AVAILABLE';
+    await this.prisma.unit.update({ where: { id: unitId }, data: { status } });
   }
 
   // ─── Ranking cache ────────────────────────────────────────────────────────

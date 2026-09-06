@@ -138,4 +138,57 @@ export class UnitsService {
     await this.prisma.unit.delete({ where: { id } });
     return { message: 'Unit deleted' };
   }
+
+
+  /**
+   * The developer's whole unit inventory, with who holds what.
+   *
+   * The units page used to be a status column and nothing else — RESERVED
+   * with no way to see reserved *for whom*, which is exactly the information
+   * that prevents the same unit being promised twice. Each unit here carries
+   * its live context: the deal holding it (client + agent + stage) and any
+   * platform reservation, so the table reads as an allocation board rather
+   * than a list.
+   */
+  async portfolio(userId: string) {
+    const developer = await this.prisma.developerProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!developer) throw new ForbiddenException('Developer profile required');
+
+    const units = await this.prisma.unit.findMany({
+      where: { property: { developerId: developer.id } },
+      orderBy: [{ propertyId: 'asc' }, { name: 'asc' }],
+      include: {
+        property: { select: { id: true, slug: true, name: true } },
+        deals: {
+          where: { stage: { in: ['RESERVED', 'SPA_SIGNED', 'COMPLETED'] } },
+          orderBy: { stageChangedAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            stage: true,
+            clientName: true,
+            agent: { select: { id: true, displayName: true } },
+          },
+        },
+        reservations: {
+          where: { stage: { notIn: ['CANCELLED'] }, expiresAt: { gte: new Date() } },
+          take: 1,
+          select: {
+            id: true,
+            stage: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+
+    return units.map(({ deals, reservations, ...u }) => ({
+      ...u,
+      activeDeal: deals[0] ?? null,
+      activeReservation: reservations[0] ?? null,
+    }));
+  }
 }

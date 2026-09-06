@@ -2,13 +2,17 @@ import {
   BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DealsService } from '../agents/deals.service.js';
 
 /** Roles that may open a conversation about a listing. */
 const CUSTOMER_ROLES = ['BUYER', 'INVESTOR', 'TENANT'];
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly deals: DealsService,
+  ) {}
 
   /**
    * Start — or resume — a conversation.
@@ -274,5 +278,112 @@ export class ChatService {
       },
     });
     return { count };
+  }
+
+
+  // ─── Lead capture ──────────────────────────────────────────────────────────
+
+  /**
+   * Turn the person on the other side of a chat into a tracked lead.
+   *
+   * A chat is where interest actually shows itself — someone asking about
+   * pricing on a specific development is a warmer lead than any form fill —
+   * but chats have no pipeline, so that interest evaporated when the thread
+   * went quiet. One click here files it where the follow-up machinery lives:
+   * an agent gets a Deal (with the partnership checks, event trail and
+   * commission ledger the deals page enforces), a developer gets an Inquiry
+   * in their existing queue.
+   *
+   * The captured inquiry's message is the customer's own latest words rather
+   * than boilerplate: "is the 2BR still available" is the context the
+   * follow-up needs, and it was already written.
+   */
+  async captureLead(conversationId: string, userId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        initiator: true,
+        counterparty: true,
+        property: { select: { id: true, name: true, developerId: true, developer: { select: { userId: true } } } },
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    const mine = conversation.initiatorId === userId || conversation.counterpartyId === userId;
+    if (!mine) throw new NotFoundException('Conversation not found');
+    if (conversation.leadDealId || conversation.leadInquiryId) {
+      throw new BadRequestException('This person is already captured as a lead');
+    }
+    if (!conversation.property) {
+      throw new BadRequestException('Only property conversations can be captured as leads');
+    }
+
+    const other =
+      conversation.initiatorId === userId ? conversation.counterparty : conversation.initiator;
+    if (!CUSTOMER_ROLES.includes(other.role)) {
+      throw new BadRequestException('Only a buyer, investor or tenant can be captured as a lead');
+    }
+    const clientName = [other.firstName, other.lastName].filter(Boolean).join(' ') || other.email;
+
+    // The capturing side decides what a "lead" is for them.
+    const agentProfile = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (agentProfile) {
+      const partnership = await this.prisma.agentPartnership.findUnique({
+        where: {
+          developerId_agentId: {
+            developerId: conversation.property.developerId,
+            agentId: agentProfile.id,
+          },
+        },
+        select: { id: true, status: true },
+      });
+      if (!partnership || partnership.status !== 'ACTIVE') {
+        throw new BadRequestException(
+          'You need an active partnership with this developer to open a deal on their property',
+        );
+      }
+      const deal = await this.deals.create(userId, {
+        partnershipId: partnership.id,
+        propertyId: conversation.property.id,
+        clientName,
+        clientEmail: other.email,
+        clientPhone: other.phone ?? undefined,
+        notes: 'Captured from chat',
+      });
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { leadDealId: deal.id },
+      });
+      return { kind: 'deal' as const, id: deal.id };
+    }
+
+    if (conversation.property.developer.userId !== userId) {
+      throw new BadRequestException('Only the developer or a partnered agent can capture this lead');
+    }
+
+    const lastFromThem = await this.prisma.chatMessage.findFirst({
+      where: { conversationId, senderId: other.id },
+      orderBy: { createdAt: 'desc' },
+      select: { body: true },
+    });
+    const inquiry = await this.prisma.inquiry.create({
+      data: {
+        propertyId: conversation.property.id,
+        userId: other.id,
+        name: clientName,
+        email: other.email,
+        phone: other.phone ?? undefined,
+        message: lastFromThem?.body ?? 'Captured as a lead from chat',
+        conversationId,
+      },
+    });
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { leadInquiryId: inquiry.id },
+    });
+    return { kind: 'inquiry' as const, id: inquiry.id };
   }
 }

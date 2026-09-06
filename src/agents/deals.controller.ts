@@ -44,6 +44,11 @@ class CommissionStatusDto {
   @IsOptional() @IsString() @MaxLength(1000) reason?: string;
 }
 
+class SetUnitDto {
+  /// Null clears the unit.
+  @IsOptional() @IsString() unitId?: string | null;
+}
+
 class AddNoteDto {
   @IsString() @MaxLength(2000) note: string;
 }
@@ -127,6 +132,17 @@ export class DealsController {
     @Body() dto: CommissionStatusDto,
   ) {
     return this.deals.updateCommissionStatus(id, user.id, dto.status, dto.reason);
+  }
+
+  @Patch(':id/unit')
+  @Roles(UserRole.AGENT, UserRole.DEVELOPER)
+  @ApiOperation({ summary: 'Attach or clear the unit this deal is about (double-allocation guarded)' })
+  setUnit(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+    @Body() dto: SetUnitDto,
+  ) {
+    return this.deals.setUnit(id, user.id, dto.unitId ?? null);
   }
 
   @Post(':id/notes')

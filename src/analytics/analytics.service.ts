@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AnalyticsEventType, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DealsService } from '../agents/deals.service.js';
 
 interface TrackEventDto {
   type: AnalyticsEventType;
@@ -16,7 +17,10 @@ interface TrackEventDto {
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly deals: DealsService,
+  ) {}
 
   // ─── Track event ──────────────────────────────────────────────────────────
 
@@ -587,5 +591,191 @@ export class AnalyticsService {
         // so the answer leads.
         .sort((a, b) => b.views + b.bookings * 10 - (a.views + a.bookings * 10)),
     };
+  }
+
+
+  // ─── Interested viewers ────────────────────────────────────────────────────
+
+  /**
+   * Signed-in customers who have been looking at these properties.
+   *
+   * A registered investor who opened a development four times this week is a
+   * lead that never filled a form — the strongest kind of quiet interest the
+   * platform can see. This surfaces them to whoever can act: the developer
+   * for their own properties, the agent for visitors who came through their
+   * links. Guests are invisible here by construction — there is no account
+   * to surface, which is also the privacy line: only people who signed in
+   * are shown, only to the parties their viewing already involved.
+   */
+  async interestedViewers(who: { developerUserId?: string; agentUserId?: string }, days = 30) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    let propertyIds: string[] | undefined;
+    let agentId: string | undefined;
+    if (who.developerUserId) {
+      const developer = await this.prisma.developerProfile.findUnique({
+        where: { userId: who.developerUserId },
+        select: { id: true },
+      });
+      if (!developer) throw new ForbiddenException('Developer profile required');
+      propertyIds = (
+        await this.prisma.property.findMany({
+          where: { developerId: developer.id },
+          select: { id: true },
+        })
+      ).map((prop) => prop.id);
+      if (!propertyIds.length) return { days, rows: [] };
+    } else {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { userId: who.agentUserId },
+        select: { id: true },
+      });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      agentId = agent.id;
+    }
+
+    const grouped = await this.prisma.analyticsEvent.groupBy({
+      by: ['userId', 'propertyId'],
+      where: {
+        type: 'PAGE_VIEW',
+        userId: { not: null },
+        createdAt: { gte: since },
+        ...(propertyIds && { propertyId: { in: propertyIds } }),
+        ...(agentId && { agentId }),
+      },
+      _count: true,
+      _max: { createdAt: true },
+    });
+    const rows = grouped.filter((g) => g.userId && g.propertyId);
+    if (!rows.length) return { days, rows: [] };
+
+    const [users, properties] = await Promise.all([
+      this.prisma.user.findMany({
+        where: {
+          id: { in: [...new Set(rows.map((r) => r.userId as string))] },
+          // Only customers: a developer previewing their own page, or an
+          // admin reviewing it, is traffic — not a lead.
+          role: { in: ['BUYER', 'INVESTOR', 'TENANT'] },
+        },
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
+      }),
+      this.prisma.property.findMany({
+        where: { id: { in: [...new Set(rows.map((r) => r.propertyId as string))] } },
+        select: { id: true, name: true, slug: true },
+      }),
+    ]);
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const propertyById = new Map(properties.map((prop) => [prop.id, prop]));
+
+    // "Already a lead" so the button does not offer to capture twice.
+    const userIds = users.map((u) => u.id);
+    const existing = who.developerUserId
+      ? await this.prisma.inquiry.findMany({
+          where: { userId: { in: userIds }, propertyId: { in: rows.map((r) => r.propertyId as string) } },
+          select: { userId: true, propertyId: true },
+        })
+      : await this.prisma.deal.findMany({
+          where: {
+            agentId,
+            clientEmail: { in: users.map((u) => u.email) },
+            propertyId: { in: rows.map((r) => r.propertyId as string) },
+          },
+          select: { clientEmail: true, propertyId: true },
+        });
+    const leadKeys = new Set(
+      existing.map((e) =>
+        'userId' in e
+          ? `${e.userId}:${e.propertyId}`
+          : `${users.find((u) => u.email === e.clientEmail)?.id}:${e.propertyId}`,
+      ),
+    );
+
+    return {
+      days,
+      rows: rows
+        .map((r) => ({
+          userId: r.userId as string,
+          propertyId: r.propertyId as string,
+          views: r._count,
+          lastViewedAt: r._max.createdAt,
+          user: userById.get(r.userId as string) ?? null,
+          property: propertyById.get(r.propertyId as string) ?? null,
+          alreadyLead: leadKeys.has(`${r.userId}:${r.propertyId}`),
+        }))
+        .filter((r) => r.user && r.property)
+        .sort((a, b) => b.views - a.views),
+    };
+  }
+
+  /**
+   * File an interested viewer as a lead.
+   *
+   * Developer → an Inquiry in their existing queue, marked as coming from
+   * browsing so the follow-up knows nobody wrote anything yet. Agent → a
+   * Deal, under the partnership rules the deals service enforces.
+   */
+  async captureViewer(
+    who: { developerUserId?: string; agentUserId?: string },
+    dto: { userId: string; propertyId: string },
+  ) {
+    const viewer = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
+    });
+    if (!viewer || !['BUYER', 'INVESTOR', 'TENANT'].includes(viewer.role)) {
+      throw new BadRequestException('Only a buyer, investor or tenant can be captured as a lead');
+    }
+    const property = await this.prisma.property.findUnique({
+      where: { id: dto.propertyId },
+      select: { id: true, name: true, developerId: true, developer: { select: { userId: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    const clientName = [viewer.firstName, viewer.lastName].filter(Boolean).join(' ') || viewer.email;
+
+    if (who.agentUserId) {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { userId: who.agentUserId },
+        select: { id: true },
+      });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      const partnership = await this.prisma.agentPartnership.findUnique({
+        where: { developerId_agentId: { developerId: property.developerId, agentId: agent.id } },
+        select: { id: true, status: true },
+      });
+      if (!partnership || partnership.status !== 'ACTIVE') {
+        throw new BadRequestException(
+          'You need an active partnership with this developer to open a deal on their property',
+        );
+      }
+      const deal = await this.deals.create(who.agentUserId, {
+        partnershipId: partnership.id,
+        propertyId: property.id,
+        clientName,
+        clientEmail: viewer.email,
+        clientPhone: viewer.phone ?? undefined,
+        notes: 'Captured from browsing activity',
+      });
+      return { kind: 'deal' as const, id: deal.id };
+    }
+
+    if (property.developer.userId !== who.developerUserId) {
+      throw new ForbiddenException('Not your property');
+    }
+    const dup = await this.prisma.inquiry.findFirst({
+      where: { userId: viewer.id, propertyId: property.id },
+      select: { id: true },
+    });
+    if (dup) throw new BadRequestException('This person is already a lead on this property');
+    const inquiry = await this.prisma.inquiry.create({
+      data: {
+        propertyId: property.id,
+        userId: viewer.id,
+        name: clientName,
+        email: viewer.email,
+        phone: viewer.phone ?? undefined,
+        message: `Captured from browsing activity — viewed ${property.name} while signed in.`,
+      },
+    });
+    return { kind: 'inquiry' as const, id: inquiry.id };
   }
 }

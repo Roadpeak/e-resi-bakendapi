@@ -1741,8 +1741,15 @@ model Conversation {
   agentId        String?
   agent          AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   subject        String?
+  /// Set when the business side of this thread captured the other party as a
+  /// lead — a Deal for an agent, an Inquiry for a developer. Plain ids rather
+  /// than relations: the marker's job is "already captured, don't offer the
+  /// button again", and a dangling id after a deleted deal is harmless where
+  /// another pair of relations would not be.
+  leadDealId     String?
+  leadInquiryId  String?
   lastMessageAt  DateTime  @default(now())
-  createdAt      DateTime  @default(now())
+  createdAt     DateTime  @default(now())
 
   messages       ChatMessage[]
 

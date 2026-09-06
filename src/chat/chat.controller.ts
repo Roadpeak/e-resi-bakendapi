@@ -44,6 +44,15 @@ export class ChatController {
     return this.service.startConversation(user.id, dto);
   }
 
+  @Post('conversations/:id/lead')
+  @ApiOperation({
+    summary: 'Developer/agent: capture the other party as a tracked lead '
+      + '(a Deal for agents, an Inquiry for developers)',
+  })
+  captureLead(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.service.captureLead(id, user.id);
+  }
+
   @Get('conversations')
   @ApiOperation({ summary: 'List my conversations with unread counts' })
   list(@CurrentUser() user: { id: string }) {

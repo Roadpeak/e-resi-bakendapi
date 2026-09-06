@@ -22,10 +22,14 @@ export class AnalyticsController {
       sessionId?: string;
       source?: string;
       metadata?: Prisma.InputJsonValue;
+      /// Signed-in visitors report who they are, so a registered investor's
+      /// browsing can surface as a lead. Same trust model as the query
+      /// param this endpoint always had — analytics, not authentication.
+      userId?: string;
     },
     @Query('userId') userId?: string,
   ) {
-    return this.service.track(dto, userId);
+    return this.service.track(dto, dto.userId ?? userId);
   }
 
   @Get('properties/:slug')
@@ -40,6 +44,37 @@ export class AnalyticsController {
   ) {
     return this.service.miniSiteReport(
       slug, user.id, user.role, days ? parseInt(days, 10) : 30,
+    );
+  }
+
+  @Get('viewers')
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Signed-in customers browsing my properties (developer) or my referred visitors (agent)',
+  })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  viewers(
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Query('days') days?: string,
+  ) {
+    return this.service.interestedViewers(
+      user.role === UserRole.AGENT ? { agentUserId: user.id } : { developerUserId: user.id },
+      days ? parseInt(days, 10) : 30,
+    );
+  }
+
+  @Post('viewers/capture')
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'File an interested viewer as a lead (Inquiry or Deal by role)' })
+  captureViewer(
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Body() dto: { userId: string; propertyId: string },
+  ) {
+    return this.service.captureViewer(
+      user.role === UserRole.AGENT ? { agentUserId: user.id } : { developerUserId: user.id },
+      dto,
     );
   }
 

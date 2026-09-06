@@ -62,3 +62,21 @@ export class UnitsController {
     return this.unitsService.remove(id, user.id, user.role);
   }
 }
+
+/**
+ * Portfolio-wide unit routes — not scoped to one property, so they live on
+ * their own path rather than under /properties/:slug/units.
+ */
+@ApiTags('Units')
+@Controller('units')
+export class UnitsPortfolioController {
+  constructor(private readonly unitsService: UnitsService) {}
+
+  @Get('portfolio')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Developer: every unit across the portfolio, with who holds each" })
+  portfolio(@CurrentUser() user: { id: string }) {
+    return this.unitsService.portfolio(user.id);
+  }
+}
