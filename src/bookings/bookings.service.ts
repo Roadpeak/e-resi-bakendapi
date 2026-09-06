@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { BookingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
-import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import type { CreateBookingDto } from './dto/create-booking.dto.js';
 
 @Injectable()
@@ -60,7 +60,50 @@ export class BookingsService {
     });
 
     await this.events.newBooking(booking.property.name, dto.name, booking.id);
+    // A booking that arrived through an agent's link is the agent's viewing
+    // to run — they brought the client and they close the deal — so the
+    // handling notification goes to them.
+    if (agentId) {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { id: agentId },
+        select: { userId: true },
+      });
+      if (agent) {
+        await this.events.leadRoutedToAgent(
+          agent.userId,
+          'booking',
+          booking.property.name,
+          dto.name,
+          '/agent/bookings',
+        );
+      }
+    }
     return booking;
+  }
+
+  // ─── Agent: bookings introduced through my links ──────────────────────────
+
+  async findForAgent(userId: string, pagination: PaginationDto, status?: BookingStatus) {
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!agent) throw new ForbiddenException('Agent profile required');
+
+    const where = { agentId: agent.id, ...(status && { status }) };
+    const [data, total] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        skip: pagination.skip,
+        take: pagination.limit ?? 20,
+        orderBy: { date: 'asc' },
+        include: {
+          property: { select: { id: true, slug: true, name: true, heroImageUrl: true, city: true } },
+        },
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
   }
 
   // ─── User: my bookings ────────────────────────────────────────────────────
@@ -123,7 +166,20 @@ export class BookingsService {
       include: { property: { include: { developer: true } } },
     });
     if (!booking) throw new NotFoundException('Booking not found');
-    if (userRole !== UserRole.ADMIN && booking.property.developer.userId !== userId) {
+    // The attributed agent runs their own viewings — confirming and
+    // rescheduling included. The developer keeps the same right: it is
+    // still their property, and either of them turning up is a viewing.
+    const isAttributedAgent = booking.agentId
+      ? !!(await this.prisma.agentProfile.findFirst({
+          where: { id: booking.agentId, userId },
+          select: { id: true },
+        }))
+      : false;
+    if (
+      userRole !== UserRole.ADMIN &&
+      booking.property.developer.userId !== userId &&
+      !isAttributedAgent
+    ) {
       throw new ForbiddenException('You do not own this property');
     }
 

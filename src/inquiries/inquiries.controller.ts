@@ -65,6 +65,18 @@ export class InquiriesController {
     return this.service.findForDeveloper(user.id, query, query.status);
   }
 
+  @Get('agent')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: inquiries that arrived through my links' })
+  @ApiQuery({ name: 'status', enum: InquiryStatus, required: false })
+  findForAgent(
+    @CurrentUser() user: { id: string },
+    @Query() query: InquiryQueryDto,
+  ) {
+    return this.service.findForAgent(user.id, query, query.status);
+  }
+
   @Get(':id')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get inquiry detail (owner or developer of the property)' })

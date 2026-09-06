@@ -7,7 +7,7 @@ import {
 import { InquiryStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
-import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import type { CreateInquiryDto } from './dto/create-inquiry.dto.js';
 import type { ReplyInquiryDto } from './dto/reply-inquiry.dto.js';
 
@@ -75,7 +75,52 @@ export class InquiriesService {
     await this.events.newInquiry(
       inquiry.property?.name ?? 'a listing', dto.name, inquiry.id,
     );
+    // Routed to the agent whose link brought the enquirer — see the booking
+    // equivalent for the reasoning; the two must behave identically or the
+    // "your agent" promise only half-holds.
+    if (agentId) {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { id: agentId },
+        select: { userId: true },
+      });
+      if (agent) {
+        await this.events.leadRoutedToAgent(
+          agent.userId,
+          'inquiry',
+          inquiry.property?.name ?? 'a listing',
+          dto.name,
+          '/agent/inquiries',
+        );
+      }
+    }
     return inquiry;
+  }
+
+  // ─── Agent: inquiries introduced through my links ─────────────────────────
+
+  async findForAgent(userId: string, pagination: PaginationDto, status?: InquiryStatus) {
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!agent) throw new ForbiddenException('Agent profile required');
+
+    const where = { agentId: agent.id, ...(status && { status }) };
+    const [data, total] = await Promise.all([
+      this.prisma.inquiry.findMany({
+        where,
+        skip: pagination.skip,
+        take: pagination.limit ?? 20,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          property: { select: { id: true, slug: true, name: true, heroImageUrl: true } },
+          rentListing: { select: { id: true, slug: true, name: true } },
+          replies: { select: { id: true } },
+        },
+      }),
+      this.prisma.inquiry.count({ where }),
+    ]);
+    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
   }
 
   // ─── Developer: list inquiries for own properties ─────────────────────────
@@ -166,8 +211,16 @@ export class InquiriesService {
     const isDeveloperOfProperty = inquiry.property?.developer.userId === requesterId;
     const isDeveloperOfListing = inquiry.rentListing?.developer.userId === requesterId;
     const isAdmin = requesterRole === UserRole.ADMIN;
+    // The attributed agent is a party: the lead was routed to them, and a
+    // routed lead they cannot open or answer is not routed at all.
+    const isAttributedAgent = inquiry.agentId
+      ? !!(await this.prisma.agentProfile.findFirst({
+          where: { id: inquiry.agentId, userId: requesterId },
+          select: { id: true },
+        }))
+      : false;
 
-    if (!isOwner && !isDeveloperOfProperty && !isDeveloperOfListing && !isAdmin) {
+    if (!isOwner && !isDeveloperOfProperty && !isDeveloperOfListing && !isAdmin && !isAttributedAgent) {
       throw new ForbiddenException('Access denied');
     }
 

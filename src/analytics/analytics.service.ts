@@ -5,6 +5,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 interface TrackEventDto {
   type: AnalyticsEventType;
   propertyId?: string;
+  /// The referring agent's profile id, when the visit came through a shared
+  /// link. Validated against the table before it is stored — this arrives on
+  /// a public endpoint, and junk ids would poison the referral report.
+  agentId?: string;
   sessionId?: string;
   source?: string;
   metadata?: Prisma.InputJsonValue;
@@ -17,10 +21,19 @@ export class AnalyticsService {
   // ─── Track event ──────────────────────────────────────────────────────────
 
   async track(dto: TrackEventDto, userId?: string) {
+    let agentId: string | undefined;
+    if (dto.agentId && /^[a-z0-9]{20,32}$/i.test(dto.agentId)) {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { id: dto.agentId },
+        select: { id: true },
+      });
+      agentId = agent?.id;
+    }
     return this.prisma.analyticsEvent.create({
       data: {
         type: dto.type,
         propertyId: dto.propertyId,
+        agentId,
         userId,
         sessionId: dto.sessionId,
         source: dto.source,
@@ -406,6 +419,173 @@ export class AnalyticsService {
       users: Object.fromEntries(users.map((u) => [u.role, u._count.role])),
       properties: Object.fromEntries(properties.map((p) => [p.status, p._count.status])),
       activity: { inquiries30d: inquiries, bookings30d: bookings, activeReservations: reservations },
+    };
+  }
+
+
+  // ─── Agent referral traffic ────────────────────────────────────────────────
+
+  /**
+   * What each agent's shared links actually delivered, per property.
+   *
+   * For a developer this is the accountability side of the mandate pool:
+   * they published a commission, agents took it — this is who brought
+   * traffic, and how much of it turned into a lead. For an agent it is the
+   * same table filtered to themself: proof of contribution, which is the
+   * thing they otherwise assert in a WhatsApp message with no evidence.
+   *
+   * Views come from AnalyticsEvent (PAGE_VIEW rows carrying the agentId the
+   * visitor arrived with); leads come from the attribution columns on
+   * inquiries, bookings and reservations. Same GROUP BY, opposite chairs.
+   */
+  async referralStats(
+    who: { developerUserId?: string; agentUserId?: string },
+    days = 90,
+  ) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Resolve the scope: a developer sees all agents across their own
+    // properties; an agent sees all properties for just themself.
+    let propertyIds: string[] | undefined;
+    let agentId: string | undefined;
+
+    if (who.developerUserId) {
+      const developer = await this.prisma.developerProfile.findUnique({
+        where: { userId: who.developerUserId },
+        select: { id: true },
+      });
+      if (!developer) throw new ForbiddenException('Developer profile required');
+      propertyIds = (
+        await this.prisma.property.findMany({
+          where: { developerId: developer.id },
+          select: { id: true },
+        })
+      ).map((prop) => prop.id);
+      if (!propertyIds.length) return { days, rows: [] };
+    } else {
+      const agent = await this.prisma.agentProfile.findUnique({
+        where: { userId: who.agentUserId },
+        select: { id: true },
+      });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      agentId = agent.id;
+    }
+
+    const scope = {
+      ...(propertyIds && { propertyId: { in: propertyIds } }),
+      ...(agentId && { agentId }),
+    };
+
+    const [views, tours, inquiries, bookings, reservations] = await Promise.all([
+      this.prisma.analyticsEvent.groupBy({
+        by: ['agentId', 'propertyId'],
+        where: {
+          ...scope,
+          agentId: agentId ?? { not: null },
+          type: 'PAGE_VIEW',
+          createdAt: { gte: since },
+        },
+        _count: true,
+      }),
+      this.prisma.analyticsEvent.groupBy({
+        by: ['agentId', 'propertyId'],
+        where: {
+          ...scope,
+          agentId: agentId ?? { not: null },
+          type: 'TOUR_START',
+          createdAt: { gte: since },
+        },
+        _count: true,
+      }),
+      this.prisma.inquiry.groupBy({
+        by: ['agentId', 'propertyId'],
+        where: { ...scope, agentId: agentId ?? { not: null }, createdAt: { gte: since } },
+        _count: true,
+      }),
+      this.prisma.booking.groupBy({
+        by: ['agentId', 'propertyId'],
+        where: { ...scope, agentId: agentId ?? { not: null }, createdAt: { gte: since } },
+        _count: true,
+      }),
+      // Reservations hang off units, not properties, so the property scope
+      // travels through the relation.
+      this.prisma.reservation.groupBy({
+        by: ['agentId', 'unitId'],
+        where: {
+          agentId: agentId ?? { not: null },
+          createdAt: { gte: since },
+          ...(propertyIds && { unit: { propertyId: { in: propertyIds } } }),
+        },
+        _count: true,
+      }),
+    ]);
+
+    // Reservations need their unit resolved back to a property to join the
+    // same (agent, property) cell as everything else.
+    const unitIds = [...new Set(reservations.map((r) => r.unitId))];
+    const units = unitIds.length
+      ? await this.prisma.unit.findMany({
+          where: { id: { in: unitIds } },
+          select: { id: true, propertyId: true },
+        })
+      : [];
+    const unitToProperty = new Map(units.map((u) => [u.id, u.propertyId]));
+
+    type Cell = {
+      agentId: string;
+      propertyId: string;
+      views: number;
+      tourStarts: number;
+      inquiries: number;
+      bookings: number;
+      reservations: number;
+    };
+    const cells = new Map<string, Cell>();
+    const cell = (aId: string | null, pId: string | null): Cell | null => {
+      if (!aId || !pId) return null;
+      const key = `${aId}:${pId}`;
+      let c = cells.get(key);
+      if (!c) {
+        c = { agentId: aId, propertyId: pId, views: 0, tourStarts: 0, inquiries: 0, bookings: 0, reservations: 0 };
+        cells.set(key, c);
+      }
+      return c;
+    };
+    for (const v of views) { const c = cell(v.agentId, v.propertyId); if (c) c.views = v._count; }
+    for (const t of tours) { const c = cell(t.agentId, t.propertyId); if (c) c.tourStarts = t._count; }
+    for (const i of inquiries) { const c = cell(i.agentId, i.propertyId); if (c) c.inquiries = i._count; }
+    for (const b of bookings) { const c = cell(b.agentId, b.propertyId); if (c) c.bookings = b._count; }
+    for (const r of reservations) {
+      const c = cell(r.agentId, unitToProperty.get(r.unitId) ?? null);
+      if (c) c.reservations = r._count;
+    }
+
+    // Names, attached once rather than joined per row.
+    const rows = [...cells.values()];
+    const [agents, properties] = await Promise.all([
+      this.prisma.agentProfile.findMany({
+        where: { id: { in: [...new Set(rows.map((r) => r.agentId))] } },
+        select: { id: true, displayName: true, photoUrl: true, logoUrl: true },
+      }),
+      this.prisma.property.findMany({
+        where: { id: { in: [...new Set(rows.map((r) => r.propertyId))] } },
+        select: { id: true, name: true, slug: true },
+      }),
+    ]);
+    const agentById = new Map(agents.map((a) => [a.id, a]));
+    const propertyById = new Map(properties.map((prop) => [prop.id, prop]));
+
+    return {
+      days,
+      rows: rows
+        .map((r) => ({
+          ...r,
+          agent: agentById.get(r.agentId) ?? null,
+          property: propertyById.get(r.propertyId) ?? null,
+        }))
+        // Busiest cells first — the report answers "who is driving traffic",
+        // so the answer leads.
+        .sort((a, b) => b.views + b.bookings * 10 - (a.views + a.bookings * 10)),
     };
   }
 }

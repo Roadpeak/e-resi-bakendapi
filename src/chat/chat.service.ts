@@ -34,7 +34,53 @@ export class ChatService {
     let agentId: string | null = null;
     let subject: string | null = null;
 
-    if (opts.agentId) {
+    if (opts.propertySlug && opts.agentId) {
+      /**
+       * A property chat opened through an agent's shared link.
+       *
+       * The whole referral loop hinges on this routing: the visitor followed
+       * the agent's link, so the person answering "is the balcony unit still
+       * available?" should be the agent who is working them — that is how
+       * the agent closes, and how the platform keeps agents sharing links
+       * instead of steering buyers off it.
+       *
+       * Gated on an ACTIVE partnership with the property's developer, and
+       * falling back to the developer rather than erroring when there is
+       * none. An agent with no working relationship to a development must
+       * not be able to intercept its chats by spraying ?ref= links — the
+       * partnership is the developer's consent to exactly this handoff.
+       */
+      if (!CUSTOMER_ROLES.includes(user.role)) {
+        throw new ForbiddenException('Only buyers, investors and tenants can start conversations');
+      }
+      const property = await this.prisma.property.findUnique({
+        where: { slug: opts.propertySlug },
+        include: { developer: true },
+      });
+      if (!property) throw new NotFoundException('Property not found');
+
+      const agent = await this.prisma.agentProfile.findFirst({
+        where: {
+          id: opts.agentId,
+          kybStatus: 'APPROVED',
+          isListed: true,
+          partnerships: {
+            some: { developerId: property.developerId, status: 'ACTIVE' },
+          },
+        },
+        select: { id: true, userId: true, displayName: true },
+      });
+
+      propertyId = property.id;
+      if (agent && agent.userId !== userId) {
+        counterpartyId = agent.userId;
+        agentId = agent.id;
+        subject = `${property.name} — ${agent.displayName}`;
+      } else {
+        counterpartyId = property.developer.userId;
+        subject = property.name;
+      }
+    } else if (opts.agentId) {
       const agent = await this.prisma.agentProfile.findUnique({
         where: { id: opts.agentId },
         select: { id: true, userId: true, displayName: true, kybStatus: true, isListed: true },

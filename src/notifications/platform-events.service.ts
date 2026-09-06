@@ -352,6 +352,32 @@ export class PlatformEventsService {
     });
   }
 
+  /**
+   * A lead that arrived through an agent's link, handed to that agent.
+   *
+   * This notification IS the routing promise: the platform told the visitor
+   * "this is your agent", so the agent has to hear about the booking or
+   * inquiry immediately — a routed lead nobody answers is worse than one
+   * that went to the developer.
+   */
+  async leadRoutedToAgent(
+    userId: string,
+    kind: 'booking' | 'inquiry',
+    propertyName: string,
+    fromName: string,
+    path: string,
+  ) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      kind === 'booking'
+        ? `Viewing request — ${propertyName}`
+        : `New inquiry — ${propertyName}`,
+      `${fromName} came through your link. This one is yours to handle.`,
+      { cta: { label: kind === 'booking' ? 'Open bookings' : 'Open inquiries', path } },
+    );
+  }
+
   async partnershipRequested(userId: string, fromName: string, partnershipId: string) {
     await this.toUser(
       userId,

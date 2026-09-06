@@ -60,10 +60,24 @@ export class BookingsController {
     return this.service.findForDeveloper(user.id, query, query.status);
   }
 
-  @Patch(':id/status')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Get('agent')
+  @Roles(UserRole.AGENT)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer/Admin: confirm, complete, or no-show a booking' })
+  @ApiOperation({ summary: 'Agent: viewings that arrived through my links' })
+  @ApiQuery({ name: 'status', enum: BookingStatus, required: false })
+  findForAgent(
+    @CurrentUser() user: { id: string },
+    @Query() query: BookingQueryDto,
+  ) {
+    return this.service.findForAgent(user.id, query, query.status);
+  }
+
+  @Patch(':id/status')
+  // AGENT is here for one narrow case the service enforces: an agent may
+  // move only bookings attributed to their own links — the viewings they run.
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer/Agent/Admin: confirm, complete, or no-show a booking' })
   updateStatus(
     @Param('id') id: string,
     @CurrentUser() user: { id: string; role: UserRole },

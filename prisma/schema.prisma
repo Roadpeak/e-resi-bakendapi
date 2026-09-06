@@ -491,6 +491,7 @@ model AgentProfile {
   deals             Deal[]
   clientRooms       ClientRoom[]
   mandateRequests   MandateRequest[]
+  analyticsEvents   AnalyticsEvent[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -1646,6 +1647,11 @@ model AnalyticsEvent {
   property   Property?          @relation(fields: [propertyId], references: [id])
   userId     String?
   user       User?              @relation(fields: [userId], references: [id])
+  /// The agent whose shared link brought this visitor, when one did. This is
+  /// the raw material of referral analytics: a developer reading "this agent
+  /// drove N views of this property" is reading a GROUP BY over this column.
+  agentId    String?
+  agent      AgentProfile?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
   type       AnalyticsEventType
   sessionId  String?
   source     String?
@@ -1656,6 +1662,8 @@ model AnalyticsEvent {
   @@index([userId])
   @@index([type])
   @@index([createdAt])
+  /// The referral report's exact access path.
+  @@index([agentId, propertyId, type])
 }
 
 // ─────────────────────────────────────────────

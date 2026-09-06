@@ -18,6 +18,7 @@ export class AnalyticsController {
     @Body() dto: {
       type: AnalyticsEventType;
       propertyId?: string;
+      agentId?: string;
       sessionId?: string;
       source?: string;
       metadata?: Prisma.InputJsonValue;
@@ -39,6 +40,38 @@ export class AnalyticsController {
   ) {
     return this.service.miniSiteReport(
       slug, user.id, user.role, days ? parseInt(days, 10) : 30,
+    );
+  }
+
+  @Get('referrals/developer')
+  @Roles(UserRole.DEVELOPER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Developer: each agent's link traffic and leads, per property",
+  })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  developerReferrals(
+    @CurrentUser() user: { id: string },
+    @Query('days') days?: string,
+  ) {
+    return this.service.referralStats(
+      { developerUserId: user.id },
+      days ? parseInt(days, 10) : 90,
+    );
+  }
+
+  @Get('referrals/agent')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: what my shared links delivered, per property' })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  agentReferrals(
+    @CurrentUser() user: { id: string },
+    @Query('days') days?: string,
+  ) {
+    return this.service.referralStats(
+      { agentUserId: user.id },
+      days ? parseInt(days, 10) : 90,
     );
   }
 
