@@ -38,6 +38,16 @@ export class DocumentsController {
     return this.service.findMine(user.id, pagination);
   }
 
+  @Get('properties/:propertyId')
+  @Roles(UserRole.DEVELOPER)
+  @ApiOperation({ summary: 'Developer: document library for one of their properties' })
+  findForProperty(
+    @Param('propertyId') propertyId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.service.findForProperty(propertyId, user.id);
+  }
+
   @Get('reservations/:reservationId')
   @ApiOperation({ summary: 'List documents for a reservation (owner, developer, or admin)' })
   findForReservation(

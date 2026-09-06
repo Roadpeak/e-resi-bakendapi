@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUnitDto } from './dto/create-unit.dto.js';
@@ -110,6 +110,42 @@ export class UnitsService {
     if (userRole !== UserRole.ADMIN && unit.property.developer.userId !== userId) {
       throw new ForbiddenException('You do not own this unit');
     }
+
+    // The reservation pipeline is the single source of truth for a unit's
+    // sale status. While a live reservation holds the unit — or a completed
+    // one has already made someone its owner — a manual status flip would
+    // silently contradict the record the buyer is watching, so it is
+    // refused with a pointer to the right lever.
+    if (dto.status !== undefined && dto.status !== unit.status) {
+      const [inFlight, ownership] = await Promise.all([
+        this.prisma.reservation.findFirst({
+          where: {
+            unitId: id,
+            stage: {
+              in: [
+                'RESERVED',
+                'AGREEMENT_SIGNED',
+                'DEPOSIT_PAID',
+                'FINAL_PAYMENT',
+              ],
+            },
+          },
+          select: { id: true },
+        }),
+        this.prisma.unitOwnership.findFirst({ where: { unitId: id }, select: { id: true } }),
+      ]);
+      if (inFlight) {
+        throw new BadRequestException(
+          'This unit is held by an active reservation — its status follows the purchase pipeline. Advance or cancel the reservation instead.',
+        );
+      }
+      if (ownership) {
+        throw new BadRequestException(
+          'This unit has a recorded owner — its status is determined by the completed sale.',
+        );
+      }
+    }
+
     return this.prisma.unit.update({
       where: { id },
       data: {
@@ -174,7 +210,14 @@ export class UnitsService {
           },
         },
         reservations: {
-          where: { stage: { notIn: ['CANCELLED'] }, expiresAt: { gte: new Date() } },
+          // Expiry only means anything before the agreement is signed —
+          // pipeline stages past RESERVED hold the unit until resolved.
+          where: {
+            OR: [
+              { stage: { in: ['AGREEMENT_SIGNED', 'DEPOSIT_PAID', 'FINAL_PAYMENT', 'TITLE_TRANSFERRED'] } },
+              { stage: 'RESERVED', expiresAt: { gte: new Date() } },
+            ],
+          },
           take: 1,
           select: {
             id: true,

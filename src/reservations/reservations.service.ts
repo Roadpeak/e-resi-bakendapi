@@ -7,6 +7,7 @@ import {
 import { ReservationStage, UnitStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OwnershipsService } from '../rent-listings/ownerships.service.js';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import type { CreateReservationDto } from './dto/create-reservation.dto.js';
 
@@ -15,6 +16,7 @@ export class ReservationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ownerships: OwnershipsService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   // ─── Create reservation ───────────────────────────────────────────────────
@@ -145,7 +147,9 @@ export class ReservationsService {
         orderBy: { createdAt: 'desc' },
         include: {
           unit: { include: { property: { select: { slug: true, name: true, heroImageUrl: true } } } },
-          documents: true,
+          // Originals only — a signed re-upload rides along under the
+          // document it answers, not as a second top-level row.
+          documents: { where: { parentId: null }, include: { signedVersions: true } },
           payments: { orderBy: { createdAt: 'desc' }, take: 3 },
         },
       }),
@@ -183,6 +187,7 @@ export class ReservationsService {
           unit: { include: { property: { select: { slug: true, name: true, heroImageUrl: true } } } },
           user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
           agent: { select: { id: true, displayName: true } },
+          documents: { where: { parentId: null }, include: { signedVersions: true } },
           payments: { orderBy: { createdAt: 'desc' }, take: 3 },
         },
       }),
@@ -294,6 +299,23 @@ export class ReservationsService {
     // grant can always be replayed.
     if (stage === ReservationStage.TITLE_TRANSFERRED) {
       await this.ownerships.grantFromReservation(id).catch(() => undefined);
+    }
+
+    // The buyer learns immediately — the pipeline is the single record of
+    // their purchase, so every move gets an alert, and title transfer gets
+    // the one that matters: the unit is now theirs.
+    const stageLabels: Partial<Record<ReservationStage, string>> = {
+      AGREEMENT_SIGNED: 'sale agreement signed',
+      DEPOSIT_PAID: 'deposit received',
+      FINAL_PAYMENT: 'final payment received — the unit is marked sold',
+      TITLE_TRANSFERRED: 'title transferred',
+    };
+    const unitName = reservation.unit.name;
+    const propertyName = reservation.unit.property.name;
+    if (stage === ReservationStage.TITLE_TRANSFERRED) {
+      await this.events.ownershipGranted(reservation.userId, unitName, propertyName, reservation.unitId);
+    } else if (stageLabels[stage]) {
+      await this.events.reservationAdvanced(reservation.userId, unitName, propertyName, stageLabels[stage], id);
     }
 
     return updated;

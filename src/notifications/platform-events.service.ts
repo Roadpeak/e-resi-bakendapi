@@ -584,4 +584,82 @@ export class PlatformEventsService {
       { label: 'Open developers', path: '/admin/developers' },
     );
   }
+
+  /**
+   * The purchase pipeline moved. The reservation is the single source of
+   * truth for a sale, so every advance the developer records is worth the
+   * buyer knowing about the moment it happens.
+   */
+  async reservationAdvanced(
+    userId: string,
+    unitName: string,
+    propertyName: string,
+    stageLabel: string,
+    reservationId: string,
+  ) {
+    await this.toUser(
+      userId,
+      'RESERVATION_UPDATED',
+      `Purchase update — ${unitName}, ${propertyName}`,
+      `Your purchase moved forward: ${stageLabel}.`,
+      {
+        cta: { label: 'Track your purchase', path: '/account/reservations' },
+        resourceId: reservationId,
+        resourceType: 'Reservation',
+      },
+    );
+  }
+
+  /** Keys handed over — the buyer formally owns the unit. */
+  async ownershipGranted(userId: string, unitName: string, propertyName: string, unitId: string) {
+    await this.toUser(
+      userId,
+      'UNIT_OWNERSHIP_GRANTED',
+      `You now own ${unitName}`,
+      `Title transfer for ${unitName} at ${propertyName} is complete — the unit is yours. You can list it for rent or hand it to an agent from My Units.`,
+      {
+        cta: { label: 'Open My Units', path: '/account/units' },
+        resourceId: unitId,
+        resourceType: 'Unit',
+      },
+    );
+  }
+
+  /** The developer shared a purchase document with the buyer. */
+  async documentShared(
+    userId: string,
+    docName: string,
+    unitName: string,
+    requiresSignature: boolean,
+    documentId: string,
+  ) {
+    await this.toUser(
+      userId,
+      'DOCUMENT_SHARED',
+      requiresSignature ? `Signature needed — ${docName}` : `New document — ${docName}`,
+      requiresSignature
+        ? `${docName} for your purchase of ${unitName} is ready. Download it, sign it, and upload the signed copy.`
+        : `${docName} for your purchase of ${unitName} is available to download.`,
+      {
+        cta: { label: 'Open documents', path: '/account/reservations' },
+        resourceId: documentId,
+        resourceType: 'Document',
+      },
+    );
+  }
+
+  /** The buyer returned a signed copy — the developer's turn again. */
+  async documentSigned(userId: string, docName: string, unitName: string, documentId: string) {
+    await this.toUser(
+      userId,
+      'DOCUMENT_SHARED',
+      `Signed copy received — ${docName}`,
+      `The buyer of ${unitName} uploaded a signed copy of ${docName}.`,
+      {
+        cta: { label: 'Open reservations', path: '/dashboard/reservations' },
+        resourceId: documentId,
+        resourceType: 'Document',
+      },
+    );
+  }
 }

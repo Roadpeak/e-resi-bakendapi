@@ -178,6 +178,10 @@ enum NotificationType {
   BOOKING_CANCELLED
   RESERVATION_UPDATED
   RESERVATION_EXPIRING
+  /// Title transferred — the buyer formally owns their unit.
+  UNIT_OWNERSHIP_GRANTED
+  /// A purchase document was shared or signed and returned.
+  DOCUMENT_SHARED
   PAYMENT_RECEIVED
   /// An invoice was issued and is awaiting payment.
   INVOICE_ISSUED
@@ -1131,6 +1135,7 @@ model Property {
   tourScenesVR        TourSceneVR[]
   rentListings        RentListing[]
   savedBy             SavedProperty[]
+  documents           Document[]
   inquiries           Inquiry[]
   bookings            Booking[]
   invoices            Invoice[]
@@ -1700,15 +1705,30 @@ model Document {
   id            String       @id @default(cuid())
   reservationId String?
   reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  /// Property-level documents: the developer's own library for one
+  /// development — approvals, title deeds, brochures — independent of any
+  /// single sale.
+  propertyId    String?
+  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   userId        String
   user          User         @relation(fields: [userId], references: [id])
   name          String
   url           String
   type          String
   sizeBytes     Int?
+  /// The developer asks the buyer to sign this one. Satisfied when a signed
+  /// version points back at it.
+  requiresSignature Boolean  @default(false)
+  /// A signed re-upload points at the document it answers. Null for
+  /// originals.
+  parentId      String?
+  parent        Document?    @relation("SignedVersion", fields: [parentId], references: [id], onDelete: Cascade)
+  signedVersions Document[]  @relation("SignedVersion")
   createdAt     DateTime     @default(now())
 
   @@index([reservationId])
+  @@index([propertyId])
+  @@index([parentId])
   @@index([userId])
 }
 

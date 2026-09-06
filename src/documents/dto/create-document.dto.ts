@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 export class CreateDocumentDto {
   @ApiProperty({ example: 'Sale and Purchase Agreement' })
@@ -26,4 +26,19 @@ export class CreateDocumentDto {
   @IsOptional()
   @IsString()
   reservationId?: string;
+
+  @ApiPropertyOptional({ description: 'Property this document belongs to (developer library)' })
+  @IsOptional()
+  @IsString()
+  propertyId?: string;
+
+  @ApiPropertyOptional({ description: 'Ask the buyer to sign and return this document' })
+  @IsOptional()
+  @IsBoolean()
+  requiresSignature?: boolean;
+
+  @ApiPropertyOptional({ description: 'The document this signed copy answers' })
+  @IsOptional()
+  @IsString()
+  parentId?: string;
 }
