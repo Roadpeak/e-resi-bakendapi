@@ -174,9 +174,48 @@ export class ReservationsService {
         take: pagination.limit ?? 20,
         orderBy: { createdAt: 'desc' },
         include: {
-          unit: { include: { property: { select: { slug: true, name: true } } } },
+          unit: { include: { property: { select: { slug: true, name: true, heroImageUrl: true } } } },
           user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          agent: { select: { id: true, displayName: true } },
           payments: { orderBy: { createdAt: 'desc' }, take: 3 },
+        },
+      }),
+      this.prisma.reservation.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { total, page: pagination.page ?? 1, limit: pagination.limit ?? 20, totalPages: Math.ceil(total / (pagination.limit ?? 20)) },
+    };
+  }
+
+  // ─── Agent: reservations they introduced ──────────────────────────────────
+
+  /**
+   * The agent's side of the same pipeline. A reservation credits the agent
+   * who referred the buyer, and closing is their job as much as the
+   * developer's — so they see the same progress the investor sees. Read-only:
+   * advancing stages stays with the developer, who actually signs agreements
+   * and receives payments.
+   */
+  async findForAgent(userId: string, pagination: PaginationDto) {
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!agent) throw new ForbiddenException('Agent profile required');
+
+    const where = { agentId: agent.id };
+
+    const [data, total] = await Promise.all([
+      this.prisma.reservation.findMany({
+        where,
+        skip: pagination.skip,
+        take: pagination.limit ?? 20,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          unit: { include: { property: { select: { slug: true, name: true, heroImageUrl: true } } } },
+          user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
         },
       }),
       this.prisma.reservation.count({ where }),

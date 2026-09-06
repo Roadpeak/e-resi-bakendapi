@@ -63,6 +63,16 @@ export class ReservationsController {
     return this.service.findForDeveloper(user.id, pagination);
   }
 
+  @Get('agent')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Agent: list reservations from their referrals' })
+  findForAgent(
+    @CurrentUser() user: { id: string },
+    @Query() pagination: PaginationDto,
+  ) {
+    return this.service.findForAgent(user.id, pagination);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get reservation detail' })
   findOne(
