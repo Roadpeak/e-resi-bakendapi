@@ -327,6 +327,60 @@ export class AgentsService {
     return { ...profile, badges: badgesFor(profile) };
   }
 
+  /**
+   * The properties this agent is actively assigned to sell — the storefront
+   * inventory on their public profile. Only live assignments on ACTIVE
+   * partnerships, and only publicly visible properties: an ended engagement
+   * or a draft development must not appear as theirs.
+   */
+  async listPublicProperties(agentId: string) {
+    const listed = await this.prisma.agentProfile.findFirst({
+      where: { id: agentId, kybStatus: KybStatus.APPROVED, isListed: true },
+      select: { id: true },
+    });
+    if (!listed) throw new NotFoundException('Agent not found');
+
+    const assignments = await this.prisma.propertyAssignment.findMany({
+      where: {
+        isActive: true,
+        partnership: { agentId, status: 'ACTIVE' },
+        property: { status: { in: ['ACTIVE', 'OFF_PLAN'] } },
+      },
+      orderBy: { assignedAt: 'desc' },
+      select: {
+        assignedAt: true,
+        property: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            tagline: true,
+            heroImageUrl: true,
+            city: true,
+            neighborhood: true,
+            category: true,
+            status: true,
+            priceFrom: true,
+            priceTo: true,
+            currency: true,
+            has3DTour: true,
+            hasVRTour: true,
+            hasCinematicTour: true,
+            developer: { select: { id: true, companyName: true, logoUrl: true } },
+            _count: { select: { units: true } },
+          },
+        },
+      },
+    });
+
+    // A property can reach the same agent through two partnerships in odd
+    // migration states — one card each is what the visitor should see.
+    const seen = new Set<string>();
+    return assignments
+      .filter((a) => !seen.has(a.property.id) && seen.add(a.property.id))
+      .map((a) => ({ ...a.property, assignedAt: a.assignedAt }));
+  }
+
   // ─── Reviews ──────────────────────────────────────────────────────────────
 
   /**
