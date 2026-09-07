@@ -224,11 +224,25 @@ export class UsersService {
         select: {
           id: true, companyName: true, logoUrl: true, location: true,
           phone: true, whatsapp: true, establishedYear: true, completedProjects: true,
+          // The newest live development's hero doubles as the card's cover —
+          // a developer is best introduced by what they have actually built.
+          properties: {
+            where: { status: 'ACTIVE', heroImageUrl: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { heroImageUrl: true },
+          },
           _count: { select: { properties: { where: { status: 'ACTIVE' } } } },
         },
       }),
       this.prisma.developerProfile.count({ where }),
     ]);
-    return { data, meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20) };
+    return {
+      data: data.map(({ properties, ...d }) => ({
+        ...d,
+        coverImageUrl: properties[0]?.heroImageUrl ?? null,
+      })),
+      meta: paginateMeta(total, pagination.page ?? 1, pagination.limit ?? 20),
+    };
   }
 }
