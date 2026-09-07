@@ -9,6 +9,9 @@ export interface UpsertNeighborhoodDto {
   name: string;
   city: string;
   description?: string;
+  lifestyle?: string;
+  schools?: string;
+  transport?: string;
   heroImageUrl?: string;
   photos?: string[];
   latitude?: number;
@@ -58,8 +61,39 @@ export class NeighborhoodsService {
   async getPublic(slug: string) {
     const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
     if (!n) throw new NotFoundException('Neighbourhood not found');
-    const counts = await this.countsByName();
-    return { ...n, propertyCount: counts.get(n.name.trim().toLowerCase()) ?? 0 };
+
+    // The market overview is computed from what is actually listed right
+    // now, not curated — median and range of asking prices in the area.
+    const listed = await this.prisma.property.findMany({
+      where: {
+        status: { in: [...PUBLIC_STATUSES] },
+        neighborhood: { equals: n.name.trim(), mode: 'insensitive' },
+      },
+      select: { priceFrom: true, category: true },
+    });
+    const prices = listed
+      .map((p) => p.priceFrom)
+      .filter((v): v is number => v != null && v > 0)
+      .sort((a, b) => a - b);
+    const median = prices.length
+      ? prices.length % 2
+        ? prices[(prices.length - 1) / 2]
+        : (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2
+      : null;
+    const byCategory: Record<string, number> = {};
+    for (const p of listed) byCategory[p.category] = (byCategory[p.category] ?? 0) + 1;
+
+    return {
+      ...n,
+      propertyCount: listed.length,
+      market: {
+        total: listed.length,
+        priceMin: prices[0] ?? null,
+        priceMax: prices[prices.length - 1] ?? null,
+        priceMedian: median,
+        byCategory,
+      },
+    };
   }
 
   // ─── Admin CRUD ───────────────────────────────────────────────────────────
@@ -77,6 +111,9 @@ export class NeighborhoodsService {
         name: dto.name.trim(),
         city: dto.city.trim(),
         description: dto.description,
+        lifestyle: dto.lifestyle,
+        schools: dto.schools,
+        transport: dto.transport,
         heroImageUrl: dto.heroImageUrl,
         photos: dto.photos ?? [],
         latitude: dto.latitude,
@@ -94,6 +131,9 @@ export class NeighborhoodsService {
         ...(dto.name !== undefined && { name: dto.name.trim() }),
         ...(dto.city !== undefined && { city: dto.city.trim() }),
         ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.lifestyle !== undefined && { lifestyle: dto.lifestyle }),
+        ...(dto.schools !== undefined && { schools: dto.schools }),
+        ...(dto.transport !== undefined && { transport: dto.transport }),
         ...(dto.heroImageUrl !== undefined && { heroImageUrl: dto.heroImageUrl }),
         ...(dto.photos !== undefined && { photos: dto.photos }),
         ...(dto.latitude !== undefined && { latitude: dto.latitude }),

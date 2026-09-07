@@ -1745,6 +1745,12 @@ model Neighborhood {
   name         String
   city         String
   description  String?
+  /// The living-there story: cafés, parks, nightlife, who the area suits.
+  lifestyle    String?
+  /// Schools and colleges in and around the area.
+  schools      String?
+  /// Getting around: roads, matatu routes, commute times.
+  transport    String?
   heroImageUrl String?
   /// Gallery of the area itself — uploaded by admins, plain URLs.
   photos       String[]
