@@ -1733,6 +1733,31 @@ model Document {
 }
 
 // ─────────────────────────────────────────────
+// NEIGHBORHOOD
+// ─────────────────────────────────────────────
+
+/// A curated area guide. Properties reference neighbourhoods by free-text
+/// name, so the link between the two is name-match, not a foreign key —
+/// admins curate guides for the areas that matter and the counts follow.
+model Neighborhood {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  city         String
+  description  String?
+  heroImageUrl String?
+  /// Gallery of the area itself — uploaded by admins, plain URLs.
+  photos       String[]
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([name, city])
+  @@index([city])
+}
+
+// ─────────────────────────────────────────────
 // SAVED PROPERTY
 // ─────────────────────────────────────────────
 
