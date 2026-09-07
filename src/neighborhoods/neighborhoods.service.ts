@@ -61,39 +61,89 @@ export class NeighborhoodsService {
   async getPublic(slug: string) {
     const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
     if (!n) throw new NotFoundException('Neighbourhood not found');
+    const counts = await this.countsByName();
+    return { ...n, propertyCount: counts.get(n.name.trim().toLowerCase()) ?? 0 };
+  }
 
-    // The market overview is computed from what is actually listed right
-    // now, not curated — median and range of asking prices in the area.
-    const listed = await this.prisma.property.findMany({
-      where: {
-        status: { in: [...PUBLIC_STATUSES] },
-        neighborhood: { equals: n.name.trim(), mode: 'insensitive' },
-      },
-      select: { priceFrom: true, category: true },
-    });
-    const prices = listed
-      .map((p) => p.priceFrom)
-      .filter((v): v is number => v != null && v > 0)
-      .sort((a, b) => a - b);
-    const median = prices.length
-      ? prices.length % 2
-        ? prices[(prices.length - 1) / 2]
-        : (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2
-      : null;
-    const byCategory: Record<string, number> = {};
-    for (const p of listed) byCategory[p.category] = (byCategory[p.category] ?? 0) + 1;
+  // ─── Auto-detected amenities ──────────────────────────────────────────────
 
-    return {
-      ...n,
-      propertyCount: listed.length,
-      market: {
-        total: listed.length,
-        priceMin: prices[0] ?? null,
-        priceMax: prices[prices.length - 1] ?? null,
-        priceMedian: median,
-        byCategory,
-      },
-    };
+  /**
+   * What actually surrounds the pin, from OpenStreetMap via Overpass —
+   * schools, clinics, supermarkets, cafés — grouped into friendly buckets.
+   * Nothing is curated: drop a pin, the amenities section fills itself.
+   * Cached per area because Overpass is a shared public service.
+   */
+  private amenitiesCache = new Map<string, { at: number; data: unknown }>();
+  private static readonly AMENITIES_TTL_MS = 6 * 60 * 60 * 1000;
+
+  async getAmenities(slug: string) {
+    const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
+    if (!n) throw new NotFoundException('Neighbourhood not found');
+    if (n.latitude == null || n.longitude == null) {
+      return { total: 0, categories: [] };
+    }
+
+    const cached = this.amenitiesCache.get(slug);
+    if (cached && Date.now() - cached.at < NeighborhoodsService.AMENITIES_TTL_MS) {
+      return cached.data;
+    }
+
+    const around = `around:2500,${n.latitude},${n.longitude}`;
+    const query = `[out:json][timeout:12];(
+      node(${around})[amenity~"^(school|college|university|hospital|clinic|doctors|pharmacy|restaurant|cafe|fast_food|bank|atm|fuel|police|place_of_worship)$"];
+      way(${around})[amenity~"^(school|college|university|hospital|clinic)$"];
+      node(${around})[shop~"^(supermarket|mall|convenience)$"];
+      way(${around})[shop~"^(supermarket|mall)$"];
+      node(${around})[leisure~"^(park|fitness_centre|sports_centre|playground)$"];
+      way(${around})[leisure~"^(park|golf_course)$"];
+    );out tags 300;`;
+
+    const BUCKETS: { key: string; label: string; match: (t: Record<string, string>) => boolean }[] = [
+      { key: 'schools', label: 'Schools & universities', match: (t) => ['school', 'college', 'university'].includes(t.amenity) },
+      { key: 'health', label: 'Healthcare', match: (t) => ['hospital', 'clinic', 'doctors', 'pharmacy'].includes(t.amenity) },
+      { key: 'dining', label: 'Dining & cafés', match: (t) => ['restaurant', 'cafe', 'fast_food'].includes(t.amenity) },
+      { key: 'shopping', label: 'Shopping', match: (t) => ['supermarket', 'mall', 'convenience'].includes(t.shop) },
+      { key: 'banks', label: 'Banks & ATMs', match: (t) => ['bank', 'atm'].includes(t.amenity) },
+      { key: 'parks', label: 'Parks & fitness', match: (t) => ['park', 'fitness_centre', 'sports_centre', 'playground', 'golf_course'].includes(t.leisure) },
+      { key: 'fuel', label: 'Fuel stations', match: (t) => t.amenity === 'fuel' },
+      { key: 'police', label: 'Police', match: (t) => t.amenity === 'police' },
+      { key: 'worship', label: 'Places of worship', match: (t) => t.amenity === 'place_of_worship' },
+    ];
+
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // OSM usage policy: identify the application or be 406'd.
+          'User-Agent': 'e-resi.com area-guides (hello@e-resi.com)',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`overpass ${res.status}`);
+      const json = (await res.json()) as { elements?: { tags?: Record<string, string> }[] };
+
+      const grouped = BUCKETS.map((b) => ({ key: b.key, label: b.label, count: 0, names: [] as string[] }));
+      for (const el of json.elements ?? []) {
+        const tags = el.tags ?? {};
+        const bucketIndex = BUCKETS.findIndex((b) => b.match(tags));
+        if (bucketIndex === -1) continue;
+        const g = grouped[bucketIndex];
+        g.count += 1;
+        const name = tags.name?.trim();
+        if (name && !g.names.includes(name) && g.names.length < 6) g.names.push(name);
+      }
+
+      const categories = grouped.filter((g) => g.count > 0);
+      const data = { total: categories.reduce((sum, g) => sum + g.count, 0), categories };
+      this.amenitiesCache.set(slug, { at: Date.now(), data });
+      return data;
+    } catch {
+      // Overpass down or slow — the section simply shows nothing rather
+      // than failing the page. Not cached, so the next visit retries.
+      return { total: 0, categories: [], unavailable: true };
+    }
   }
 
   // ─── Admin CRUD ───────────────────────────────────────────────────────────

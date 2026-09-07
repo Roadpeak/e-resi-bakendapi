@@ -43,6 +43,13 @@ export class NeighborhoodsController {
   }
 
   @Public()
+  @Get(':slug/amenities')
+  @ApiOperation({ summary: 'Public: auto-detected amenities around the area (OpenStreetMap)' })
+  amenities(@Param('slug') slug: string) {
+    return this.service.getAmenities(slug);
+  }
+
+  @Public()
   @Get(':slug')
   @ApiOperation({ summary: 'Public: one area guide by slug' })
   get(@Param('slug') slug: string) {
