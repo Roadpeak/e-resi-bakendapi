@@ -4,6 +4,7 @@ import { AgentKind, KybStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PaystackService } from './paystack.service.js';
+import { PaymentProvidersService } from './payment-providers.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 
 export interface AgentFeeRunSummary {
@@ -36,6 +37,7 @@ export class AgentFeeService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly paystack: PaystackService,
+    private readonly providers: PaymentProvidersService,
     private readonly events: PlatformEventsService,
   ) {}
 
@@ -359,6 +361,159 @@ export class AgentFeeService {
 
     if (delisted > 0) this.logger.warn(`Delisted ${delisted} agent(s) for non-payment`);
     return { delisted };
+  }
+
+  /**
+   * Self-serve retry of a failed card charge — the "my card works now"
+   * button. Uses the same chargeRun as the sweeps, so success restores the
+   * listing and failure updates the reason the agent sees.
+   */
+  async retryMyFee(userId: string, period: string) {
+    this.assertPeriod(period);
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true, displayName: true, user: { select: { email: true } } },
+    });
+    if (!agent) throw new BadRequestException('Agent profile required');
+
+    const run = await this.prisma.agentFeeRun.findFirst({
+      where: { agentId: agent.id, period, status: { in: ['PENDING', 'FAILED'] } },
+    });
+    if (!run) {
+      throw new BadRequestException(
+        `No unpaid listing fee for ${period} — it may already be settled.`,
+      );
+    }
+
+    const ok = await this.chargeRun(
+      run.id,
+      userId,
+      agent.user.email,
+      run.amount,
+      run.currency,
+      agent.displayName,
+    );
+    if (!ok) {
+      const fresh = await this.prisma.agentFeeRun.findUnique({
+        where: { id: run.id },
+        select: { failureText: true },
+      });
+      throw new BadRequestException(
+        fresh?.failureText ?? 'The charge failed — check your card and try again.',
+      );
+    }
+    return { paid: true, period, amount: run.amount, currency: run.currency };
+  }
+
+  /** Mark one run paid and restore the agent's listing immediately. */
+  private async markRunPaid(runId: string, paymentId: string, reference?: string) {
+    const run = await this.prisma.agentFeeRun.update({
+      where: { id: runId },
+      data: {
+        status: 'PAID',
+        paymentId,
+        ...(reference && { reference }),
+        chargedAt: new Date(),
+        failureText: null,
+        graceEndsAt: null,
+      },
+      select: { agentId: true },
+    });
+    // Paying clears any earlier suspension straight away, rather than
+    // waiting for the next sweep to notice.
+    await this.prisma.agentProfile.update({
+      where: { id: run.agentId },
+      data: { isListed: true, suspendedAt: null },
+    });
+  }
+
+  /**
+   * Self-serve M-Pesa STK push for one of the agent's own fee runs.
+   *
+   * The card sweep is how fees are normally collected, but a Kenyan agent
+   * without a card — or with a failed run eating into their grace period —
+   * needs a way to pay right now from their phone. Fees are already KES, so
+   * no conversion is involved.
+   */
+  async payFeeMpesa(userId: string, period: string, phone: string) {
+    this.assertPeriod(period);
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true, displayName: true },
+    });
+    if (!agent) throw new BadRequestException('Agent profile required');
+
+    const run = await this.prisma.agentFeeRun.findFirst({
+      where: { agentId: agent.id, period, status: { in: ['PENDING', 'FAILED'] } },
+    });
+    if (!run) {
+      throw new BadRequestException(
+        `No unpaid listing fee for ${period} — it may already be settled.`,
+      );
+    }
+
+    const { checkoutRequestId, completed, sandbox } = await this.providers.mpesaStkPush(
+      phone,
+      Math.ceil(run.amount),
+      `e-resi listing fee ${period}`,
+    );
+
+    // Recorded before the callback can arrive: Daraja only echoes the
+    // checkoutRequestId back, so the Payment row is the correlation.
+    const payment = await this.prisma.payment.create({
+      data: {
+        userId,
+        amount: run.amount,
+        currency: run.currency,
+        method: 'MPESA',
+        status: completed ? 'COMPLETED' : 'PENDING',
+        reference: `MPESA-AGENTFEE-${period}-${Date.now()}`,
+        ...(sandbox && { mpesaCode: `SIM${Date.now()}` }),
+        metadata: { checkoutRequestId, agentFeeRunId: run.id, purpose: 'agent_listing_fee' },
+      },
+    });
+
+    // Sandbox resolves instantly — there is no callback coming.
+    if (completed) {
+      await this.markRunPaid(run.id, payment.id, payment.reference ?? undefined);
+    }
+
+    return {
+      paymentId: payment.id,
+      status: completed ? 'COMPLETED' : 'PENDING',
+      amountKes: run.amount,
+      period,
+      checkoutRequestId,
+      sandbox,
+    };
+  }
+
+  /**
+   * Settle an agent-fee STK push from the Daraja callback. Returns whether
+   * the checkoutRequestId belonged to this flow, so the shared callback can
+   * try the next one.
+   */
+  async settleFromMpesa(checkoutRequestId: string, succeeded: boolean, mpesaCode?: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        method: 'MPESA',
+        metadata: { path: ['checkoutRequestId'], equals: checkoutRequestId },
+      },
+    });
+    const runId = (payment?.metadata as { agentFeeRunId?: string } | null)?.agentFeeRunId;
+    if (!payment || !runId) return { settled: false };
+
+    if (!succeeded) {
+      await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
+      return { settled: true };
+    }
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: 'COMPLETED', ...(mpesaCode && { mpesaCode }) },
+    });
+    await this.markRunPaid(runId, payment.id, mpesaCode);
+    return { settled: true };
   }
 
   /** An agent's own billing history. */

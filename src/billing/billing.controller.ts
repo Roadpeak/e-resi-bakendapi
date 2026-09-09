@@ -135,6 +135,29 @@ export class BillingController {
     return this.agentFees.historyForAgent(user.id);
   }
 
+  @Post('agent-fees/:period/retry')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({
+    summary: 'Agent: retry a failed listing-fee charge on your linked card, right now.',
+  })
+  retryAgentFee(@Param('period') period: string, @CurrentUser() user: { id: string }) {
+    return this.agentFees.retryMyFee(user.id, period);
+  }
+
+  @Post('agent-fees/:period/pay-mpesa')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({
+    summary: 'Agent: pay your own listing fee for a period via M-Pesa STK push. '
+      + 'Fees are KES already, so no conversion applies.',
+  })
+  payAgentFeeMpesa(
+    @Param('period') period: string,
+    @Body() dto: PayInvoiceMpesaDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.agentFees.payFeeMpesa(user.id, period, dto.phone);
+  }
+
   @Post('agent-fees/:period/run')
   @Roles(UserRole.ADMIN)
   @ApiOperation({

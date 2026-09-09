@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { PaystackService } from './paystack.service.js';
 import { InvoicesService } from './invoices.service.js';
+import { AgentFeeService } from './agent-fee.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -27,6 +28,7 @@ export class BillingService {
     private readonly mail: MailService,
     private readonly notifications: NotificationsService,
     private readonly invoices: InvoicesService,
+    private readonly agentFees: AgentFeeService,
     private readonly pricing: PricingService,
     config: ConfigService,
   ) {
@@ -481,6 +483,15 @@ export class BillingService {
     if (settled.settled || settled.receipt !== undefined) {
       return { message: 'processed' };
     }
+
+    // Agent listing fees started via AgentFeeService.payFeeMpesa settle the
+    // fee run and restore the listing — again more than a status update.
+    const agentFee = await this.agentFees.settleFromMpesa(
+      stk.CheckoutRequestID,
+      succeeded,
+      receipt ? String(receipt) : undefined,
+    );
+    if (agentFee.settled) return { message: 'processed' };
 
     // Otherwise this is the older "pay down my pending balance" flow, which
     // has no invoice to settle — just record the outcome on the payment.
