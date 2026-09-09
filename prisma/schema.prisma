@@ -2186,8 +2186,13 @@ model Invoice {
 model Receipt {
   id          String   @id @default(cuid())
   number      String   @unique
-  invoiceId   String   @unique
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Null for standalone payment receipts (M-Pesa balance payments, agent
+  /// listing fees) — not every payment answers an invoice.
+  invoiceId   String?  @unique
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// What the payment was for, shown as the receipt's single line when there
+  /// is no invoice to inherit lines from.
+  description String?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount      Float

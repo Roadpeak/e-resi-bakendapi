@@ -6,11 +6,17 @@ import {
   renderDocument, renderDocumentText, renderNotice, type DocumentParams,
 } from './templates/document.js';
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+}
+
 interface SendArgs {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: MailAttachment[];
 }
 
 @Injectable()
@@ -60,7 +66,7 @@ export class MailService {
    * as the fallback so local development and any non-blocked host still work
    * unchanged.
    */
-  private async dispatch({ to, subject, html, text }: SendArgs): Promise<void> {
+  private async dispatch({ to, subject, html, text, attachments }: SendArgs): Promise<void> {
     if (this.resendKey) {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -68,7 +74,19 @@ export class MailService {
           Authorization: `Bearer ${this.resendKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ from: this.from, to: [to], subject, html, ...(text && { text }) }),
+        body: JSON.stringify({
+          from: this.from,
+          to: [to],
+          subject,
+          html,
+          ...(text && { text }),
+          ...(attachments?.length && {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content.toString('base64'),
+            })),
+          }),
+        }),
         // Bounded so a slow provider can never stall a request the way
         // blocked SMTP did.
         signal: AbortSignal.timeout(15_000),
@@ -81,7 +99,11 @@ export class MailService {
       return;
     }
 
-    await this.transporter.sendMail({ from: this.from, to, subject, html, ...(text && { text }) });
+    await this.transporter.sendMail({
+      from: this.from, to, subject, html,
+      ...(text && { text }),
+      ...(attachments?.length && { attachments }),
+    });
   }
 
   /**
@@ -207,13 +229,19 @@ export class MailService {
    * the dashboard. Returns whether the send actually succeeded so callers can
    * record it.
    */
-  async sendDocument(to: string, subject: string, doc: DocumentParams): Promise<boolean> {
+  async sendDocument(
+    to: string,
+    subject: string,
+    doc: DocumentParams,
+    attachments?: MailAttachment[],
+  ): Promise<boolean> {
     try {
       await this.dispatch({
         to,
         subject,
         html: renderDocument(doc),
         text: renderDocumentText(doc),
+        attachments,
       });
       return true;
     } catch (err) {

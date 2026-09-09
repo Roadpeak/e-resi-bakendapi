@@ -9,7 +9,8 @@ import { PaystackService } from './paystack.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
 import { ConfigService } from '@nestjs/config';
-import type { DocumentLine } from '../mail/templates/document.js';
+import type { DocumentLine, DocumentParams } from '../mail/templates/document.js';
+import { DocumentPdfService } from './document-pdf.service.js';
 
 /** Subscription invoices go out this many days before the due date. */
 const SUBSCRIPTION_LEAD_DAYS = 3;
@@ -36,6 +37,7 @@ export class InvoicesService {
     private readonly paystack: PaystackService,
     private readonly providers: PaymentProvidersService,
     config: ConfigService,
+    private readonly pdf: DocumentPdfService,
   ) {
     this.appUrl = resolveAppUrl(config);
   }
@@ -205,30 +207,33 @@ export class InvoicesService {
         + 'It will be charged automatically to your default payment method.'
       : `Payment for your production order is due by ${fmtDate(invoice.dueAt)}.`;
 
+    const invoiceDoc: DocumentParams = {
+      heading: 'Invoice',
+      number: invoice.number,
+      billedToName: invoice.billedToName,
+      billedToEmail: invoice.billedToEmail,
+      lines: invoice.lineItems as unknown as DocumentLine[],
+      subtotal: invoice.subtotal,
+      taxPercent: invoice.taxPercent,
+      taxAmount: invoice.taxAmount,
+      total: invoice.total,
+      currency: invoice.currency,
+      meta: [
+        { label: 'Issued', value: fmtDate(invoice.issuedAt ?? new Date()) },
+        { label: 'Due', value: fmtDate(invoice.dueAt) },
+      ],
+      intro,
+      cta: { label: 'View invoice', url: `${this.appUrl}/dashboard/billing` },
+      footnote: isSubscription
+        ? 'No action is needed if your card is up to date. Listing fees stop as soon as a development is taken down.'
+        : 'Production is scheduled once payment is received.',
+    };
+    const invoicePdf = await this.pdf.render(invoiceDoc).catch(() => null);
     await this.mail.sendDocument(
       invoice.billedToEmail,
       `Invoice ${invoice.number} from e-resi`,
-      {
-        heading: 'Invoice',
-        number: invoice.number,
-        billedToName: invoice.billedToName,
-        billedToEmail: invoice.billedToEmail,
-        lines: invoice.lineItems as unknown as DocumentLine[],
-        subtotal: invoice.subtotal,
-        taxPercent: invoice.taxPercent,
-        taxAmount: invoice.taxAmount,
-        total: invoice.total,
-        currency: invoice.currency,
-        meta: [
-          { label: 'Issued', value: fmtDate(invoice.issuedAt ?? new Date()) },
-          { label: 'Due', value: fmtDate(invoice.dueAt) },
-        ],
-        intro,
-        cta: { label: 'View invoice', url: `${this.appUrl}/dashboard/billing` },
-        footnote: isSubscription
-          ? 'No action is needed if your card is up to date. Listing fees stop as soon as a development is taken down.'
-          : 'Production is scheduled once payment is received.',
-      },
+      invoiceDoc,
+      invoicePdf ? [{ filename: `${invoice.number}.pdf`, content: invoicePdf }] : undefined,
     );
 
     await this.notifications.createNotification(
@@ -369,29 +374,33 @@ export class InvoicesService {
       }),
     ]);
 
+    const receiptDoc: DocumentParams = {
+      heading: 'Receipt',
+      number: receipt.number,
+      billedToName: invoice.billedToName,
+      billedToEmail: invoice.billedToEmail,
+      lines: invoice.lineItems as unknown as DocumentLine[],
+      subtotal: invoice.subtotal,
+      taxPercent: invoice.taxPercent,
+      taxAmount: invoice.taxAmount,
+      total: invoice.total,
+      currency: invoice.currency,
+      meta: [
+        { label: 'Paid', value: fmtDate(paidAt) },
+        { label: 'Method', value: params.method },
+        { label: 'Invoice', value: invoice.number },
+      ],
+      callout: { tone: 'info', text: 'Paid in full — thank you.' },
+      intro: 'This is your receipt. No further action is needed.',
+      footnote: 'Keep this for your records.',
+    };
+    // The attachment is the document; the HTML body is just the preview.
+    const receiptPdf = await this.pdf.render(receiptDoc).catch(() => null);
     await this.mail.sendDocument(
       invoice.billedToEmail,
       `Receipt ${receipt.number} from e-resi`,
-      {
-        heading: 'Receipt',
-        number: receipt.number,
-        billedToName: invoice.billedToName,
-        billedToEmail: invoice.billedToEmail,
-        lines: invoice.lineItems as unknown as DocumentLine[],
-        subtotal: invoice.subtotal,
-        taxPercent: invoice.taxPercent,
-        taxAmount: invoice.taxAmount,
-        total: invoice.total,
-        currency: invoice.currency,
-        meta: [
-          { label: 'Paid', value: fmtDate(paidAt) },
-          { label: 'Method', value: params.method },
-          { label: 'Invoice', value: invoice.number },
-        ],
-        callout: { tone: 'info', text: 'Paid in full — thank you.' },
-        intro: 'This is your receipt. No further action is needed.',
-        footnote: 'Keep this for your records.',
-      },
+      receiptDoc,
+      receiptPdf ? [{ filename: `${receipt.number}.pdf`, content: receiptPdf }] : undefined,
     );
 
     await this.notifications.createNotification(
@@ -659,6 +668,82 @@ export class InvoicesService {
         paymentId: payment.id,
       }),
     };
+  }
+
+  /**
+   * A numbered receipt for a payment that answers no invoice — an M-Pesa
+   * balance payment, an agent's listing fee. Same numbering sequence, same
+   * email with the PDF attached, same in-app notification; just no invoice
+   * behind it.
+   */
+  async issueStandaloneReceipt(params: {
+    userId: string;
+    amount: number;
+    currency: string;
+    method: string;
+    reference?: string;
+    description: string;
+    paidAt?: Date;
+  }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: params.userId },
+      select: { email: true, firstName: true, lastName: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const paidAt = params.paidAt ?? new Date();
+    const receipt = await this.prisma.receipt.create({
+      data: {
+        number: await this.nextNumber('RCT'),
+        userId: params.userId,
+        amount: params.amount,
+        currency: params.currency,
+        method: params.method,
+        reference: params.reference,
+        description: params.description,
+        paidAt,
+      },
+    });
+
+    const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
+    const doc: DocumentParams = {
+      heading: 'Receipt',
+      number: receipt.number,
+      billedToName: name,
+      billedToEmail: user.email,
+      lines: [{ description: params.description, quantity: 1, unitAmount: params.amount, amount: params.amount }],
+      subtotal: params.amount,
+      taxPercent: 0,
+      taxAmount: 0,
+      total: params.amount,
+      currency: params.currency,
+      meta: [
+        { label: 'Paid', value: fmtDate(paidAt) },
+        { label: 'Method', value: params.method },
+        ...(params.reference ? [{ label: 'Reference', value: params.reference }] : []),
+      ],
+      callout: { tone: 'info' as const, text: 'Paid in full — thank you.' },
+      intro: 'This is your receipt. No further action is needed.',
+      footnote: 'Keep this for your records.',
+    };
+    const pdfBuf = await this.pdf.render(doc).catch(() => null);
+    await this.mail.sendDocument(
+      user.email,
+      `Receipt ${receipt.number} from e-resi`,
+      doc,
+      pdfBuf ? [{ filename: `${receipt.number}.pdf`, content: pdfBuf }] : undefined,
+    );
+
+    await this.notifications.createNotification(
+      params.userId,
+      'RECEIPT_ISSUED',
+      `Receipt ${receipt.number}`,
+      `Payment of ${params.currency} ${params.amount.toLocaleString()} received. Thank you.`,
+      receipt.id,
+      'Receipt',
+    );
+
+    return receipt;
   }
 
   // ─── Scheduled work ──────────────────────────────────────────────────────

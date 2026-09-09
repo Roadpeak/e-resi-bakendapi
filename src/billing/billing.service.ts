@@ -446,6 +446,19 @@ export class BillingService {
       },
     });
 
+    if (payment.status === 'COMPLETED') {
+      await this.invoices
+        .issueStandaloneReceipt({
+          userId,
+          amount: amountKes,
+          currency: 'KES',
+          method: 'M-Pesa',
+          reference: payment.mpesaCode ?? payment.reference ?? undefined,
+          description,
+        })
+        .catch(() => undefined);
+    }
+
     return {
       paymentId: payment.id,
       status: payment.status,
@@ -494,14 +507,35 @@ export class BillingService {
     if (agentFee.settled) return { message: 'processed' };
 
     // Otherwise this is the older "pay down my pending balance" flow, which
-    // has no invoice to settle — just record the outcome on the payment.
-    await this.prisma.payment.updateMany({
+    // has no invoice to settle — record the outcome, and a success earns a
+    // numbered receipt like any other payment.
+    const balancePayment = await this.prisma.payment.findFirst({
       where: { metadata: { path: ['checkoutRequestId'], equals: stk.CheckoutRequestID } },
-      data: {
-        status: succeeded ? 'COMPLETED' : 'FAILED',
-        ...(receipt && { mpesaCode: String(receipt) }),
-      },
     });
+    if (balancePayment) {
+      await this.prisma.payment.update({
+        where: { id: balancePayment.id },
+        data: {
+          status: succeeded ? 'COMPLETED' : 'FAILED',
+          ...(receipt && { mpesaCode: String(receipt) }),
+        },
+      });
+      if (succeeded && balancePayment.status === 'PENDING') {
+        const description =
+          (balancePayment.metadata as { description?: string } | null)?.description
+          ?? 'e-resi account payment';
+        await this.invoices
+          .issueStandaloneReceipt({
+            userId: balancePayment.userId,
+            amount: balancePayment.amount,
+            currency: balancePayment.currency,
+            method: 'M-Pesa',
+            reference: receipt ? String(receipt) : balancePayment.reference ?? undefined,
+            description,
+          })
+          .catch(() => undefined);
+      }
+    }
     return { message: 'processed' };
   }
 

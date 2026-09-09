@@ -7,6 +7,7 @@ import { AgentFeeService } from './agent-fee.service.js';
 import { ListingFeeService } from './listing-fee.service.js';
 import { BillingService } from './billing.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
+import { DocumentPdfService } from './document-pdf.service.js';
 import { PaystackService } from './paystack.service.js';
 
 @Module({
@@ -14,6 +15,7 @@ import { PaystackService } from './paystack.service.js';
   imports: [forwardRef(() => AdminModule), NotificationsModule],
   controllers: [BillingController],
   providers: [
+    DocumentPdfService,
     BillingService, PaymentProvidersService, PaystackService,
     ListingFeeService, AgentFeeService, InvoicesService,
   ],

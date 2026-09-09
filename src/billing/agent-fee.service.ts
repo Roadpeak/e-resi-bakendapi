@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PricingService } from '../admin/pricing.service.js';
 import { PaystackService } from './paystack.service.js';
 import { PaymentProvidersService } from './payment-providers.service.js';
+import { InvoicesService } from './invoices.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 
 export interface AgentFeeRunSummary {
@@ -38,8 +39,42 @@ export class AgentFeeService {
     private readonly pricing: PricingService,
     private readonly paystack: PaystackService,
     private readonly providers: PaymentProvidersService,
+    private readonly invoices: InvoicesService,
     private readonly events: PlatformEventsService,
   ) {}
+
+  /** "2026-09" → "September 2026" for receipt lines. */
+  private periodLabel(period: string) {
+    const [y, m] = period.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  }
+
+  /** Receipt for a settled fee run — email with PDF attached, never throws. */
+  private async receiptForRun(
+    runId: string,
+    userId: string,
+    method: string,
+    reference?: string,
+  ) {
+    try {
+      const run = await this.prisma.agentFeeRun.findUnique({
+        where: { id: runId },
+        select: { period: true, amount: true, currency: true },
+      });
+      if (!run) return;
+      await this.invoices.issueStandaloneReceipt({
+        userId,
+        amount: run.amount,
+        currency: run.currency,
+        method,
+        reference,
+        description: `Agent listing fee — ${this.periodLabel(run.period)}`,
+      });
+    } catch (err) {
+      // A receipt that fails to issue must never unwind a recorded payment.
+      this.logger.error(`Receipt for run ${runId} failed: ${(err as Error).message}`);
+    }
+  }
 
   private assertPeriod(period: string) {
     if (!/^\d{4}-\d{2}$/.test(period)) {
@@ -295,6 +330,8 @@ export class AgentFeeService {
         });
       }
 
+      await this.receiptForRun(runId, userId, 'Card', result.reference);
+
       return true;
     } catch (err) {
       await this.markFailed(runId, userId, (err as Error).message, displayName);
@@ -476,6 +513,7 @@ export class AgentFeeService {
     // Sandbox resolves instantly — there is no callback coming.
     if (completed) {
       await this.markRunPaid(run.id, payment.id, payment.reference ?? undefined);
+      await this.receiptForRun(run.id, userId, 'M-Pesa', payment.mpesaCode ?? undefined);
     }
 
     return {
@@ -513,6 +551,7 @@ export class AgentFeeService {
       data: { status: 'COMPLETED', ...(mpesaCode && { mpesaCode }) },
     });
     await this.markRunPaid(runId, payment.id, mpesaCode);
+    await this.receiptForRun(runId, payment.userId, 'M-Pesa', mpesaCode);
     return { settled: true };
   }
 
