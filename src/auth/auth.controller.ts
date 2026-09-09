@@ -178,8 +178,11 @@ export class AuthController {
   @Get('me')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current authenticated user profile' })
-  getMe(@CurrentUser() user: { id: string }) {
-    return this.authService.getMe(user.id);
+  getMe(@CurrentUser() user: {
+    id: string;
+    staff?: { userId: string; email: string; firstName: string; lastName: string; pages: string[] };
+  }) {
+    return this.authService.getMe(user.id, user.staff);
   }
 
   @Patch('me')

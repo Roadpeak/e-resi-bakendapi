@@ -297,6 +297,7 @@ model User {
   lettingEngagements    LettingEngagement[]   @relation("LettingEngagements")
   partnershipDocuments  PartnershipDocument[] @relation("PartnershipDocUploader")
   savedProperties   SavedProperty[]
+  staffMembership   DeveloperStaff?
   inquiries         Inquiry[]
   inquiryReplies    InquiryReply[]
   bookings          Booking[]
@@ -372,6 +373,7 @@ model DeveloperProfile {
   id                String    @id @default(cuid())
   userId            String    @unique
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staff             DeveloperStaff[]
   companyName       String
   logoUrl           String?
   description       String?
@@ -1731,6 +1733,61 @@ model Document {
   @@index([propertyId])
   @@index([parentId])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// DEVELOPER STAFF
+// ─────────────────────────────────────────────
+
+enum StaffStatus {
+  /// Invited by email; waiting for them to set a password.
+  INVITED
+  /// Accepted — can sign in and operate the granted pages.
+  ACTIVE
+  /// Access withdrawn. The row stays as the audit trail.
+  REVOKED
+}
+
+/// A developer's team member: operates the employer's dashboard, limited to
+/// the pages the developer ticked. The staff member is their own User for
+/// login; at request time the API acts as the employer on their behalf.
+model DeveloperStaff {
+  id              String           @id @default(cuid())
+  developerId     String
+  developer       DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  /// Linked once the invite is accepted.
+  userId          String?          @unique
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email           String
+  name            String?
+  /// Dashboard page keys this member may open (e.g. "properties", "units").
+  pages           String[]
+  status          StaffStatus      @default(INVITED)
+  inviteToken     String?          @unique
+  inviteExpiresAt DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([developerId, email])
+  @@index([developerId])
+
+  activity        StaffActivity[]
+}
+
+/// One operation a staff member performed while acting as the developer —
+/// the raw material of the productivity page. Only mutations are recorded;
+/// reads would drown the signal.
+model StaffActivity {
+  id        String         @id @default(cuid())
+  staffId   String
+  staff     DeveloperStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  method    String
+  path      String
+  /// Dashboard area the path maps to ("properties", "chat", …).
+  area      String?
+  createdAt DateTime       @default(now())
+
+  @@index([staffId, createdAt])
 }
 
 // ─────────────────────────────────────────────

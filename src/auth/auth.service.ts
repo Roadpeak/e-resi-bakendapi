@@ -183,7 +183,18 @@ export class AuthService {
 
     this.setRefreshCookie(res, user.id, rawRefresh);
 
-    return { accessToken: this.signAccess(user), user: this.sanitize(user) };
+    // A staff login carries its page grants from the first response, so the
+    // dashboard renders restricted immediately rather than after /me lands.
+    const membership = await this.prisma.developerStaff.findUnique({
+      where: { userId: user.id },
+      select: { status: true, pages: true },
+    });
+    const base = this.sanitize(user);
+    const shaped = membership?.status === 'ACTIVE'
+      ? { ...base, isStaff: true, staffPages: membership.pages }
+      : base;
+
+    return { accessToken: this.signAccess(user), user: shaped };
   }
 
   // ─── Google OAuth ───────────────────────────────────────────────────────────
@@ -414,13 +425,30 @@ export class AuthService {
 
   // ─── Get Me ──────────────────────────────────────────────────────────────────
 
-  async getMe(userId: string) {
+  async getMe(
+    userId: string,
+    staff?: { userId: string; email: string; firstName: string; lastName: string; pages: string[] },
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { developerProfile: true },
     });
     if (!user) throw new UnauthorizedException();
     const { password, refreshToken, emailVerifyToken, passwordResetToken, passwordResetExpiry, ...safe } = user;
+
+    // A staff request carries the employer's account (so the dashboard shows
+    // the company's data) but the person's own name and email — and the page
+    // grants the UI renders from.
+    if (staff) {
+      return {
+        ...safe,
+        email: staff.email,
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        isStaff: true,
+        staffPages: staff.pages,
+      };
+    }
     return safe;
   }
 
