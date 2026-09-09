@@ -55,13 +55,26 @@ export class AgentFeeService {
     userId: string,
     method: string,
     reference?: string,
+    paymentId?: string,
   ) {
     try {
       const run = await this.prisma.agentFeeRun.findUnique({
         where: { id: runId },
-        select: { period: true, amount: true, currency: true },
+        select: { period: true, amount: true, currency: true, invoice: { select: { id: true } } },
       });
       if (!run) return;
+      // Settling the run's invoice marks it PAID and issues the linked
+      // receipt; a run billed before invoices existed still gets a
+      // standalone one.
+      if (run.invoice) {
+        await this.invoices.markPaid({
+          invoiceId: run.invoice.id,
+          method,
+          reference,
+          paymentId,
+        });
+        return;
+      }
       await this.invoices.issueStandaloneReceipt({
         userId,
         amount: run.amount,
@@ -240,6 +253,12 @@ export class AgentFeeService {
         agent.id, period, amount, cfg.currency, 'PENDING', graceEndsAt,
       );
 
+      // The invoice precedes the charge — the agent hears what they owe
+      // before the card is touched, and the receipt settles this invoice.
+      await this.invoices.invoiceAgentFeeRun(run.id).catch((err) => {
+        this.logger.error(`Could not invoice agent run ${run.id}: ${(err as Error).message}`);
+      });
+
       const ok = await this.chargeRun(
         run.id, agent.user.id, agent.user.email, amount, cfg.currency, agent.displayName,
       );
@@ -330,7 +349,7 @@ export class AgentFeeService {
         });
       }
 
-      await this.receiptForRun(runId, userId, 'Card', result.reference);
+      await this.receiptForRun(runId, userId, 'Card', result.reference, payment.id);
 
       return true;
     } catch (err) {
@@ -422,6 +441,8 @@ export class AgentFeeService {
       );
     }
 
+    await this.invoices.invoiceAgentFeeRun(run.id).catch(() => undefined);
+
     const ok = await this.chargeRun(
       run.id,
       userId,
@@ -489,6 +510,10 @@ export class AgentFeeService {
       );
     }
 
+    // A run created before invoicing existed gets its invoice on first
+    // payment attempt, so the receipt always has an invoice to settle.
+    await this.invoices.invoiceAgentFeeRun(run.id).catch(() => undefined);
+
     const { checkoutRequestId, completed, sandbox } = await this.providers.mpesaStkPush(
       phone,
       Math.ceil(run.amount),
@@ -513,7 +538,7 @@ export class AgentFeeService {
     // Sandbox resolves instantly — there is no callback coming.
     if (completed) {
       await this.markRunPaid(run.id, payment.id, payment.reference ?? undefined);
-      await this.receiptForRun(run.id, userId, 'M-Pesa', payment.mpesaCode ?? undefined);
+      await this.receiptForRun(run.id, userId, 'M-Pesa', payment.mpesaCode ?? undefined, payment.id);
     }
 
     return {
@@ -551,8 +576,36 @@ export class AgentFeeService {
       data: { status: 'COMPLETED', ...(mpesaCode && { mpesaCode }) },
     });
     await this.markRunPaid(runId, payment.id, mpesaCode);
-    await this.receiptForRun(runId, payment.userId, 'M-Pesa', mpesaCode);
+    await this.receiptForRun(runId, payment.userId, 'M-Pesa', mpesaCode, payment.id);
     return { settled: true };
+  }
+
+  /** Admin: what a period's agent-fee collection looks like, run by run. */
+  async periodReport(period: string) {
+    this.assertPeriod(period);
+    const runs = await this.prisma.agentFeeRun.findMany({
+      where: { period },
+      include: {
+        agent: { select: { id: true, displayName: true, kind: true } },
+        invoice: { select: { number: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!runs.length) throw new NotFoundException(`No agent billing run for ${period}`);
+
+    const collected = runs.filter((r) => r.status === 'PAID');
+    return {
+      period,
+      totals: {
+        collected: collected.reduce((n, r) => n + r.amount, 0),
+        currency: runs[0].currency,
+        paid: collected.length,
+        failed: runs.filter((r) => r.status === 'FAILED').length,
+        pending: runs.filter((r) => r.status === 'PENDING').length,
+        skipped: runs.filter((r) => r.status === 'SKIPPED').length,
+      },
+      runs,
+    };
   }
 
   /** An agent's own billing history. */
@@ -568,6 +621,7 @@ export class AgentFeeService {
         where: { agentId: agent.id },
         orderBy: { period: 'desc' },
         take: 24,
+        include: { invoice: { select: { number: true } } },
       }),
       this.feeConfig(),
     ]);

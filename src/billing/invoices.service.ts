@@ -76,6 +76,7 @@ export class InvoicesService {
     lines: DocumentLine[];
     dueAt: Date;
     listingFeeRunId?: string;
+    agentFeeRunId?: string;
     propertyId?: string;
     notes?: string;
     currency?: string;
@@ -90,7 +91,10 @@ export class InvoicesService {
   }): Promise<Invoice> {
     const user = await this.prisma.user.findUnique({
       where: { id: params.userId },
-      include: { developerProfile: { select: { companyName: true } } },
+      include: {
+        developerProfile: { select: { companyName: true } },
+        agentProfile: { select: { displayName: true } },
+      },
     });
     if (!user) throw new NotFoundException('User not found');
 
@@ -109,8 +113,10 @@ export class InvoicesService {
         status: params.sendNow ? 'ISSUED' : 'DRAFT',
         userId: user.id,
         listingFeeRunId: params.listingFeeRunId,
+        agentFeeRunId: params.agentFeeRunId,
         propertyId: params.propertyId,
         billedToName: user.developerProfile?.companyName
+          ?? user.agentProfile?.displayName
           ?? `${user.firstName} ${user.lastName}`.trim(),
         billedToEmail: user.email,
         lineItems: params.lines as unknown as object,
@@ -190,6 +196,42 @@ export class InvoicesService {
       currency: run.currency,
       dueAt: chargeDate,
       sendNow: false,
+      linesIncludeTax: true,
+    });
+  }
+
+  /**
+   * Raise and send the invoice for an agent's listing-fee run. Delivered
+   * immediately — agent fees are charged the same day, so there is no cron
+   * window to wait for. Idempotent per run.
+   */
+  async invoiceAgentFeeRun(runId: string): Promise<Invoice | null> {
+    const run = await this.prisma.agentFeeRun.findUnique({
+      where: { id: runId },
+      include: {
+        invoice: true,
+        agent: { select: { userId: true } },
+      },
+    });
+    if (!run || run.invoice || run.amount <= 0) return run?.invoice ?? null;
+
+    const [y, m] = run.period.split('-').map(Number);
+    const periodLabel = new Date(y, m - 1, 1)
+      .toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+    return this.create({
+      userId: run.agent.userId,
+      kind: 'SUBSCRIPTION',
+      agentFeeRunId: run.id,
+      lines: [{
+        description: `Agent listing fee — ${periodLabel}`,
+        quantity: 1,
+        unitAmount: run.amount,
+        amount: run.amount,
+      }],
+      currency: run.currency,
+      dueAt: new Date(),
+      sendNow: true,
       linesIncludeTax: true,
     });
   }

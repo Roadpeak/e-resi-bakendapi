@@ -125,6 +125,13 @@ export class BillingController {
 
   // ─── Agent listing fees ─────────────────────────────────────────────────
 
+  @Get('agent-fees/report/:period')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin: what an agent-fee period collected (period as YYYY-MM)' })
+  agentFeeReport(@Param('period') period: string) {
+    return this.agentFees.periodReport(period);
+  }
+
   @Get('agent-fees/mine')
   @Roles(UserRole.AGENT)
   @ApiOperation({

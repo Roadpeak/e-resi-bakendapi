@@ -638,6 +638,7 @@ model AgentFeeRun {
   /// Nothing is delisted before this, so one failed charge never silently
   /// removes a paying agent from the directory.
   graceEndsAt  DateTime?
+  invoice      Invoice?
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
@@ -2140,6 +2141,9 @@ model Invoice {
   /// Set for subscription invoices; ties the invoice to its billing run.
   listingFeeRunId String?   @unique
   listingFeeRun   ListingFeeRun? @relation(fields: [listingFeeRunId], references: [id], onDelete: SetNull)
+  /// Set for agent listing-fee invoices; same idea, other side of the market.
+  agentFeeRunId String?     @unique
+  agentFeeRun   AgentFeeRun? @relation(fields: [agentFeeRunId], references: [id], onDelete: SetNull)
   /// Set for production invoices.
   propertyId  String?
   property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
