@@ -238,9 +238,11 @@ export class MandatesService {
       // Assignment at the advertised percent — the binding part.
       await tx.propertyAssignment.upsert({
         where: {
-          partnershipId_propertyId: {
+          partnershipId_propertyId_kind: {
             partnershipId: partnership.id,
             propertyId: request.mandate.propertyId,
+            // Mandates advertise sales work; letting has its own flow.
+            kind: 'SALE',
           },
         },
         create: {
