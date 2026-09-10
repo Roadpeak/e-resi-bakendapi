@@ -349,6 +349,7 @@ export class AgentsService {
       orderBy: { assignedAt: 'desc' },
       select: {
         assignedAt: true,
+        kind: true,
         property: {
           select: {
             id: true,
@@ -374,11 +375,53 @@ export class AgentsService {
     });
 
     // A property can reach the same agent through two partnerships in odd
-    // migration states — one card each is what the visitor should see.
+    // migration states — one card each per kind is what the visitor should see.
     const seen = new Set<string>();
     return assignments
-      .filter((a) => !seen.has(a.property.id) && seen.add(a.property.id))
-      .map((a) => ({ ...a.property, assignedAt: a.assignedAt }));
+      .filter((a) => {
+        const key = `${a.property.id}:${a.kind}`;
+        return !seen.has(key) && seen.add(key);
+      })
+      .map((a) => ({ ...a.property, assignedAt: a.assignedAt, kind: a.kind }));
+  }
+
+  /**
+   * The agent's letting inventory: units they manage for rent — owner units
+   * handed to them through letting engagements, plus any rental listings a
+   * developer has them managing. Rent works at the unit level, so this is
+   * rent listings with their unit types rather than whole properties.
+   */
+  async listPublicRentals(agentId: string) {
+    const listed = await this.prisma.agentProfile.findFirst({
+      where: { id: agentId, kybStatus: KybStatus.APPROVED, isListed: true },
+      select: { id: true },
+    });
+    if (!listed) throw new NotFoundException('Agent not found');
+
+    return this.prisma.rentListing.findMany({
+      where: { managingAgentId: agentId, status: 'AVAILABLE' },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        status: true,
+        managerKind: true,
+        priceFrom: true,
+        priceTo: true,
+        currency: true,
+        heroImageUrl: true,
+        createdAt: true,
+        property: { select: { name: true, city: true, neighborhood: true } },
+        rentUnits: {
+          select: {
+            id: true, label: true, unitType: true, bedrooms: true, bathrooms: true,
+            pricePerMonth: true, currency: true, available: true, total: true,
+            furnishing: true,
+          },
+        },
+      },
+    });
   }
 
   // ─── Reviews ──────────────────────────────────────────────────────────────

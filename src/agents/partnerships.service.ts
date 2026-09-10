@@ -412,6 +412,7 @@ export class PartnershipsService {
     propertyId: string,
     commissionPercent?: number,
     notes?: string,
+    kind: 'SALE' | 'RENT' = 'SALE',
   ) {
     const partnership = await this.assertMine(partnershipId, userId);
     if (partnership.developer.userId !== userId) {
@@ -432,8 +433,8 @@ export class PartnershipsService {
     }
 
     const assignment = await this.prisma.propertyAssignment.upsert({
-      where: { partnershipId_propertyId: { partnershipId, propertyId } },
-      create: { partnershipId, propertyId, commissionPercent, notes },
+      where: { partnershipId_propertyId_kind: { partnershipId, propertyId, kind } },
+      create: { partnershipId, propertyId, commissionPercent, notes, kind },
       // Re-assigning a previously ended property revives the same row, so its
       // history is kept rather than duplicated.
       update: { isActive: true, endedAt: null, commissionPercent, notes },
@@ -454,13 +455,18 @@ export class PartnershipsService {
     return assignment;
   }
 
-  async unassignProperty(partnershipId: string, userId: string, propertyId: string) {
+  async unassignProperty(
+    partnershipId: string,
+    userId: string,
+    propertyId: string,
+    kind: 'SALE' | 'RENT' = 'SALE',
+  ) {
     const partnership = await this.assertMine(partnershipId, userId);
     if (partnership.developer.userId !== userId) {
       throw new ForbiddenException('Only the developer can remove assignments');
     }
     const assignment = await this.prisma.propertyAssignment.findUnique({
-      where: { partnershipId_propertyId: { partnershipId, propertyId } },
+      where: { partnershipId_propertyId_kind: { partnershipId, propertyId, kind } },
     });
     if (!assignment) throw new NotFoundException('Assignment not found');
 

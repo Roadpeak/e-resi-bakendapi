@@ -210,6 +210,15 @@ export class AgentsController {
   }
 
   @Public()
+  @Get(':id/rentals')
+  @ApiOperation({
+    summary: 'Public: rent listings and units this agent manages for letting',
+  })
+  listPublicRentals(@Param('id') id: string) {
+    return this.agents.listPublicRentals(id);
+  }
+
+  @Public()
   @Get(':id/properties')
   @ApiOperation({
     summary: 'Public: properties this agent is actively assigned to sell',

@@ -574,12 +574,21 @@ model AgentPartnership {
 
 /// A property a developer has handed to an agent to sell or let, with the
 /// commission agreed for it.
+/// What the agent is engaged to do with an assigned property. Selling and
+/// letting are different jobs with different commissions and different
+/// buyers — one property can carry both, each under its own assignment.
+enum AssignmentKind {
+  SALE
+  RENT
+}
+
 model PropertyAssignment {
   id            String            @id @default(cuid())
   partnershipId String
   partnership   AgentPartnership  @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
   propertyId    String
   property      Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  kind          AssignmentKind    @default(SALE)
 
   /// Overrides the partnership default when the two differ — a flagship unit
   /// may be worth different terms from the rest of the portfolio.
@@ -589,9 +598,9 @@ model PropertyAssignment {
   assignedAt    DateTime          @default(now())
   endedAt       DateTime?
 
-  /// A property is assigned to a given partnership once; ending and
-  /// reassigning reuses the row so its history is not lost.
-  @@unique([partnershipId, propertyId])
+  /// A property is assigned to a given partnership once per kind; ending
+  /// and reassigning reuses the row so its history is not lost.
+  @@unique([partnershipId, propertyId, kind])
   @@index([propertyId])
   @@index([isActive])
 }

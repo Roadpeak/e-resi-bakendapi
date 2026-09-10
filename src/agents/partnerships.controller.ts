@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PartnershipStatus, UserRole } from '@prisma/client';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUrl, Max, MaxLength, Min } from 'class-validator';
 import { Public } from '../common/decorators/public.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -28,6 +28,8 @@ class AssignPropertyDto {
   @IsString() propertyId: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) commissionPercent?: number;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  /** SALE (default) engages the agent to sell; RENT to find tenants. */
+  @IsOptional() @IsIn(['SALE', 'RENT']) kind?: 'SALE' | 'RENT';
 }
 
 class AddDocumentDto {
@@ -137,7 +139,7 @@ export class PartnershipsController {
     @Body() dto: AssignPropertyDto,
   ) {
     return this.partnerships.assignProperty(
-      id, user.id, dto.propertyId, dto.commissionPercent, dto.notes,
+      id, user.id, dto.propertyId, dto.commissionPercent, dto.notes, dto.kind ?? 'SALE',
     );
   }
 
@@ -148,8 +150,9 @@ export class PartnershipsController {
     @Param('id') id: string,
     @Param('propertyId') propertyId: string,
     @CurrentUser() user: { id: string },
+    @Query('kind') kind?: 'SALE' | 'RENT',
   ) {
-    return this.partnerships.unassignProperty(id, user.id, propertyId);
+    return this.partnerships.unassignProperty(id, user.id, propertyId, kind === 'RENT' ? 'RENT' : 'SALE');
   }
 
   // ─── Agreement documents ──────────────────────────────────────────────────
