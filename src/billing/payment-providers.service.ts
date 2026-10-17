@@ -18,6 +18,7 @@ export class PaymentProvidersService {
   private readonly paypalConfigured: boolean;
   private readonly mpesaConfigured: boolean;
   private readonly frontendUrl: string;
+  private readonly isProduction: boolean;
 
   constructor(private readonly config: ConfigService) {
     const stripeKey = config.get<string>('STRIPE_SECRET_KEY', '');
@@ -30,6 +31,39 @@ export class PaymentProvidersService {
       && config.get('MPESA_SHORTCODE') && config.get('MPESA_PASSKEY'),
     );
     this.frontendUrl = resolveAppUrl(config);
+    this.isProduction = config.get('NODE_ENV') === 'production';
+  }
+
+  /** Daraja host: explicit MPESA_BASE_URL wins, else MPESA_ENV picks live vs sandbox. */
+  private get mpesaBaseUrl(): string {
+    const explicit = this.config.get<string>('MPESA_BASE_URL', '');
+    if (explicit) return explicit.replace(/\/+$/, '');
+    const env = (this.config.get<string>('MPESA_ENV') ?? this.config.get<string>('MPESA_ENVIRONMENT') ?? '')
+      .toLowerCase();
+    return env === 'production' || env === 'live'
+      ? 'https://api.safaricom.co.ke'
+      : 'https://sandbox.safaricom.co.ke';
+  }
+
+  /**
+   * Where Safaricom posts the STK result. The callback route is public, so the
+   * URL carries MPESA_CALLBACK_TOKEN as a path segment: without it anyone who
+   * learned a CheckoutRequestID could post a fake "ResultCode: 0" and settle a
+   * bill for free. BillingController rejects callbacks with a wrong token.
+   */
+  private get mpesaCallbackUrl(): string {
+    const base = this.config.get<string>('MPESA_CALLBACK_URL', '')
+      || `${this.config.get('API_PUBLIC_URL', 'http://localhost:4000')}/api/billing/mpesa/callback`;
+    const token = this.config.get<string>('MPESA_CALLBACK_TOKEN', '');
+    return token ? `${base.replace(/\/+$/, '')}/${encodeURIComponent(token)}` : base;
+  }
+
+  /** Daraja wants the timestamp in Kenyan time (EAT, UTC+3), as YYYYMMDDHHmmss. */
+  private static darajaTimestamp(now = new Date()): string {
+    return new Date(now.getTime() + 3 * 60 * 60 * 1000)
+      .toISOString()
+      .replace(/[-:TZ.]/g, '')
+      .slice(0, 14);
   }
 
   get sandbox() {
@@ -142,6 +176,12 @@ export class PaymentProvidersService {
     sandbox: boolean;
   }> {
     if (!this.mpesaConfigured) {
+      // The simulation reports the payment as already completed, which in
+      // production would settle real bills for free. Only allow it locally.
+      if (this.isProduction) {
+        this.logger.error('M-Pesa STK requested but Daraja credentials are not configured');
+        throw new BadRequestException('M-Pesa payments are unavailable right now. Please pay by card.');
+      }
       this.logger.warn('[SANDBOX] Daraja not configured — simulating M-Pesa STK payment');
       return { checkoutRequestId: `sim_stk_${Date.now()}`, completed: true, sandbox: true };
     }
@@ -152,29 +192,30 @@ export class PaymentProvidersService {
     const passkey = this.config.get('MPESA_PASSKEY');
 
     const auth = Buffer.from(`${key}:${secret}`).toString('base64');
+    const base = this.mpesaBaseUrl;
     const tokenRes = await fetch(
-      'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
+      `${base}/oauth/v1/generate?grant_type=client_credentials`,
       { headers: { Authorization: `Basic ${auth}` } },
     );
     if (!tokenRes.ok) throw new BadRequestException('M-Pesa authentication failed');
     const { access_token } = (await tokenRes.json()) as { access_token: string };
 
-    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    const timestamp = PaymentProvidersService.darajaTimestamp();
     const password = Buffer.from(`${shortcode}${passkey}${timestamp}`).toString('base64');
 
-    const stkRes = await fetch('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
+    const stkRes = await fetch(`${base}/mpesa/stkpush/v1/processrequest`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         BusinessShortCode: shortcode,
         Password: password,
         Timestamp: timestamp,
-        TransactionType: 'CustomerPayBillOnline',
+        TransactionType: this.config.get<string>('MPESA_TRANSACTION_TYPE', '') || 'CustomerPayBillOnline',
         Amount: Math.max(1, Math.round(amountKes)),
         PartyA: phone,
         PartyB: shortcode,
         PhoneNumber: phone,
-        CallBackURL: `${this.config.get('API_PUBLIC_URL', 'http://localhost:4000')}/api/billing/mpesa/callback`,
+        CallBackURL: this.mpesaCallbackUrl,
         AccountReference: accountReference.slice(0, 12),
         TransactionDesc: description.slice(0, 90),
       }),
@@ -183,7 +224,16 @@ export class PaymentProvidersService {
       this.logger.error(`M-Pesa STK push failed: ${await stkRes.text()}`);
       throw new BadRequestException('Could not send the M-Pesa verification prompt');
     }
-    const json = (await stkRes.json()) as { CheckoutRequestID: string };
+    const json = (await stkRes.json()) as {
+      CheckoutRequestID?: string;
+      ResponseCode?: string;
+      ResponseDescription?: string;
+    };
+    // A 200 can still be a refusal; only ResponseCode "0" means the prompt was sent.
+    if (json.ResponseCode !== '0' || !json.CheckoutRequestID) {
+      this.logger.error(`M-Pesa STK push rejected: ${json.ResponseCode} ${json.ResponseDescription}`);
+      throw new BadRequestException('Could not send the M-Pesa verification prompt');
+    }
     // completion arrives via the callback once the user enters their PIN
     return { checkoutRequestId: json.CheckoutRequestID, completed: false, sandbox: false };
   }

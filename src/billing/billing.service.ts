@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import {
   BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
@@ -30,9 +31,16 @@ export class BillingService {
     private readonly invoices: InvoicesService,
     private readonly agentFees: AgentFeeService,
     private readonly pricing: PricingService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.appUrl = resolveAppUrl(config);
+  }
+
+  /** Constant-time string comparison, so the callback token can't be guessed byte by byte. */
+  private static safeEqual(a: string, b: string): boolean {
+    const ab = Buffer.from(a);
+    const bb = Buffer.from(b);
+    return ab.length === bb.length && timingSafeEqual(ab, bb);
   }
 
   // ─── Developer billing summary ──────────────────────────────────────────
@@ -470,7 +478,15 @@ export class BillingService {
   }
 
   /** Daraja STK callback — settles the pending bill payment. */
-  async mpesaCallback(body: unknown) {
+  async mpesaCallback(body: unknown, token: string | undefined) {
+    // When a callback token is configured, only Safaricom (which received the
+    // tokenised URL in the STK request) can reach this. Anything else is a
+    // forged settlement attempt and must not touch a payment.
+    const expected = this.config.get<string>('MPESA_CALLBACK_TOKEN', '');
+    if (expected && !BillingService.safeEqual(token ?? '', expected)) {
+      this.logger.warn('Rejected M-Pesa callback with a missing or wrong token');
+      return { message: 'ignored' };
+    }
     const stk = (body as {
       Body?: {
         stkCallback?: {

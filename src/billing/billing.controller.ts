@@ -253,9 +253,16 @@ export class BillingController {
 
   @Public()
   @Post('mpesa/callback')
-  @ApiOperation({ summary: 'Safaricom Daraja STK push result callback' })
+  @ApiOperation({ summary: 'Safaricom Daraja STK push result callback (only when no callback token is configured)' })
   mpesaCallback(@Body() body: unknown) {
-    return this.service.mpesaCallback(body);
+    return this.service.mpesaCallback(body, undefined);
+  }
+
+  @Public()
+  @Post('mpesa/callback/:token')
+  @ApiOperation({ summary: 'Safaricom Daraja STK push result callback' })
+  mpesaCallbackWithToken(@Param('token') token: string, @Body() body: unknown) {
+    return this.service.mpesaCallback(body, token);
   }
 
   @Patch('methods/:id/default')
