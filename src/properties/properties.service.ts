@@ -145,6 +145,9 @@ export class PropertiesService {
     // The property is saved by this point, so notifying is follow-up work: it
     // runs detached and its failure is logged rather than returned.
     void this.notifyAdminsOfSubmission(created.id, created.name, developer.companyName);
+    // Same reasoning for the developer's own receipt: detached, never throws
+    // (toUser swallows its failures), so slow mail can't fail the create.
+    void this.events.propertyInReview(userId, { id: created.id, name: created.name, slug: created.slug });
 
     return created;
   }

@@ -127,10 +127,31 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * Receipt for the developer who just submitted a development. It is not
+   * public until an admin approves it, and without this the developer had no
+   * signal that it was saved and waiting — some assumed it had failed.
+   */
+  async propertyInReview(userId: string, property: { id: string; name: string; slug: string }) {
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `${property.name} is pending review`,
+      `Thanks for submitting ${property.name}. It's saved to your account and our team is reviewing it now. `
+      + "We'll let you know as soon as it's approved and live on e-resi, or if anything needs changing. "
+      + 'You can keep adding units, media and details in the meantime.',
+      {
+        cta: { label: 'View development', path: `/dashboard/properties/${property.slug}` },
+        resourceId: property.id,
+        resourceType: 'Property',
+      },
+    );
+  }
+
   /** A listing was sent back. The reason is the whole point of the message. */
   async propertyRejected(
     userId: string,
-    property: { id: string; name: string },
+    property: { id: string; name: string; slug?: string },
     reason?: string | null,
   ) {
     await this.toUser(
@@ -141,7 +162,10 @@ export class PlatformEventsService {
         ? `${property.name} was not approved: ${reason}`
         : `${property.name} was not approved. Please review the listing and resubmit.`,
       {
-        cta: { label: 'Edit listing', path: '/dashboard/developments' },
+        cta: {
+          label: 'Edit listing',
+          path: property.slug ? `/dashboard/properties/${property.slug}` : '/dashboard/properties',
+        },
         resourceId: property.id,
         resourceType: 'Property',
       },

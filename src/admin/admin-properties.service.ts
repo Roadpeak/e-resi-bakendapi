@@ -100,7 +100,7 @@ export class AdminPropertiesService {
     if (decision === 'APPROVE') {
       await this.events.propertyApproved(owner, { id: after.id, name: after.name, slug: after.slug });
     } else {
-      await this.events.propertyRejected(owner, { id: after.id, name: after.name }, notes);
+      await this.events.propertyRejected(owner, { id: after.id, name: after.name, slug: after.slug }, notes);
     }
 
     return { before, after };
