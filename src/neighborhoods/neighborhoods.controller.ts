@@ -43,6 +43,17 @@ export class NeighborhoodsController {
   }
 
   @Public()
+  @Get(':slug/properties')
+  @ApiOperation({ summary: 'Public: properties listed in the area, matched loosely on the typed neighbourhood' })
+  properties(
+    @Param('slug') slug: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listProperties(slug, Number(page) || 1, Number(limit) || 12);
+  }
+
+  @Public()
   @Get(':slug/amenities')
   @ApiOperation({ summary: 'Public: auto-detected amenities around the area (OpenStreetMap)' })
   amenities(@Param('slug') slug: string) {

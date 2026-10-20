@@ -18,18 +18,45 @@ export interface UpsertNeighborhoodDto {
   longitude?: number;
 }
 
+/** Words that dress up a place name without changing which place it is. */
+const AREA_NOISE = /\b(estate|area|ward|location|division|suburb|neighbou?rhood)\b/g;
+
+/**
+ * The comparable core of a typed place name: "Kilimani Estate, Nairobi" and
+ * "kilimani" both become "kilimani".
+ */
+export function areaKey(raw: string): string {
+  return (raw.split(',')[0] ?? '')
+    .toLowerCase()
+    .replace(AREA_NOISE, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Whether a property's free-text neighbourhood belongs to an area guide.
+ * Matches when either name starts with the other on a word boundary, so
+ * "Westlands" meets "Westlands Nairobi" and "Kileleshwa Gardens" — but
+ * "South B" never meets "South C", nor "Karen" "Karengata".
+ */
+export function areasMatch(propertyArea: string, guideName: string): boolean {
+  const a = areaKey(propertyArea);
+  const b = areaKey(guideName);
+  if (!a || !b) return false;
+  return a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `);
+}
+
 @Injectable()
 export class NeighborhoodsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Live property counts per neighbourhood name, case-insensitive.
-   *
-   * Properties carry the neighbourhood as free text, so the guide and the
-   * listings meet on the lowercased name — a guide for "Kileleshwa" counts
-   * properties typed as "kileleshwa" too.
+   * Live property counts per distinct neighbourhood spelling. Properties
+   * carry the area as free text, so guides meet them through areasMatch()
+   * rather than an exact name.
    */
-  private async countsByName(): Promise<Map<string, number>> {
+  private async listedAreas(): Promise<Map<string, number>> {
     const grouped = await this.prisma.property.groupBy({
       by: ['neighborhood'],
       where: { status: { in: [...PUBLIC_STATUSES] } },
@@ -37,11 +64,18 @@ export class NeighborhoodsService {
     });
     const map = new Map<string, number>();
     for (const g of grouped) {
-      if (!g.neighborhood) continue;
-      const key = g.neighborhood.trim().toLowerCase();
-      map.set(key, (map.get(key) ?? 0) + g._count._all);
+      if (g.neighborhood) map.set(g.neighborhood, g._count._all);
     }
     return map;
+  }
+
+  /** The exact property spellings that belong to this guide. */
+  private spellingsFor(guideName: string, areas: Map<string, number>): string[] {
+    return [...areas.keys()].filter((area) => areasMatch(area, guideName));
+  }
+
+  private countFor(guideName: string, areas: Map<string, number>): number {
+    return this.spellingsFor(guideName, areas).reduce((sum, a) => sum + (areas.get(a) ?? 0), 0);
   }
 
   async listPublic(city?: string) {
@@ -50,19 +84,46 @@ export class NeighborhoodsService {
         where: city ? { city: { equals: city, mode: 'insensitive' } } : {},
         orderBy: { name: 'asc' },
       }),
-      this.countsByName(),
+      this.listedAreas(),
     ]);
-    return rows.map((n) => ({
-      ...n,
-      propertyCount: counts.get(n.name.trim().toLowerCase()) ?? 0,
-    }));
+    return rows.map((n) => ({ ...n, propertyCount: this.countFor(n.name, counts) }));
   }
 
   async getPublic(slug: string) {
     const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
     if (!n) throw new NotFoundException('Neighbourhood not found');
-    const counts = await this.countsByName();
-    return { ...n, propertyCount: counts.get(n.name.trim().toLowerCase()) ?? 0 };
+    const areas = await this.listedAreas();
+    return { ...n, propertyCount: this.countFor(n.name, areas) };
+  }
+
+  /**
+   * Every browsable property in the area — the same set the count describes,
+   * off-plan included, in the marketplace's card shape.
+   */
+  async listProperties(slug: string, page = 1, limit = 12) {
+    const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
+    if (!n) throw new NotFoundException('Neighbourhood not found');
+    const take = Math.min(Math.max(limit, 1), 50);
+    const spellings = this.spellingsFor(n.name, await this.listedAreas());
+    if (!spellings.length) {
+      return { data: [], meta: { total: 0, page, limit: take, totalPages: 0 } };
+    }
+    const where = { status: { in: [...PUBLIC_STATUSES] }, neighborhood: { in: spellings } };
+    const [data, total] = await Promise.all([
+      this.prisma.property.findMany({
+        where,
+        skip: (Math.max(page, 1) - 1) * take,
+        take,
+        orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          developer: { select: { companyName: true, logoUrl: true } },
+          _count: { select: { units: true } },
+          media: { orderBy: { order: 'asc' }, take: 8, select: { url: true, title: true } },
+        },
+      }),
+      this.prisma.property.count({ where }),
+    ]);
+    return { data, meta: { total, page, limit: take, totalPages: Math.ceil(total / take) } };
   }
 
   // ─── Auto-detected amenities ──────────────────────────────────────────────
