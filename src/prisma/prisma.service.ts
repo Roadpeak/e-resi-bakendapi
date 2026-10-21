@@ -54,6 +54,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get savedProperty() { return prismaInstance.savedProperty; }
   get notification() { return prismaInstance.notification; }
   get analyticsEvent() { return prismaInstance.analyticsEvent; }
+  get siteVisit() { return prismaInstance.siteVisit; }
   get payment() { return prismaInstance.payment; }
   get linkedPaymentMethod() { return prismaInstance.linkedPaymentMethod; }
   get conversation() { return prismaInstance.conversation; }

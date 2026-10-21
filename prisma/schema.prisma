@@ -304,6 +304,7 @@ model User {
   reservations      Reservation[]
   notifications     Notification[]
   analyticsEvents   AnalyticsEvent[]
+  siteVisits        SiteVisit[]
   payments          Payment[]
   documents         Document[]
   paymentMethods    LinkedPaymentMethod[]
@@ -2318,4 +2319,50 @@ model ProductionOrder {
   @@unique([propertyId, serviceKey])
   @@index([status])
   @@index([propertyId])
+}
+
+// ─────────────────────────────────────────────
+// SITE TRAFFIC
+// ─────────────────────────────────────────────
+
+/// One page view anywhere on the site, signed in or not. Location comes from
+/// Cloudflare's visitor headers; device fields are parsed from the user agent.
+model SiteVisit {
+  id           String   @id @default(cuid())
+  /// Long-lived per browser (localStorage) — "unique visitors".
+  visitorId    String
+  /// Ends after 30 minutes of inactivity (sessionStorage).
+  sessionId    String
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  path         String
+  referrer     String?
+  /// Host of an external referrer, or null for direct / internal.
+  referrerHost String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  ip           String?
+  /// ISO 3166-1 alpha-2, from CF-IPCountry.
+  country      String?
+  region       String?
+  city         String?
+  latitude     Float?
+  longitude    Float?
+  timezone     String?
+  userAgent    String?
+  /// desktop | mobile | tablet
+  deviceType   String
+  os           String?
+  browser      String?
+  screen       String?
+  language     String?
+  /// Time on the page, reported when the visitor leaves it.
+  durationMs   Int?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([visitorId, createdAt])
+  @@index([sessionId])
+  @@index([userId])
 }
