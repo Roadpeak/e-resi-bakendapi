@@ -243,6 +243,11 @@ export class UsersService {
           ? { website: str(company.website)! }
           : links.website && !profile.website && { website: links.website }),
         ...(Object.keys(socials).length > Object.keys(existingSocials).length && { socials }),
+        // The logo is uploaded during the wizard; only an https URL is accepted.
+        ...(typeof company.logoUrl === 'string'
+          && /^https:\/\/\S+$/.test(company.logoUrl)
+          && company.logoUrl.length <= 1000
+          && { logoUrl: company.logoUrl }),
         // full wizard payload for admin review
         onboarding: dto as unknown as object,
         onboardingSubmittedAt: new Date(),
