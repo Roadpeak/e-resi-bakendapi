@@ -3,12 +3,14 @@ import { KybStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
+import { StorageService } from '../media/storage.service.js';
 
 @Injectable()
 export class AdminUsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: PlatformEventsService,
+    private readonly storage: StorageService,
   ) {}
 
   // ─── Users ────────────────────────────────────────────────────────────────
@@ -255,8 +257,35 @@ export class AdminUsersService {
     return {
       ...profile,
       kybDocuments: documents,
+      verification: await this.verificationView(documents),
       reviewNotes: typeof reviewNotes === 'string' ? reviewNotes : null,
     };
+  }
+
+  /**
+   * How the developer chose to prove the company exists, ready to review:
+   * public links as-is, or uploaded documents each with a link that expires
+   * in ten minutes. Submissions from before the choice existed only ever
+   * stored file names — reported as such, since there is nothing to open.
+   */
+  private async verificationView(raw: Record<string, unknown>) {
+    if (raw.method === 'links') {
+      return { method: 'links' as const, links: (raw.links ?? {}) as Record<string, string>, documents: [] };
+    }
+    if (raw.method === 'documents') {
+      const entries = Object.entries((raw.documents ?? {}) as Record<string, { key: string; name: string; size?: number }>);
+      const documents = await Promise.all(entries.map(async ([type, d]) => ({
+        type,
+        name: d.name,
+        size: d.size ?? null,
+        url: await this.storage.privateUrl(d.key),
+      })));
+      return { method: 'documents' as const, links: {}, documents };
+    }
+    const legacy = Object.entries(raw)
+      .filter(([, v]) => typeof v === 'string' && v)
+      .map(([type, name]) => ({ type, name: name as string, size: null, url: null }));
+    return { method: legacy.length ? ('legacy' as const) : null, links: {}, documents: legacy };
   }
 
   async setKyb(profileId: string, status: KybStatus, notes?: string) {

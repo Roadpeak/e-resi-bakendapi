@@ -6,8 +6,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { KybStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -75,6 +78,20 @@ export class UsersController {
     @Body() dto: UpdateDeveloperProfileDto,
   ) {
     return this.usersService.updateMyDeveloperProfile(user.id, dto);
+  }
+
+  @Post('developers/me/verification-docs')
+  @Roles(UserRole.DEVELOPER)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, docKey: { type: 'string' } } } })
+  @ApiOperation({ summary: 'Developer: upload one verification document (stored privately, max 15MB)' })
+  uploadVerificationDoc(
+    @CurrentUser() user: { id: string },
+    @UploadedFile() file: Express.Multer.File,
+    @Body('docKey') docKey: string,
+  ) {
+    return this.usersService.uploadVerificationDoc(user.id, docKey, file);
   }
 
   @Post('developers/me/onboarding')

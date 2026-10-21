@@ -1,3 +1,4 @@
+import { MediaModule } from '../media/media.module.js';
 import { forwardRef, Module } from '@nestjs/common';
 import { BillingModule } from '../billing/billing.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
@@ -23,7 +24,7 @@ import { ProductionOrdersService } from '../production-tiers/production-orders.s
 @Module({
   // forwardRef: BillingModule imports AdminModule for pricing, and production
   // orders here need InvoicesService to bill a scheduled shoot.
-  imports: [MailModule, NotificationsModule, forwardRef(() => BillingModule)],
+  imports: [MailModule, NotificationsModule, MediaModule, forwardRef(() => BillingModule)],
   controllers: [AdminController, PricingController, AdminUsersController, AdminPropertiesController, AdminBillingController, AdminOpsController, AdminSystemController],
   providers: [AdminService, AuditService, PricingService, ExchangeRateService, ProductionOrdersService, AdminUsersService, AdminPropertiesService, AdminBillingService, AdminOpsService, AdminSystemService],
   // Exported so later phases (users, pricing, properties) can record actions.

@@ -6,16 +6,88 @@ import {
 } from '@nestjs/common';
 import { KybStatus, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { StorageService } from '../media/storage.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import type { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import type { UpdateDeveloperProfileDto } from './dto/update-developer-profile.dto.js';
+
+/** The documents a developer can upload, and which ones the documents route requires. */
+const VERIFICATION_DOCS = ['registrationCert', 'taxCert', 'directorId', 'proofOfAddress', 'companyLogo', 'brandAssets'] as const;
+const REQUIRED_DOCS = ['registrationCert', 'taxCert', 'directorId'] as const;
+const DOC_MIME = /^(application\/pdf|image\/(png|jpe?g|webp|heic|heif)|application\/zip|application\/x-zip-compressed)$/;
+
+/** Links a developer can offer instead of documents. */
+const VERIFICATION_LINKS = ['website', 'facebook', 'instagram', 'linkedin', 'x', 'tiktok', 'youtube', 'other'] as const;
+
+function cleanUrl(v: unknown): string | undefined {
+  if (typeof v !== 'string' || !v.trim()) return undefined;
+  const raw = v.trim();
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return u.hostname.includes('.') ? u.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What a developer submitted to prove the company is real — either the legal
+ * documents (stored privately) or public links an admin can check by hand.
+ * Throws when the chosen route is incomplete, so a submission never reaches
+ * the review queue with nothing to review.
+ */
+function normaliseVerification(input: unknown, profileId: string) {
+  const v = (input ?? {}) as Record<string, unknown>;
+  const method = v.method === 'links' ? 'links' : 'documents';
+
+  if (method === 'links') {
+    const given = (v.links ?? {}) as Record<string, unknown>;
+    const links: Record<string, string> = {};
+    for (const k of VERIFICATION_LINKS) {
+      const url = cleanUrl(given[k]);
+      if (url) links[k] = url;
+    }
+    if (!Object.keys(links).length) {
+      throw new BadRequestException('Add at least one valid website or social media link to verify your company.');
+    }
+    return { method, links };
+  }
+
+  const given = (v.documents ?? {}) as Record<string, unknown>;
+  const documents: Record<string, { key: string; name: string; size?: number }> = {};
+  for (const k of VERIFICATION_DOCS) {
+    const d = given[k] as { key?: unknown; name?: unknown; size?: unknown } | undefined;
+    // Only keys this API issued to this developer — never an arbitrary URL,
+    // a path escape, or another developer's file.
+    if (
+      d && typeof d.key === 'string'
+      && /^(spaces|local)-private:/.test(d.key)
+      && d.key.includes(`kyb/${profileId}/`)
+      && !d.key.includes('..')
+    ) {
+      documents[k] = {
+        key: d.key,
+        name: typeof d.name === 'string' ? d.name.slice(0, 200) : k,
+        ...(typeof d.size === 'number' && { size: d.size }),
+      };
+    }
+  }
+  const missing = REQUIRED_DOCS.filter((k) => !documents[k]);
+  if (missing.length) {
+    throw new BadRequestException(
+      'Upload your business registration certificate, tax compliance certificate and a director ID, or verify with links instead.',
+    );
+  }
+  return { method, documents };
+}
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: PlatformEventsService,
+    private readonly storage: StorageService,
   ) {}
 
   // ─── Admin: list all users ────────────────────────────────────────────────
@@ -118,9 +190,39 @@ export class UsersService {
     });
   }
 
+  async uploadVerificationDoc(userId: string, docKey: string, file: Express.Multer.File) {
+    const profile = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (!profile) throw new NotFoundException('Developer profile not found');
+    if (!(VERIFICATION_DOCS as readonly string[]).includes(docKey)) {
+      throw new BadRequestException('Unknown document type');
+    }
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!DOC_MIME.test(file.mimetype)) {
+      throw new BadRequestException('Upload a PDF, image (JPG, PNG) or ZIP file.');
+    }
+    const stored = await this.storage.uploadPrivate(`kyb/${profile.id}`, file.originalname, file.buffer, file.mimetype);
+    return { key: stored.key, name: file.originalname, size: stored.sizeBytes };
+  }
+
   async submitOnboarding(userId: string, dto: SubmitOnboardingDto) {
     const profile = await this.prisma.developerProfile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Developer profile not found');
+
+    // Already-approved developers re-submitting their profile aren't asked to
+    // prove themselves again.
+    const verification = profile.kybStatus === KybStatus.APPROVED && !dto.verificationDocs
+      ? null
+      : normaliseVerification(dto.verificationDocs, profile.id);
+
+    // Links offered for verification double as the public profile's website
+    // and socials, unless the developer already set those.
+    const links: Record<string, string> = verification?.method === 'links' ? verification.links ?? {} : {};
+    const existingSocials = (profile.socials ?? {}) as Record<string, string>;
+    const socialKeys: Record<string, string> = { facebook: 'facebook', instagram: 'instagram', linkedin: 'linkedin', x: 'twitter', tiktok: 'tiktok' };
+    const socials = { ...existingSocials };
+    for (const [from, to] of Object.entries(socialKeys)) {
+      if (links[from] && !socials[to]) socials[to] = links[from];
+    }
 
     const company = dto.company as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
@@ -137,11 +239,14 @@ export class UsersService {
         }),
         ...(Number.isFinite(year) && year >= 1900 && { establishedYear: year }),
         ...(Number.isFinite(projects) && projects >= 0 && { completedProjects: projects }),
-        ...(str(company.website) && { website: str(company.website)! }),
+        ...(str(company.website)
+          ? { website: str(company.website)! }
+          : links.website && !profile.website && { website: links.website }),
+        ...(Object.keys(socials).length > Object.keys(existingSocials).length && { socials }),
         // full wizard payload for admin review
         onboarding: dto as unknown as object,
         onboardingSubmittedAt: new Date(),
-        ...(dto.verificationDocs && { kybDocuments: dto.verificationDocs as object }),
+        ...(verification && { kybDocuments: verification as object }),
         // (re)enter the KYB review queue unless already approved
         ...(profile.kybStatus !== KybStatus.APPROVED && { kybStatus: KybStatus.PENDING }),
       },
@@ -158,9 +263,21 @@ export class UsersService {
 
   // ─── Public: get developer profile by userId ─────────────────────────────
 
+  /**
+   * Never on a public profile: the onboarding answers carry the tax PIN,
+   * registration number and private contacts, and kybDocuments the
+   * verification documents or links.
+   */
+  private static readonly PRIVATE_PROFILE_FIELDS = {
+    onboarding: true,
+    kybDocuments: true,
+    kybReviewedBy: true,
+  } as const;
+
   async getDeveloperProfileByUserId(userId: string) {
     const profile = await this.prisma.developerProfile.findUnique({
       where: { userId },
+      omit: UsersService.PRIVATE_PROFILE_FIELDS,
       include: {
         properties: {
           where: { status: 'ACTIVE' },
@@ -185,6 +302,7 @@ export class UsersService {
   async getPublicDeveloperProfile(profileId: string) {
     const profile = await this.prisma.developerProfile.findUnique({
       where: { id: profileId },
+      omit: UsersService.PRIVATE_PROFILE_FIELDS,
       include: {
         properties: {
           where: { status: 'ACTIVE' },

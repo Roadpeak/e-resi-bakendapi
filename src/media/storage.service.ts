@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomBytes } from 'crypto';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import { extname, join } from 'path';
@@ -257,6 +258,67 @@ export class StorageService {
     }
   }
 
+  /**
+   * Store a file nobody but staff should ever read — verification documents:
+   * certificates, tax compliance, director IDs. Unlike every other upload
+   * this is never public-read and has no permanent URL; it is read back only
+   * through privateUrl(), which signs a link that expires in minutes.
+   */
+  async uploadPrivate(
+    folder: string,
+    originalName: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<{ key: string; sizeBytes: number }> {
+    const ext = extname(originalName).toLowerCase();
+    const id = `${randomBytes(16).toString('hex')}${ext}`;
+
+    if (this.spacesEnabled) {
+      const key = `${this.baseFolder}/private/${folder}/${id}`;
+      try {
+        await this.s3!.send(new PutObjectCommand({
+          Bucket: this.spacesBucket,
+          Key: key,
+          Body: buffer,
+          ContentType: mimeType,
+          ACL: 'private',
+          CacheControl: 'private, no-store',
+        }));
+      } catch (err) {
+        const message = (err as Error).message ?? String(err);
+        this.logger.error(`Private upload failed: ${key} — ${message}`);
+        throw new InternalServerErrorException('Could not store the document. Please try again.');
+      }
+      return { key: `spaces-private:${key}`, sizeBytes: buffer.byteLength };
+    }
+
+    if (this.localMode) {
+      // Outside ./uploads, which is served statically — local files stay private too.
+      const rel = join(folder, id);
+      await mkdir(join(process.cwd(), 'private-uploads', folder), { recursive: true });
+      await writeFile(join(process.cwd(), 'private-uploads', rel), buffer);
+      return { key: `local-private:${rel}`, sizeBytes: buffer.byteLength };
+    }
+
+    // Cloudinary has no private store we use; never fall back to a public one.
+    throw new BadRequestException('Private document storage is not configured.');
+  }
+
+  /** A short-lived link to a private file, or null when it can't be signed. */
+  async privateUrl(key: string, expiresInSeconds = 600): Promise<string | null> {
+    if (!key.startsWith('spaces-private:') || !this.s3) return null;
+    try {
+      return await getSignedUrl(
+        this.s3,
+        new GetObjectCommand({ Bucket: this.spacesBucket, Key: key.slice('spaces-private:'.length) }),
+        { expiresIn: expiresInSeconds },
+      );
+    } catch (err) {
+      this.logger.warn(`Could not sign ${key}`, err as Error);
+      return null;
+    }
+  }
+
   /** [SANDBOX] Cloudinary not configured — persist to ./uploads and serve statically. */
   private async uploadLocal(
     folder: UploadFolder,
@@ -277,6 +339,19 @@ export class StorageService {
   async delete(key: string): Promise<void> {
     if (key.startsWith('local:')) {
       await unlink(join(process.cwd(), 'uploads', key.slice(6))).catch(() => {});
+      return;
+    }
+
+    if (key.startsWith('local-private:')) {
+      await unlink(join(process.cwd(), 'private-uploads', key.slice('local-private:'.length))).catch(() => {});
+      return;
+    }
+
+    if (key.startsWith('spaces-private:')) {
+      await this.s3?.send(new DeleteObjectCommand({
+        Bucket: this.spacesBucket,
+        Key: key.slice('spaces-private:'.length),
+      })).catch((err) => this.logger.warn(`Spaces delete failed: ${key}`, err as Error));
       return;
     }
 
