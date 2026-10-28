@@ -47,7 +47,7 @@ export class PlatformEventsService {
   ): Promise<void> {
     try {
       await this.notifications.createNotification(
-        userId, type, title, body, opts.resourceId, opts.resourceType,
+        userId, type, title, body, opts.resourceId, opts.resourceType, opts.cta?.path,
       );
     } catch (err) {
       this.logger.error(`In-app notify failed for ${userId}: ${(err as Error).message}`);
@@ -626,7 +626,7 @@ export class PlatformEventsService {
       body,
       {
         email: true,
-        cta: { label: 'View booking', path: '/account' },
+        cta: { label: 'View booking', path: '/account/viewings' },
         resourceId: bookingId,
         resourceType: 'Booking',
       },

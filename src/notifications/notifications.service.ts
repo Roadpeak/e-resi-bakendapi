@@ -3,6 +3,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 
+import { resolveNotificationLink } from './notification-links.js';
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -16,9 +17,10 @@ export class NotificationsService {
     body: string,
     resourceId?: string,
     resourceType?: string,
+    link?: string,
   ) {
     return this.prisma.notification.create({
-      data: { userId, type, title, body, resourceId, resourceType },
+      data: { userId, type, title, body, resourceId, resourceType, link },
     });
   }
 
@@ -38,8 +40,22 @@ export class NotificationsService {
       this.prisma.notification.count({ where: { userId, read: false } }),
     ]);
 
+    // Every portal opens notifications through `link`, resolved for this
+    // reader's role — the same event leads developers and agents to their own
+    // pages. Property notifications need the slug, looked up in one query.
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const propertyIds = [...new Set(data.filter((n) => n.resourceType === 'Property' && n.resourceId).map((n) => n.resourceId!))];
+    const slugs = propertyIds.length
+      ? new Map((await this.prisma.property.findMany({
+          where: { id: { in: propertyIds } }, select: { id: true, slug: true },
+        })).map((p) => [p.id, p.slug]))
+      : new Map<string, string>();
+
     return {
-      data,
+      data: data.map((n) => ({
+        ...n,
+        link: resolveNotificationLink(n, user?.role, n.resourceId ? slugs.get(n.resourceId) : undefined),
+      })),
       unreadCount,
       meta: { total, page: pagination.page ?? 1, limit: pagination.limit ?? 20, totalPages: Math.ceil(total / (pagination.limit ?? 20)) },
     };

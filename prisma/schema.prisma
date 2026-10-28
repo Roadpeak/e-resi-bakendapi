@@ -1892,6 +1892,9 @@ model Notification {
   read         Boolean          @default(false)
   resourceId   String?
   resourceType String?
+  /// Page this notification opens, as written by the sender. Re-pointed at
+  /// the reader's portal when served (see notification-links.ts).
+  link         String?
   createdAt    DateTime         @default(now())
 
   @@index([userId])
