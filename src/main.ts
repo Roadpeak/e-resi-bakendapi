@@ -77,6 +77,8 @@ async function bootstrap() {
   app.enableCors({
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin || origins.includes(origin)) return cb(null, true);
+      // Free development addresses: <subdomain>.e-resi.com.
+      if (/^https:\/\/[a-z0-9-]+\.e-resi\.com$/.test(origin)) return cb(null, true);
       isCustomDomainOrigin(origin).then((ok) => cb(null, ok), () => cb(null, false));
     },
     credentials: true,

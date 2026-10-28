@@ -294,6 +294,12 @@ export class UpdateBrandingDto {
   })
   customDomain?: string;
 
+  @ApiPropertyOptional({ example: 'herisresidence', description: 'Free address: <subdomain>.e-resi.com' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  subdomain?: string;
+
   @ApiPropertyOptional({ description: 'Remove e-resi attribution (top tier only)' })
   @IsOptional()
   // Same implicit-conversion hazard as heroOverlay above. It matters more

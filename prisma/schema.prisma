@@ -1128,6 +1128,9 @@ model Property {
   heroOverlay         Boolean           @default(true)
   /// Vanity host, e.g. "tours.developer.co.ke". Unique because it routes.
   customDomain        String?           @unique
+  /// Free e-resi address: "<subdomain>.e-resi.com". Defaults to the slug;
+  /// the developer can change it. Unique because it routes.
+  subdomain           String?           @unique
   /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a
   /// small "Tours by e-resi" mark, which is what stops the mini-site being a
   /// standalone microsite a developer could just take elsewhere.

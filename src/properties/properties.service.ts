@@ -8,7 +8,9 @@ import {
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { clearDeleteBlockers } from './delete-blockers.js';
-import { isReservedDomain, normaliseDomain } from './custom-domain.js';
+import {
+  isReservedDomain, normaliseDomain, normaliseSubdomain, subdomainOf, subdomainProblem,
+} from './custom-domain.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
@@ -108,10 +110,16 @@ export class PropertiesService {
     if (!developer) throw new ForbiddenException('Developer profile required');
 
     const slug = await uniqueSlug(this.prisma, slugify(dto.name));
+    // Every development gets a working <slug>.e-resi.com address from the
+    // start, unless the slug is not a usable label or is already claimed.
+    const subdomain = !subdomainProblem(slug)
+      && !(await this.prisma.property.findUnique({ where: { subdomain: slug }, select: { id: true } }))
+      ? slug : null;
 
     const created = await this.prisma.property.create({
       data: {
         slug,
+        subdomain,
         name: dto.name,
         tagline: dto.tagline,
         description: dto.description,
@@ -338,9 +346,10 @@ export class PropertiesService {
    */
   async resolveDomain(host: string) {
     const domain = normaliseDomain(host);
+    const label = subdomainOf(domain);
     const property = await this.prisma.property.findFirst({
       where: {
-        customDomain: domain,
+        ...(label ? { subdomain: label } : { customDomain: domain }),
         status: { in: [PropertyStatus.ACTIVE, PropertyStatus.OFF_PLAN, PropertyStatus.SOLD_OUT] },
       },
       select: { slug: true },
@@ -368,6 +377,17 @@ export class PropertiesService {
     const isAdmin = userRole === UserRole.ADMIN;
     if (!isAdmin && dto.whiteLabel !== undefined) {
       throw new ForbiddenException('White-label is enabled by e-resi on your plan');
+    }
+
+    if (dto.subdomain) {
+      dto.subdomain = normaliseSubdomain(dto.subdomain);
+      const problem = subdomainProblem(dto.subdomain);
+      if (problem) throw new BadRequestException(problem);
+      const taken = await this.prisma.property.findFirst({
+        where: { subdomain: dto.subdomain, NOT: { slug } },
+        select: { id: true },
+      });
+      if (taken) throw new BadRequestException(`${dto.subdomain}.e-resi.com is already taken`);
     }
 
     if (dto.customDomain) {
@@ -409,6 +429,7 @@ export class PropertiesService {
         ...(dto.navbarTheme !== undefined && { navbarTheme: dto.navbarTheme }),
         ...(dto.heroOverlay !== undefined && { heroOverlay: dto.heroOverlay as boolean }),
         ...(dto.customDomain !== undefined && { customDomain: dto.customDomain || null }),
+        ...(dto.subdomain !== undefined && { subdomain: dto.subdomain || null }),
         ...(dto.whiteLabel !== undefined && { whiteLabel: dto.whiteLabel as boolean }),
       },
     });
@@ -430,27 +451,44 @@ export class PropertiesService {
   async domainStatus(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
-      select: { slug: true, status: true, customDomain: true, developer: { select: { userId: true } } },
+      select: {
+        slug: true, status: true, customDomain: true, subdomain: true,
+        developer: { select: { userId: true } },
+      },
     });
     if (!property) throw new NotFoundException('Property not found');
     if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
       throw new ForbiddenException('You do not own this property');
     }
-    if (!property.customDomain) return { domain: null, live: false };
 
-    let live = false;
-    try {
-      const res = await fetch(`https://${property.customDomain}/`, {
-        method: 'HEAD',
-        redirect: 'manual',
-        signal: AbortSignal.timeout(6000),
-      });
-      live = res.headers.get('x-eresi-site') === property.slug;
-    } catch {
-      live = false;
-    }
-    return { domain: property.customDomain, live, published: property.status !== PropertyStatus.DRAFT };
+    const reaches = async (host: string | null) => {
+      if (!host) return false;
+      try {
+        const res = await fetch(`https://${host}/`, {
+          method: 'HEAD',
+          redirect: 'manual',
+          signal: AbortSignal.timeout(6000),
+        });
+        return res.headers.get('x-eresi-site') === property.slug;
+      } catch {
+        return false;
+      }
+    };
+    const subdomainHost = property.subdomain ? `${property.subdomain}.e-resi.com` : null;
+    const [live, subdomainLive] = await Promise.all([
+      reaches(property.customDomain),
+      reaches(subdomainHost),
+    ]);
+    return {
+      domain: property.customDomain,
+      live,
+      subdomain: property.subdomain,
+      subdomainHost,
+      subdomainLive,
+      published: property.status !== PropertyStatus.DRAFT && property.status !== PropertyStatus.ARCHIVED,
+    };
   }
+
 
   async update(slug: string, userId: string, userRole: UserRole, dto: UpdatePropertyDto) {
     const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true } });
