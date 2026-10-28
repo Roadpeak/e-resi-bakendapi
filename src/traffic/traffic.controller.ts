@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Public } from '../common/decorators/public.decorator.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { TrafficService, type HitDto } from './traffic.service.js';
 
@@ -16,6 +17,18 @@ export class TrafficController {
   @ApiOperation({ summary: 'Public: record a page view (signed in or not)' })
   hit(@Body() dto: HitDto, @Req() req: Request) {
     return this.service.recordHit(dto, { headers: req.headers, remoteIp: req.socket.remoteAddress });
+  }
+
+  @Get('properties/:slug')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: visitors to one development across every address it is served on' })
+  propertyTraffic(
+    @Param('slug') slug: string,
+    @Query('days') days: string | undefined,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.service.propertyTraffic(slug, user.id, user.role, Number(days) || 30);
   }
 
   @Public()

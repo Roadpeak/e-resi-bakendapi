@@ -1184,6 +1184,7 @@ model Property {
   invoices            Invoice[]
   productionOrders    ProductionOrder[]
   analyticsEvents     AnalyticsEvent[]
+  siteVisits          SiteVisit[]
   productionTier      ProductionTier?
   deals               Deal[]
   clientRoomItems     ClientRoomItem[]
@@ -2395,7 +2396,16 @@ model SiteVisit {
   durationMs   Int?
   createdAt    DateTime @default(now())
 
+  /// Host the page was served on — e-resi.com, <name>.e-resi.com or a
+  /// developer's own domain.
+  host        String?
+  /// The development this page belongs to, whichever address served it.
+  /// Lets a developer see their own traffic.
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
   @@index([createdAt])
+  @@index([propertyId, createdAt])
   @@index([visitorId, createdAt])
   @@index([sessionId])
   @@index([userId])
