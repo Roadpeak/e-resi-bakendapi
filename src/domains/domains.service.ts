@@ -110,8 +110,14 @@ export class DomainsService implements OnApplicationBootstrap {
         });
       }
     } catch (e) {
-      const message = (e as Error).message;
+      let message = (e as Error).message;
       this.logger.error(`Connecting ${domain} failed: ${message}`);
+      // Cloudflare's wording for an account without Custom Hostnames points
+      // the developer at Cloudflare sales; say what they can actually do.
+      if (!isApexDomain(domain) && /quota|ssl for saas|custom hostname/i.test(message)) {
+        message = `Subdomains like ${domain} can't be connected yet. Use a whole domain instead, `
+          + `e.g. ${domain.split('.').slice(1).join('.')}.`;
+      }
       await this.prisma.property.update({
         where: { id: propertyId },
         data: { domainStatus: 'ERROR', domainError: message.slice(0, 500), domainCheckedAt: new Date() },
