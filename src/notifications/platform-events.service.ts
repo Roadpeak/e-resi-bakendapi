@@ -516,6 +516,16 @@ export class PlatformEventsService {
     );
   }
 
+  /** A developer attached their own domain; it needs adding in Cloudflare before it resolves. */
+  async customDomainRequested(propertyName: string, companyName: string, domain: string, propertyId: string) {
+    await this.toAdmins(
+      'Custom domain to connect',
+      `${companyName} wants ${propertyName} on ${domain}. Add it in Cloudflare and send them the nameservers.`,
+      { label: 'Open properties', path: '/admin/properties' },
+      { id: propertyId, type: 'Property' },
+    );
+  }
+
   async productionOrdered(
     propertyName: string,
     companyName: string,

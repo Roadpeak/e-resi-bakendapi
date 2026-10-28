@@ -325,9 +325,10 @@ export class PropertiesService {
    *
    * Kept apart from update() because these are presentation settings, edited
    * from the customise screen rather than the listing form. White-label and
-   * custom domains are commercial tiers, so both are admin-gated here — a
-   * developer toggling whiteLabel themselves would remove our attribution
-   * without ever paying for it.
+   * White-label is a commercial tier, so it is admin-gated here — a developer
+   * toggling it themselves would remove our attribution without ever paying
+   * for it. A custom domain a developer can set: it does nothing until e-resi
+   * connects it in Cloudflare, and admins are told when one is added.
    */
   /**
    * Which development a custom domain serves. Used by the web proxy on every
@@ -368,9 +369,6 @@ export class PropertiesService {
     if (!isAdmin && dto.whiteLabel !== undefined) {
       throw new ForbiddenException('White-label is enabled by e-resi on your plan');
     }
-    if (!isAdmin && dto.customDomain !== undefined) {
-      throw new ForbiddenException('Custom domains are set up by e-resi on your plan');
-    }
 
     if (dto.customDomain) {
       dto.customDomain = normaliseDomain(dto.customDomain);
@@ -385,7 +383,7 @@ export class PropertiesService {
       if (clash) throw new BadRequestException('That domain is already in use');
     }
 
-    return this.prisma.property.update({
+    const updated = await this.prisma.property.update({
       where: { slug },
       data: {
         ...(dto.brandColor !== undefined && { brandColor: dto.brandColor }),
@@ -414,6 +412,44 @@ export class PropertiesService {
         ...(dto.whiteLabel !== undefined && { whiteLabel: dto.whiteLabel as boolean }),
       },
     });
+
+    if (!isAdmin && dto.customDomain && dto.customDomain !== property.customDomain) {
+      void this.events.customDomainRequested(
+        property.name, property.developer.companyName ?? 'A developer', dto.customDomain, property.id,
+      );
+    }
+    return updated;
+  }
+
+  /**
+   * Whether a development's custom domain actually reaches it yet. The web
+   * proxy tags every response it serves for a custom domain with the
+   * development's slug, so a matching header proves DNS, Cloudflare and
+   * routing are all in place. Only a yes/no goes back to the caller.
+   */
+  async domainStatus(slug: string, userId: string, userRole: UserRole) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug },
+      select: { slug: true, status: true, customDomain: true, developer: { select: { userId: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+    if (!property.customDomain) return { domain: null, live: false };
+
+    let live = false;
+    try {
+      const res = await fetch(`https://${property.customDomain}/`, {
+        method: 'HEAD',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(6000),
+      });
+      live = res.headers.get('x-eresi-site') === property.slug;
+    } catch {
+      live = false;
+    }
+    return { domain: property.customDomain, live, published: property.status !== PropertyStatus.DRAFT };
   }
 
   async update(slug: string, userId: string, userRole: UserRole, dto: UpdatePropertyDto) {

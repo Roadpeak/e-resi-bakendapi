@@ -79,6 +79,17 @@ export class PropertiesController {
     return this.propertiesService.resolveDomain(host);
   }
 
+  @Get(':slug/domain-status')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: whether the custom domain reaches this development yet' })
+  domainStatus(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.propertiesService.domainStatus(slug, user.id, user.role);
+  }
+
   @Public()
   @Get(':slug')
   @ApiOperation({ summary: 'Public: get property detail by slug' })
