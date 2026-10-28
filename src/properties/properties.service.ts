@@ -8,6 +8,7 @@ import {
 import { PropertyStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { clearDeleteBlockers } from './delete-blockers.js';
+import { isReservedDomain, normaliseDomain } from './custom-domain.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
@@ -328,6 +329,25 @@ export class PropertiesService {
    * developer toggling whiteLabel themselves would remove our attribution
    * without ever paying for it.
    */
+  /**
+   * Which development a custom domain serves. Used by the web proxy on every
+   * request to an unfamiliar host, so it returns the slug only, and only for
+   * a development buyers can see — a draft must not go live by being given
+   * a domain.
+   */
+  async resolveDomain(host: string) {
+    const domain = normaliseDomain(host);
+    const property = await this.prisma.property.findFirst({
+      where: {
+        customDomain: domain,
+        status: { in: [PropertyStatus.ACTIVE, PropertyStatus.OFF_PLAN, PropertyStatus.SOLD_OUT] },
+      },
+      select: { slug: true },
+    });
+    if (!property) throw new NotFoundException('No development uses that domain');
+    return { slug: property.slug, domain };
+  }
+
   async updateBranding(
     slug: string,
     userId: string,
@@ -353,6 +373,10 @@ export class PropertiesService {
     }
 
     if (dto.customDomain) {
+      dto.customDomain = normaliseDomain(dto.customDomain);
+      if (isReservedDomain(dto.customDomain)) {
+        throw new BadRequestException('That domain belongs to e-resi');
+      }
       // Domains route requests, so a duplicate would make resolution ambiguous.
       const clash = await this.prisma.property.findFirst({
         where: { customDomain: dto.customDomain, NOT: { slug } },

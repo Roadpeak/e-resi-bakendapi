@@ -71,6 +71,14 @@ export class PropertiesController {
     return this.nearby.suggest(latitude, longitude, metres);
   }
 
+  /** Above ':slug' for the same reason as nearby-suggestions. */
+  @Public()
+  @Get('domain/:host')
+  @ApiOperation({ summary: 'Public: which development a custom domain serves' })
+  resolveDomain(@Param('host') host: string) {
+    return this.propertiesService.resolveDomain(host);
+  }
+
   @Public()
   @Get(':slug')
   @ApiOperation({ summary: 'Public: get property detail by slug' })

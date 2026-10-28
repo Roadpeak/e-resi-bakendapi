@@ -43,6 +43,8 @@ export class AdminPropertiesService {
           neighborhood: true,
           heroImageUrl: true,
           isFeatured: true,
+          customDomain: true,
+          whiteLabel: true,
           priceFrom: true,
           currency: true,
           latitude: true,

@@ -8,6 +8,8 @@ import express from 'express';
 import { join } from 'path';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { PrismaService } from './prisma/prisma.service';
+import { normaliseDomain } from './properties/custom-domain';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -48,8 +50,35 @@ async function bootstrap() {
   // Always include common dev ports so the API works regardless of which port Next.js binds to
   const devOrigins = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'];
   const origins = Array.from(new Set([...allowedOrigins, ...devOrigins]));
+  // A development served on its own domain calls this API from that origin,
+  // so registered custom domains are allowed too. Looked up rather than
+  // listed in config, with a short cache so a domain added in admin works
+  // within a minute and a flood of unknown origins costs one query each.
+  const prisma = app.get(PrismaService);
+  const domainCache = new Map<string, { ok: boolean; at: number }>();
+  const isCustomDomainOrigin = async (origin: string) => {
+    let host: string;
+    try {
+      const url = new URL(origin);
+      if (url.protocol !== 'https:') return false;
+      host = normaliseDomain(url.hostname);
+    } catch {
+      return false;
+    }
+    const hit = domainCache.get(host);
+    if (hit && Date.now() - hit.at < 60_000) return hit.ok;
+    const ok = !!(await prisma.property.findFirst({
+      where: { customDomain: host }, select: { id: true },
+    }));
+    if (domainCache.size > 5000) domainCache.clear();
+    domainCache.set(host, { ok, at: Date.now() });
+    return ok;
+  };
   app.enableCors({
-    origin: origins,
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin || origins.includes(origin)) return cb(null, true);
+      isCustomDomainOrigin(origin).then((ok) => cb(null, ok), () => cb(null, false));
+    },
     credentials: true,
   });
 
