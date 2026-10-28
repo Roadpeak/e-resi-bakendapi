@@ -289,7 +289,9 @@ export class UpdateBrandingDto {
   @IsString()
   @MaxLength(253)
   // Hostname only — a full URL or a path would silently never route.
-  @Matches(/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i, {
+  // Empty is allowed: it is how a domain is removed, and @IsOptional only
+  // skips null/undefined, so without it "Remove" was rejected as invalid.
+  @Matches(/^$|^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i, {
     message: 'customDomain must be a bare hostname, e.g. tours.developer.co.ke',
   })
   customDomain?: string;
