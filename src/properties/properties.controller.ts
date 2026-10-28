@@ -90,6 +90,17 @@ export class PropertiesController {
     return this.propertiesService.domainStatus(slug, user.id, user.role);
   }
 
+  @Post(':slug/subdomain/activate')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: activate the e-resi address (invoiced unless free)' })
+  activateSubdomain(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.propertiesService.activateSubdomain(slug, user.id, user.role);
+  }
+
   @Post(':slug/domain-check')
   @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
   @ApiBearerAuth()

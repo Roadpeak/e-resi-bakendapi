@@ -45,6 +45,13 @@ export class ProductionTiersController {
         freeMonths: Number(byKey.listing_fee_free_months ?? 0),
       },
       taxRatePercent: Number(byKey.tax_rate_percent ?? 0),
+      domains: {
+        custom: {
+          mode: byKey.domain_custom_fee_mode === 'MONTHLY' ? 'MONTHLY' : 'ONE_TIME',
+          amount: Number(byKey.domain_custom_fee_amount ?? 0),
+        },
+        subdomain: { amount: Number(byKey.domain_subdomain_fee ?? 0) },
+      },
     };
   }
 

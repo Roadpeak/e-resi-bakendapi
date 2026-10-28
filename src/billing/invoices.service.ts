@@ -24,9 +24,30 @@ const day = (n: number) => n * 24 * 60 * 60 * 1000;
 const fmtDate = (d: Date) =>
   d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
+/** Runs after an invoice of a given kind is paid, e.g. to unlock what it bought. */
+export type InvoicePaidHook = (invoice: Invoice) => Promise<void>;
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
+  private readonly paidHooks = new Map<InvoiceKind, InvoicePaidHook>();
+
+  /**
+   * Lets the service that sold something react to its payment without this
+   * service depending on it (which would be circular: it creates invoices
+   * here).
+   */
+  onPaid(kind: InvoiceKind, hook: InvoicePaidHook) {
+    this.paidHooks.set(kind, hook);
+  }
+
+  /** Withdraw an unpaid invoice, e.g. for a domain the developer removed. */
+  async cancel(invoiceId: string) {
+    await this.prisma.invoice.updateMany({
+      where: { id: invoiceId, status: { notIn: ['PAID', 'CANCELLED'] } },
+      data: { status: 'CANCELLED' },
+    });
+  }
   private readonly appUrl: string;
 
   constructor(
@@ -78,6 +99,8 @@ export class InvoicesService {
     listingFeeRunId?: string;
     agentFeeRunId?: string;
     propertyId?: string;
+    /** DOMAIN invoices: what paying unlocks. */
+    domainItem?: 'CUSTOM_DOMAIN' | 'SUBDOMAIN';
     notes?: string;
     currency?: string;
     /** Send immediately. Subscriptions pass false and are released by the cron. */
@@ -115,6 +138,7 @@ export class InvoicesService {
         listingFeeRunId: params.listingFeeRunId,
         agentFeeRunId: params.agentFeeRunId,
         propertyId: params.propertyId,
+        domainItem: params.domainItem,
         billedToName: user.developerProfile?.companyName
           ?? user.agentProfile?.displayName
           ?? `${user.firstName} ${user.lastName}`.trim(),
@@ -453,6 +477,13 @@ export class InvoicesService {
       receipt.id,
       'Receipt',
     );
+
+    const hook = this.paidHooks.get(invoice.kind);
+    if (hook) {
+      // Never let fulfilment failing undo a payment that has been recorded.
+      await hook({ ...invoice, status: 'PAID', paidAt }).catch((e) =>
+        this.logger.error(`Paid hook for ${invoice.number} failed: ${(e as Error).message}`));
+    }
 
     return receipt;
   }

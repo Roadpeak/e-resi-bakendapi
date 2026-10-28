@@ -1145,6 +1145,19 @@ model Property {
   domainError         String?
   domainVerifiedAt    DateTime?
   domainCheckedAt     DateTime?
+  /// Billing for the custom domain. Mode and fee are snapshotted at request
+  /// time, so an admin changing prices later does not reprice a domain a
+  /// developer already pays for. ONE_TIME is paid once per development;
+  /// MONTHLY is invoiced again before domainPaidThrough.
+  domainBillingMode   String?
+  domainFee           Float?
+  domainInvoiceId     String?
+  domainPaidAt        DateTime?
+  domainPaidThrough   DateTime?
+  /// The <subdomain>.e-resi.com address only routes once activated — paid
+  /// for (one-time) or granted by an admin.
+  subdomainActivatedAt DateTime?
+  subdomainInvoiceId  String?
   /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a
   /// small "Tours by e-resi" mark, which is what stops the mini-site being a
   /// standalone microsite a developer could just take elsewhere.
@@ -2201,6 +2214,8 @@ enum InvoiceKind {
   SUBSCRIPTION
   /// One-off media production work, issued as soon as it is ordered.
   PRODUCTION
+  /// A development's custom domain or e-resi address.
+  DOMAIN
 }
 
 enum InvoiceStatus {
@@ -2228,6 +2243,8 @@ model Invoice {
   /// Set for agent listing-fee invoices; same idea, other side of the market.
   agentFeeRunId String?     @unique
   agentFeeRun   AgentFeeRun? @relation(fields: [agentFeeRunId], references: [id], onDelete: SetNull)
+  /// For DOMAIN invoices: CUSTOM_DOMAIN or SUBDOMAIN — what paying unlocks.
+  domainItem  String?
   /// Set for production invoices.
   propertyId  String?
   property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)

@@ -14,6 +14,7 @@ import {
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { DomainsService } from '../domains/domains.service.js';
+import { DomainBillingService } from '../billing/domain-billing.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
 import type { QueryPropertiesDto } from './dto/query-properties.dto.js';
 import type { UpdateBrandingDto } from './dto/update-branding.dto.js';
@@ -88,6 +89,7 @@ export class PropertiesService {
     private readonly productionOrders: ProductionOrdersService,
     private readonly events: PlatformEventsService,
     private readonly domains: DomainsService,
+    private readonly domainBilling: DomainBillingService,
   ) {}
 
   /**
@@ -351,7 +353,10 @@ export class PropertiesService {
     const label = subdomainOf(domain);
     const property = await this.prisma.property.findFirst({
       where: {
-        ...(label ? { subdomain: label } : { customDomain: domain }),
+        // Only what has been paid for (or granted) routes.
+        ...(label
+          ? { subdomain: label, subdomainActivatedAt: { not: null } }
+          : { customDomain: domain, NOT: { domainStatus: { in: ['AWAITING_PAYMENT', 'SUSPENDED'] } } }),
         status: { in: [PropertyStatus.ACTIVE, PropertyStatus.OFF_PLAN, PropertyStatus.SOLD_OUT] },
       },
       select: { slug: true },
@@ -442,9 +447,12 @@ export class PropertiesService {
       // Old domain first: Cloudflare must not keep routing a domain the
       // developer has replaced or removed.
       await this.domains.detach(property.id);
+      if (!dto.customDomain) await this.domainBilling.releaseCustomDomain(property.id);
       if (dto.customDomain) {
-        // Awaited so the response carries the nameservers to show at once.
-        await this.domains.connect(property.id, dto.customDomain);
+        // Connects at once when paid for, free or set by an admin; otherwise
+        // invoices it and connects on payment. Awaited so the response
+        // reflects the outcome.
+        await this.domainBilling.requestCustomDomain(property.id, dto.customDomain, { grant: isAdmin });
         if (!isAdmin && !this.domains.automated) {
           void this.events.customDomainRequested(
             property.name, property.developer.companyName, dto.customDomain, property.id,
@@ -461,6 +469,18 @@ export class PropertiesService {
    * development's slug, so a matching header proves DNS, Cloudflare and
    * routing are all in place. Only a yes/no goes back to the caller.
    */
+  /** Activate the property's <subdomain>.e-resi.com — invoices it unless free or admin. */
+  async activateSubdomain(slug: string, userId: string, userRole: UserRole) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug }, select: { id: true, developer: { select: { userId: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+    return this.domainBilling.requestSubdomain(property.id, { grant: userRole === UserRole.ADMIN });
+  }
+
   /** "Check now": retry a failed connection or re-ask Cloudflare, then report. */
   async domainCheck(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
@@ -481,6 +501,8 @@ export class PropertiesService {
         id: true, slug: true, status: true, customDomain: true, subdomain: true,
         domainProvider: true, domainStatus: true, domainNameservers: true, domainError: true,
         domainVerifiedAt: true, domainCheckedAt: true,
+        domainBillingMode: true, domainFee: true, domainInvoiceId: true, domainPaidThrough: true,
+        subdomainActivatedAt: true, subdomainInvoiceId: true,
         developer: { select: { userId: true } },
       },
     });
@@ -503,6 +525,15 @@ export class PropertiesService {
       }
     };
     const subdomainHost = property.subdomain ? `${property.subdomain}.e-resi.com` : null;
+    const invoiceIds = [property.domainInvoiceId, property.subdomainInvoiceId].filter((x): x is string => !!x);
+    const openInvoices = invoiceIds.length
+      ? await this.prisma.invoice.findMany({
+          where: { id: { in: invoiceIds }, status: { notIn: ['PAID', 'CANCELLED'] } },
+          select: { id: true, number: true, total: true, currency: true, dueAt: true },
+        })
+      : [];
+    const invoiceFor = (id: string | null) => openInvoices.find((i) => i.id === id) ?? null;
+    const prices = await this.domainBilling.prices();
     const [live, subdomainLive] = await Promise.all([
       reaches(property.customDomain),
       reaches(subdomainHost),
@@ -521,9 +552,18 @@ export class PropertiesService {
       error: property.domainStatus === 'ERROR' ? property.domainError : null,
       verifiedAt: property.domainVerifiedAt,
       checkedAt: property.domainCheckedAt,
+      billing: {
+        mode: property.domainBillingMode,
+        fee: property.domainFee,
+        paidThrough: property.domainPaidThrough,
+        invoice: invoiceFor(property.domainInvoiceId),
+      },
       subdomain: property.subdomain,
       subdomainHost,
       subdomainLive,
+      subdomainActive: !!property.subdomainActivatedAt,
+      subdomainInvoice: invoiceFor(property.subdomainInvoiceId),
+      prices,
       published: property.status !== PropertyStatus.DRAFT && property.status !== PropertyStatus.ARCHIVED,
     };
   }

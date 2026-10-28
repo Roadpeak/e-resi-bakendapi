@@ -547,6 +547,17 @@ export class PlatformEventsService {
     );
   }
 
+  /** A monthly custom domain went unpaid past its grace period. */
+  async customDomainSuspended(userId: string, propertyName: string, domain: string, propertyId: string) {
+    await this.toUser(
+      userId,
+      'SYSTEM_ANNOUNCEMENT',
+      `${domain} is paused`,
+      `${domain} stopped opening ${propertyName} because its monthly fee is unpaid. Pay the open invoice and it comes back straight away.`,
+      { cta: { label: 'Pay invoice', path: '/dashboard/billing' }, resourceId: propertyId, resourceType: 'Property' },
+    );
+  }
+
   async productionOrdered(
     propertyName: string,
     companyName: string,

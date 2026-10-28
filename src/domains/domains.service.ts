@@ -171,6 +171,8 @@ export class DomainsService implements OnApplicationBootstrap {
       },
     });
     if (!p?.customDomain || !this.cf.enabled) return;
+    // Unpaid domains are connected by payment, never by a re-check.
+    if (p.domainStatus === 'AWAITING_PAYMENT' || p.domainStatus === 'SUSPENDED') return;
     if (!force && p.domainCheckedAt && Date.now() - p.domainCheckedAt.getTime() < RECHECK_THROTTLE_MS) return;
 
     if (p.domainStatus === 'ERROR' || p.domainStatus === 'MANUAL' || !p.domainExternalId) {
