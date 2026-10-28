@@ -1131,6 +1131,20 @@ model Property {
   /// Free e-resi address: "<subdomain>.e-resi.com". Defaults to the slug;
   /// the developer can change it. Unique because it routes.
   subdomain           String?           @unique
+  /// How customDomain is connected: CLOUDFLARE_ZONE (whole domain added to
+  /// e-resi's Cloudflare, developer switches nameservers), CLOUDFLARE_SAAS
+  /// (subdomain CNAMEd to us) or MANUAL (automation not configured).
+  domainProvider      String?
+  /// Cloudflare zone id or custom-hostname id, so it can be checked and removed.
+  domainExternalId    String?
+  /// Nameservers the developer must set at their registrar (zone mode).
+  domainNameservers   String[]          @default([])
+  /// PENDING until Cloudflare sees the DNS change, then ACTIVE; ERROR with
+  /// domainError when Cloudflare refused; MANUAL when not automated.
+  domainStatus        String?
+  domainError         String?
+  domainVerifiedAt    DateTime?
+  domainCheckedAt     DateTime?
   /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a
   /// small "Tours by e-resi" mark, which is what stops the mini-site being a
   /// standalone microsite a developer could just take elsewhere.

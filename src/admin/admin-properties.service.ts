@@ -5,11 +5,13 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 
+import { DomainsService } from '../domains/domains.service.js';
 @Injectable()
 export class AdminPropertiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: PlatformEventsService,
+    private readonly domains: DomainsService,
   ) {}
 
   async list(
@@ -169,6 +171,9 @@ export class AdminPropertiesService {
         );
       }
     }
+
+    // Release the domain on Cloudflare too, or it would keep pointing at us.
+    await this.domains.disconnect(property);
 
     await this.prisma.$transaction(async (tx) => {
       if (isDraft) await clearDeleteBlockers(tx, property.id);

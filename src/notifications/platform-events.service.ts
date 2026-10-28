@@ -526,6 +526,27 @@ export class PlatformEventsService {
     );
   }
 
+  /** Cloudflare refused a developer's domain; it needs a person to look. */
+  async customDomainFailed(propertyName: string, companyName: string, domain: string, propertyId: string, reason: string) {
+    await this.toAdmins(
+      'Custom domain could not connect',
+      `${companyName}'s ${domain} for ${propertyName} failed to connect automatically: ${reason}`,
+      { label: 'Open properties', path: '/admin/properties' },
+      { id: propertyId, type: 'Property' },
+    );
+  }
+
+  /** The developer's own domain now reaches their development. */
+  async customDomainLive(userId: string, propertyName: string, domain: string, propertyId: string, slug: string) {
+    await this.toUser(
+      userId,
+      'SYSTEM_ANNOUNCEMENT',
+      `${domain} is live`,
+      `${propertyName} now opens at https://${domain}. Share it with buyers and agents.`,
+      { cta: { label: 'Open domain settings', path: `/dashboard/properties/${slug}/domain` }, resourceId: propertyId, resourceType: 'Property' },
+    );
+  }
+
   async productionOrdered(
     propertyName: string,
     companyName: string,

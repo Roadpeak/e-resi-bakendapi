@@ -90,6 +90,17 @@ export class PropertiesController {
     return this.propertiesService.domainStatus(slug, user.id, user.role);
   }
 
+  @Post(':slug/domain-check')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: re-check (or retry) the custom domain connection now' })
+  domainCheck(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ) {
+    return this.propertiesService.domainCheck(slug, user.id, user.role);
+  }
+
   @Public()
   @Get(':slug')
   @ApiOperation({ summary: 'Public: get property detail by slug' })

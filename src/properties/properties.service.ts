@@ -13,6 +13,7 @@ import {
 } from './custom-domain.js';
 import { ProductionOrdersService } from '../production-tiers/production-orders.service.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
+import { DomainsService } from '../domains/domains.service.js';
 import type { CreatePropertyDto } from './dto/create-property.dto.js';
 import type { QueryPropertiesDto } from './dto/query-properties.dto.js';
 import type { UpdateBrandingDto } from './dto/update-branding.dto.js';
@@ -86,6 +87,7 @@ export class PropertiesService {
     private readonly prisma: PrismaService,
     private readonly productionOrders: ProductionOrdersService,
     private readonly events: PlatformEventsService,
+    private readonly domains: DomainsService,
   ) {}
 
   /**
@@ -434,10 +436,21 @@ export class PropertiesService {
       },
     });
 
-    if (!isAdmin && dto.customDomain && dto.customDomain !== property.customDomain) {
-      void this.events.customDomainRequested(
-        property.name, property.developer.companyName ?? 'A developer', dto.customDomain, property.id,
-      );
+    const domainChanged = dto.customDomain !== undefined
+      && (dto.customDomain || null) !== property.customDomain;
+    if (domainChanged) {
+      // Old domain first: Cloudflare must not keep routing a domain the
+      // developer has replaced or removed.
+      await this.domains.detach(property.id);
+      if (dto.customDomain) {
+        // Awaited so the response carries the nameservers to show at once.
+        await this.domains.connect(property.id, dto.customDomain);
+        if (!isAdmin && !this.domains.automated) {
+          void this.events.customDomainRequested(
+            property.name, property.developer.companyName, dto.customDomain, property.id,
+          );
+        }
+      }
     }
     return updated;
   }
@@ -448,11 +461,26 @@ export class PropertiesService {
    * development's slug, so a matching header proves DNS, Cloudflare and
    * routing are all in place. Only a yes/no goes back to the caller.
    */
+  /** "Check now": retry a failed connection or re-ask Cloudflare, then report. */
+  async domainCheck(slug: string, userId: string, userRole: UserRole) {
+    const property = await this.prisma.property.findUnique({
+      where: { slug }, select: { id: true, developer: { select: { userId: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+      throw new ForbiddenException('You do not own this property');
+    }
+    await this.domains.refresh(property.id);
+    return this.domainStatus(slug, userId, userRole);
+  }
+
   async domainStatus(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
       select: {
-        slug: true, status: true, customDomain: true, subdomain: true,
+        id: true, slug: true, status: true, customDomain: true, subdomain: true,
+        domainProvider: true, domainStatus: true, domainNameservers: true, domainError: true,
+        domainVerifiedAt: true, domainCheckedAt: true,
         developer: { select: { userId: true } },
       },
     });
@@ -482,6 +510,17 @@ export class PropertiesService {
     return {
       domain: property.customDomain,
       live,
+      automated: this.domains.automated,
+      // nameservers for a whole domain, cname for a subdomain, manual when
+      // e-resi connects it by hand.
+      method: property.domainProvider === 'CLOUDFLARE_ZONE' ? 'nameservers'
+        : property.domainProvider === 'CLOUDFLARE_SAAS' ? 'cname' : 'manual',
+      state: live ? 'ACTIVE' : (property.domainStatus ?? null),
+      nameservers: property.domainNameservers,
+      cnameTarget: property.domainProvider === 'CLOUDFLARE_SAAS' ? this.domains.saasTarget : null,
+      error: property.domainStatus === 'ERROR' ? property.domainError : null,
+      verifiedAt: property.domainVerifiedAt,
+      checkedAt: property.domainCheckedAt,
       subdomain: property.subdomain,
       subdomainHost,
       subdomainLive,
@@ -613,6 +652,9 @@ export class PropertiesService {
         );
       }
     }
+
+    // Release the domain on Cloudflare too, or it would keep pointing at us.
+    await this.domains.disconnect(property);
 
     await this.prisma.$transaction(async (tx) => {
       if (property.status === PropertyStatus.DRAFT) {
