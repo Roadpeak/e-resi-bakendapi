@@ -53,6 +53,20 @@ export class AuthService {
     return safe;
   }
 
+  /**
+   * The picture that stands for this account in navbars: the person's own
+   * photo, else their company logo (developers) or agent photo/logo. Without
+   * it every navbar fell back to initials even after a logo was uploaded.
+   */
+  private async profileImage(userId: string, avatarUrl?: string | null): Promise<string | null> {
+    if (avatarUrl) return avatarUrl;
+    const [dev, agent] = await Promise.all([
+      this.prisma.developerProfile.findUnique({ where: { userId }, select: { logoUrl: true } }),
+      this.prisma.agentProfile.findUnique({ where: { userId }, select: { photoUrl: true, logoUrl: true } }),
+    ]);
+    return dev?.logoUrl ?? agent?.photoUrl ?? agent?.logoUrl ?? null;
+  }
+
   private buildRefreshCookieValue(userId: string, rawToken: string): string {
     return `${userId}.${rawToken}`;
   }
@@ -189,7 +203,7 @@ export class AuthService {
       where: { userId: user.id },
       select: { status: true, pages: true },
     });
-    const base = this.sanitize(user);
+    const base = { ...this.sanitize(user), profileImageUrl: await this.profileImage(user.id, user.avatarUrl) };
     const shaped = membership?.status === 'ACTIVE'
       ? { ...base, isStaff: true, staffPages: membership.pages }
       : base;
@@ -434,7 +448,8 @@ export class AuthService {
       include: { developerProfile: true },
     });
     if (!user) throw new UnauthorizedException();
-    const { password, refreshToken, emailVerifyToken, passwordResetToken, passwordResetExpiry, ...safe } = user;
+    const { password, refreshToken, emailVerifyToken, passwordResetToken, passwordResetExpiry, ...rest } = user;
+    const safe = { ...rest, profileImageUrl: await this.profileImage(user.id, user.avatarUrl) };
 
     // A staff request carries the employer's account (so the dashboard shows
     // the company's data) but the person's own name and email — and the page
