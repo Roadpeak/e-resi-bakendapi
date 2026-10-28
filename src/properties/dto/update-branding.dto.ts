@@ -27,6 +27,7 @@ export const BRAND_FONT_KEYS = ['MODERN', 'LUXURY', 'MINIMAL', 'BOLD'] as const;
 export const TEMPLATE_KEYS = [
   'CLASSIC', 'EDITORIAL', 'CONFIDENT', 'STATEMENT',
   'LUXE_DARK', 'SHOWCASE', 'ARCHITECTURAL', 'WARM_LUXE',
+  'FRAME', 'PRESTIGE', 'GALLERY', 'ATELIER', 'HORIZON', 'SKYLINE', 'NOIR',
 ] as const;
 export const HERO_STYLE_KEYS = ['CINEMATIC', 'SPLIT', 'MINIMAL'] as const;
 export const NAVBAR_STYLE_KEYS = ['SOLID', 'FLOATING'] as const;
