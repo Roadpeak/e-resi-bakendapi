@@ -77,6 +77,8 @@ function fromResource(n: LinkableNotification, role: Role, slug?: string): strin
       return portal === '/admin' && id ? `/admin/developers/${id}` : null;
     case 'AgentProfile':
       return portal === '/admin' && id ? `/admin/agents/${id}` : null;
+    case 'SupportThread':
+      return `${portal}/support${id ? `?thread=${id}` : ''}`;
     case 'Property':
       if (portal === '/dashboard') return slug ? `/dashboard/properties/${slug}` : '/dashboard/properties';
       if (portal === '/agent') return '/agent/properties';

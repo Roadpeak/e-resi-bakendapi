@@ -263,57 +263,59 @@ enum AnalyticsEventType {
 // ─────────────────────────────────────────────
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  password        String?
-  role            UserRole  @default(BUYER)
-  firstName       String
-  lastName        String
-  phone           String?
-  avatarUrl       String?
-  emailVerified   Boolean   @default(false)
-  phoneVerified   Boolean   @default(false)
-  isActive        Boolean   @default(true)
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  password            String?
+  role                UserRole  @default(BUYER)
+  firstName           String
+  lastName            String
+  phone               String?
+  avatarUrl           String?
+  emailVerified       Boolean   @default(false)
+  phoneVerified       Boolean   @default(false)
+  isActive            Boolean   @default(true)
   /// Why and when access was withdrawn — a bare boolean loses the reason.
-  suspendedAt     DateTime?
-  suspendedReason String?
-  oauthProvider        String?
-  oauthId              String?
-  refreshToken         String?
-  emailVerifyToken     String?
-  passwordResetToken   String?
-  passwordResetExpiry  DateTime?
-  lastLoginAt          DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  suspendedAt         DateTime?
+  suspendedReason     String?
+  oauthProvider       String?
+  oauthId             String?
+  refreshToken        String?
+  emailVerifyToken    String?
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  developerProfile  DeveloperProfile?
-  agentProfile      AgentProfile?
-  agentReviews      AgentReview[]
+  developerProfile      DeveloperProfile?
+  agentProfile          AgentProfile?
+  agentReviews          AgentReview[]
   partnershipRequests   AgentPartnership[]    @relation("PartnershipRequester")
   dealEvents            DealEvent[]           @relation("DealEventActor")
   unitOwnerships        UnitOwnership[]       @relation("UnitOwnerships")
   ownedRentListings     RentListing[]         @relation("OwnedRentListings")
   lettingEngagements    LettingEngagement[]   @relation("LettingEngagements")
   partnershipDocuments  PartnershipDocument[] @relation("PartnershipDocUploader")
-  savedProperties   SavedProperty[]
-  staffMembership   DeveloperStaff?
-  inquiries         Inquiry[]
-  inquiryReplies    InquiryReply[]
-  bookings          Booking[]
-  reservations      Reservation[]
-  notifications     Notification[]
-  analyticsEvents   AnalyticsEvent[]
-  siteVisits        SiteVisit[]
-  payments          Payment[]
-  documents         Document[]
-  paymentMethods    LinkedPaymentMethod[]
-  conversationsStarted Conversation[] @relation("ConversationInitiator")
-  conversationsReceived Conversation[] @relation("ConversationCounterparty")
-  chatMessages      ChatMessage[]
-  auditLogs         AuditLog[]     @relation("AuditActor")
-  invoices          Invoice[]
-  receipts          Receipt[]
+  savedProperties       SavedProperty[]
+  staffMembership       DeveloperStaff?
+  inquiries             Inquiry[]
+  inquiryReplies        InquiryReply[]
+  bookings              Booking[]
+  reservations          Reservation[]
+  notifications         Notification[]
+  analyticsEvents       AnalyticsEvent[]
+  siteVisits            SiteVisit[]
+  payments              Payment[]
+  documents             Document[]
+  paymentMethods        LinkedPaymentMethod[]
+  conversationsStarted  Conversation[]        @relation("ConversationInitiator")
+  conversationsReceived Conversation[]        @relation("ConversationCounterparty")
+  chatMessages          ChatMessage[]
+  supportThreads        SupportThread[]       @relation("SupportThreadUser")
+  supportMessages       SupportMessage[]      @relation("SupportMessageAuthor")
+  auditLogs             AuditLog[]            @relation("AuditActor")
+  invoices              Invoice[]
+  receipts              Receipt[]
 
   @@index([email])
   @@index([role])
@@ -371,43 +373,43 @@ model LinkedPaymentMethod {
 // ─────────────────────────────────────────────
 
 model DeveloperProfile {
-  id                String    @id @default(cuid())
-  userId            String    @unique
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  staff             DeveloperStaff[]
-  companyName       String
-  logoUrl           String?
-  description       String?
-  establishedYear   Int?
-  completedProjects Int       @default(0)
-  website           String?
-  kybStatus         KybStatus @default(NOT_SUBMITTED)
-  kybDocuments      Json?
-  kybReviewedAt     DateTime?
-  kybReviewedBy     String?
-  onboarding        Json?
+  id                    String           @id @default(cuid())
+  userId                String           @unique
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staff                 DeveloperStaff[]
+  companyName           String
+  logoUrl               String?
+  description           String?
+  establishedYear       Int?
+  completedProjects     Int              @default(0)
+  website               String?
+  kybStatus             KybStatus        @default(NOT_SUBMITTED)
+  kybDocuments          Json?
+  kybReviewedAt         DateTime?
+  kybReviewedBy         String?
+  onboarding            Json?
   onboardingSubmittedAt DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   /// Public contact — shown on the developer's card and profile page.
   /// Separate from User.phone, which is the account owner's private login contact.
-  phone             String?
+  phone    String?
   /// Public sales address, for buyers who would rather write than call.
   /// Deliberately not User.email: that is the login the account is secured
   /// with, and publishing it on a page anyone can read would hand out one
   /// half of the developer's own credentials.
-  email             String?
+  email    String?
   /// Full wa.me-ready number (digits only, no +), so the WhatsApp icon can
   /// deep-link straight into a chat without any client-side reformatting.
-  whatsapp          String?
+  whatsapp String?
   /// Free-text city/area shown on the card — e.g. "Nairobi, Westlands".
   /// Not FK'd to any location table; developers operate across areas, not one.
-  location          String?
+  location String?
   /// { instagram?, facebook?, twitter?, linkedin?, tiktok?: string } — full
   /// profile URLs. Optional keys throughout; the profile page renders only
   /// whichever are present rather than a fixed set of icons.
-  socials           Json?
+  socials  Json?
 
   // ─── Mini-site brand defaults ────────────────────────────────────────────
   //
@@ -416,11 +418,11 @@ model DeveloperProfile {
   // override any of these — see the matching fields on Property.
 
   /// Brand accent as #rrggbb, inherited by all this developer's developments.
-  brandColor        String?
+  brandColor  String?
   /// Curated font pairing key, inherited unless a development overrides it.
-  brandFont         String?
+  brandFont   String?
   /// Default mini-site template, inherited unless a development overrides it.
-  templateKey       String?
+  templateKey String?
 
   properties        Property[]
   rentListings      RentListing[]
@@ -435,71 +437,71 @@ model DeveloperProfile {
 /// same public-contact fields, same monthly listing fee, so admin review and
 /// billing work the same way for both and neither needs its own concepts.
 model AgentProfile {
-  id                String     @id @default(cuid())
-  userId            String     @unique
-  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind              AgentKind
+  id     String    @id @default(cuid())
+  userId String    @unique
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind   AgentKind
 
   /// Trading name. The company name, or the individual's professional name.
-  displayName       String
+  displayName        String
   /// Company registration number — companies only.
   registrationNumber String?
-  logoUrl           String?
+  logoUrl            String?
   /// Passport-style photo. Required for individuals, who are the product;
   /// optional for companies, which lead with a logo.
-  photoUrl          String?
-  bio               String?
-  yearsExperience   Int?
-  website           String?
+  photoUrl           String?
+  bio                String?
+  yearsExperience    Int?
+  website            String?
 
   /// Which of APARTMENT_RENTAL, VILLA_PURCHASE… this agent takes on. Drives
   /// the browse-page picker, so an empty list means they surface nowhere.
-  specialties       AgentSpecialty[]
+  specialties  AgentSpecialty[]
   /// Areas worked, free text — "Kilimani", "Westlands". Agents cover
   /// neighbourhoods rather than one fixed location.
-  serviceAreas      String[]
+  serviceAreas String[]
 
   /// Same lifecycle as a developer's: nothing is publicly listed until an
   /// admin approves the documents.
-  kybStatus         KybStatus  @default(NOT_SUBMITTED)
+  kybStatus          KybStatus @default(NOT_SUBMITTED)
   /// Submitted documents as [{ type, url, label }] — company registration and
   /// physical-address proof, or national ID for an individual.
-  kybDocuments      Json?
-  kybReviewedAt     DateTime?
-  kybReviewedBy     String?
+  kybDocuments       Json?
+  kybReviewedAt      DateTime?
+  kybReviewedBy      String?
   kybRejectionReason String?
 
   /// Public contact. Separate from User.phone, which is the private login
   /// contact for the account owner.
-  phone             String?
+  phone         String?
   /// wa.me-ready digits, no plus — the WhatsApp button deep-links directly.
-  whatsapp          String?
-  email             String?
+  whatsapp      String?
+  email         String?
   /// Street address. Companies must give a physical location as part of KYC.
-  officeAddress     String?
-  location          String?
-  socials           Json?
+  officeAddress String?
+  location      String?
+  socials       Json?
 
   /// Cached from AgentReview so the directory can sort by rating without
   /// aggregating on every request. Recomputed whenever a review lands.
-  ratingAverage     Float      @default(0)
-  ratingCount       Int        @default(0)
+  ratingAverage Float @default(0)
+  ratingCount   Int   @default(0)
 
   /// Cached from Deal whenever one completes, same pattern as the rating
   /// columns: the directory ranks on proven closings, and ranking must not
   /// cost an aggregate over every agent's deals per page view.
-  dealsCompleted    Int        @default(0)
+  dealsCompleted Int   @default(0)
   /// Sum of completed deals' sale values, in KES major units. The other
   /// half of the ranking signal — five closings of studio flats and five of
   /// penthouses are different track records.
-  closedVolume      Float      @default(0)
+  closedVolume   Float @default(0)
 
   /// Hidden from the public directory when the monthly fee goes unpaid past
   /// its grace period. Distinct from kybStatus: the agent is still verified,
   /// just not currently listed, and reactivates on payment.
-  isListed          Boolean    @default(false)
+  isListed    Boolean   @default(false)
   /// Set when non-payment hid the profile, so the UI can explain why.
-  suspendedAt       DateTime?
+  suspendedAt DateTime?
 
   /// Leads this agent introduced. These are what a partnership is measured
   /// on — without them neither side can see what the relationship produced.
@@ -507,18 +509,18 @@ model AgentProfile {
   attributedBookings     Booking[]
   attributedReservations Reservation[]
 
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  reviews           AgentReview[]
-  conversations     Conversation[]
-  partnerships      AgentPartnership[]
-  feeRuns           AgentFeeRun[]
-  deals             Deal[]
-  clientRooms       ClientRoom[]
-  mandateRequests   MandateRequest[]
-  analyticsEvents   AnalyticsEvent[]
-  managedRentListings RentListing[]     @relation("ManagedRentListings")
+  reviews             AgentReview[]
+  conversations       Conversation[]
+  partnerships        AgentPartnership[]
+  feeRuns             AgentFeeRun[]
+  deals               Deal[]
+  clientRooms         ClientRoom[]
+  mandateRequests     MandateRequest[]
+  analyticsEvents     AnalyticsEvent[]
+  managedRentListings RentListing[]       @relation("ManagedRentListings")
   lettingEngagements  LettingEngagement[]
 
   @@index([kybStatus])
@@ -542,29 +544,29 @@ enum PartnershipStatus {
 /// can be assigned properties — the partnership is the gate that stops a
 /// developer handing listings to an agent who never agreed to sell them.
 model AgentPartnership {
-  id           String            @id @default(cuid())
-  developerId  String
-  developer    DeveloperProfile  @relation(fields: [developerId], references: [id], onDelete: Cascade)
-  agentId      String
-  agent        AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  status       PartnershipStatus @default(PENDING)
+  id          String            @id @default(cuid())
+  developerId String
+  developer   DeveloperProfile  @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  agentId     String
+  agent       AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  status      PartnershipStatus @default(PENDING)
 
   /// Which side proposed it — either may, and the other accepts.
   requestedById String
-  requestedBy   User             @relation("PartnershipRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  requestedBy   User    @relation("PartnershipRequester", fields: [requestedById], references: [id], onDelete: Cascade)
   message       String?
 
   /// Default commission for work under this partnership, as a percentage.
   /// Individual assignments may override it.
   commissionPercent Float?
-  respondedAt  DateTime?
-  endedAt      DateTime?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  respondedAt       DateTime?
+  endedAt           DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  assignments  PropertyAssignment[]
-  documents    PartnershipDocument[]
-  deals        Deal[]
+  assignments PropertyAssignment[]
+  documents   PartnershipDocument[]
+  deals       Deal[]
 
   /// One partnership per pair — re-requesting reuses the row rather than
   /// stacking duplicates that would each need answering.
@@ -584,20 +586,20 @@ enum AssignmentKind {
 }
 
 model PropertyAssignment {
-  id            String            @id @default(cuid())
+  id            String           @id @default(cuid())
   partnershipId String
-  partnership   AgentPartnership  @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  partnership   AgentPartnership @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
   propertyId    String
-  property      Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  kind          AssignmentKind    @default(SALE)
+  property      Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  kind          AssignmentKind   @default(SALE)
 
   /// Overrides the partnership default when the two differ — a flagship unit
   /// may be worth different terms from the rest of the portfolio.
   commissionPercent Float?
-  notes         String?
-  isActive      Boolean           @default(true)
-  assignedAt    DateTime          @default(now())
-  endedAt       DateTime?
+  notes             String?
+  isActive          Boolean   @default(true)
+  assignedAt        DateTime  @default(now())
+  endedAt           DateTime?
 
   /// A property is assigned to a given partnership once per kind; ending
   /// and reassigning reuses the row so its history is not lost.
@@ -632,27 +634,27 @@ model PartnershipDocument {
 /// live. Sharing one table would mean a listingCount column that means
 /// nothing for half the rows.
 model AgentFeeRun {
-  id           String              @id @default(cuid())
-  agentId      String
-  agent        AgentProfile        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id          String              @id @default(cuid())
+  agentId     String
+  agent       AgentProfile        @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Billing period as YYYY-MM.
-  period       String
+  period      String
   /// Charged amount in major units, tax included.
-  amount       Float
-  currency     String              @default("KES")
-  status       ListingFeeRunStatus @default(PENDING)
-  reference    String?             @unique
-  paymentId    String?
-  failureText  String?
-  attempts     Int                 @default(0)
-  chargedAt    DateTime?
+  amount      Float
+  currency    String              @default("KES")
+  status      ListingFeeRunStatus @default(PENDING)
+  reference   String?             @unique
+  paymentId   String?
+  failureText String?
+  attempts    Int                 @default(0)
+  chargedAt   DateTime?
   /// When an unpaid fee stops being tolerated and the profile is hidden.
   /// Nothing is delisted before this, so one failed charge never silently
   /// removes a paying agent from the directory.
-  graceEndsAt  DateTime?
-  invoice      Invoice?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  graceEndsAt DateTime?
+  invoice     Invoice?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   /// One run per agent per month — reruns update rather than duplicate.
   @@unique([agentId, period])
@@ -704,7 +706,7 @@ model UnitOwnership {
   recordedById  String?
   createdAt     DateTime     @default(now())
 
-  rentListing   RentListing?
+  rentListing RentListing?
 
   @@index([ownerId])
 }
@@ -798,41 +800,41 @@ model Deal {
 
   /// Denormalised from the partnership so each side's dashboard can query
   /// its own deals without joining through it.
-  agentId       String
-  agent         AgentProfile     @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  developerId   String
-  developer     DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  agentId     String
+  agent       AgentProfile     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  developerId String
+  developer   DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
 
-  propertyId    String
-  property      Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// Set once the client settles on a unit. SetNull: deleting a unit must
   /// not erase the commercial record of the deal it was part of.
-  unitId        String?
-  unit          Unit?            @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  unitId     String?
+  unit       Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
 
   /// The buyer, as the agent knows them. Plain fields rather than a User
   /// relation: most introduced clients never create an account.
-  clientName    String
-  clientEmail   String?
-  clientPhone   String?
+  clientName  String
+  clientEmail String?
+  clientPhone String?
 
-  stage         DealStage        @default(LEAD)
+  stage          DealStage @default(LEAD)
   /// When the stage last moved — staleness is a real signal on a pipeline.
-  stageChangedAt DateTime        @default(now())
+  stageChangedAt DateTime  @default(now())
   /// Why a LOST deal was lost, for the post-mortem both sides can read.
-  lostReason    String?
+  lostReason     String?
 
   /// Provenance — the attributed records this deal grew out of, when it
   /// came through the platform rather than being logged manually.
-  inquiryId     String?          @unique
-  bookingId     String?          @unique
-  reservationId String?          @unique
-  reservation   Reservation?     @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  inquiryId     String?      @unique
+  bookingId     String?      @unique
+  reservationId String?      @unique
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
   /// Agreed sale value in major units. Set by the developer — it is their
   /// price sheet — and frozen into commissionAmount when accrued.
-  saleValue     Float?
-  currency      String           @default("KES")
+  saleValue         Float?
+  currency          String           @default("KES")
   /// Defaults from the assignment or partnership when unset here.
   commissionPercent Float?
   /// Computed once at accrual and stored, so a later change to the percent
@@ -843,11 +845,11 @@ model Deal {
   commissionPaidAt  DateTime?
   disputeReason     String?
 
-  notes         String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  events        DealEvent[]
+  events DealEvent[]
 
   @@index([agentId, stage])
   @@index([developerId, stage])
@@ -891,24 +893,24 @@ model DealEvent {
 /// WhatsApp on every page. View tracking tells the agent which property
 /// the client kept coming back to, which is what to lead with on the call.
 model ClientRoom {
-  id         String   @id @default(cuid())
+  id         String       @id @default(cuid())
   agentId    String
   agent      AgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Unguessable share token — the room is private to whoever holds the
   /// link, which is the same trust model as the WhatsApp thread it rides in.
-  token      String   @unique
+  token      String       @unique
   title      String
   /// Who it was made for, as the agent knows them. Shown to the client as
   /// a greeting, never publicly.
   clientName String?
   /// The agent's covering note, shown at the top of the room.
   note       String?
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  isActive   Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
 
-  items      ClientRoomItem[]
-  views      ClientRoomView[]
+  items ClientRoomItem[]
+  views ClientRoomView[]
 
   @@index([agentId])
 }
@@ -988,7 +990,7 @@ model Mandate {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  requests          MandateRequest[]
+  requests MandateRequest[]
 
   /// One mandate per property — reopening reuses the row, so the pool never
   /// shows the same development twice with different terms.
@@ -1022,56 +1024,56 @@ model MandateRequest {
 // ─────────────────────────────────────────────
 
 model Property {
-  id                  String            @id @default(cuid())
-  slug                String            @unique
-  name                String
-  tagline             String?
-  description         String?
-  category            PropertyCategory  @default(APARTMENT)
-  status              PropertyStatus    @default(DRAFT)
-  developerId         String
-  developer           DeveloperProfile  @relation(fields: [developerId], references: [id])
-  addressLine         String?
-  neighborhood        String?
-  city                String            @default("Nairobi")
-  county              String?
-  country             String            @default("Kenya")
-  latitude            Float?
-  longitude           Float?
-  heroImageUrl        String?
-  heroVideoUrl        String?
-  priceFrom           Float?
-  priceTo             Float?
-  currency            String            @default("KES")
-  hasCinematicTour    Boolean           @default(false)
-  has3DTour           Boolean           @default(false)
-  hasVRTour           Boolean           @default(false)
-  isFeatured          Boolean           @default(false)
-  tags                String[]
+  id               String           @id @default(cuid())
+  slug             String           @unique
+  name             String
+  tagline          String?
+  description      String?
+  category         PropertyCategory @default(APARTMENT)
+  status           PropertyStatus   @default(DRAFT)
+  developerId      String
+  developer        DeveloperProfile @relation(fields: [developerId], references: [id])
+  addressLine      String?
+  neighborhood     String?
+  city             String           @default("Nairobi")
+  county           String?
+  country          String           @default("Kenya")
+  latitude         Float?
+  longitude        Float?
+  heroImageUrl     String?
+  heroVideoUrl     String?
+  priceFrom        Float?
+  priceTo          Float?
+  currency         String           @default("KES")
+  hasCinematicTour Boolean          @default(false)
+  has3DTour        Boolean          @default(false)
+  hasVRTour        Boolean          @default(false)
+  isFeatured       Boolean          @default(false)
+  tags             String[]
   /// On-site facilities the development itself has — pool, gym, borehole,
   /// backup generator, 24/7 guards. Distinct from the `amenities` relation
   /// below, which holds nearby landmarks the development does NOT own
   /// (schools, hospitals, malls) and carries a distance to each.
-  features            String[]
+  features         String[]
   /// On-site facilities that belong to a home rather than the development —
   /// fitted kitchen, ensuite, balcony, DSQ. Split from `features` because a
   /// buyer reads "what comes with my apartment" and "what the building has"
   /// as two different questions, and answering both from one list forces them
   /// to work out which is which.
-  unitFeatures        String[]
-  completionDate      DateTime?
-  submissionData      Json?
+  unitFeatures     String[]
+  completionDate   DateTime?
+  submissionData   Json?
 
   // ─── House rules ─────────────────────────────────────────────────────────
   /// Null means "not stated" rather than "no pets" — a blank policy and a
   /// no-pets policy are different answers, and showing the second when the
   /// developer meant the first loses them tenants.
-  petsAllowed         Boolean?
-  petPolicy           String?
-  leaseTerms          String?
+  petsAllowed     Boolean?
+  petPolicy       String?
+  leaseTerms      String?
   /// The neighbourhood in the developer's own words. Distinct from
   /// `description`, which sells the building.
-  areaDescription     String?
+  areaDescription String?
 
   // ─── Mini-site branding ──────────────────────────────────────────────────
   //
@@ -1082,20 +1084,20 @@ model Property {
 
   /// Brand accent as #rrggbb. Tints are derived at render, so one colour in
   /// yields a whole palette — a developer cannot produce an unreadable theme.
-  brandColor          String?
+  brandColor           String?
   /// Curated pairing key (see BRAND_FONTS). Deliberately not free-form: one
   /// bad font would undermine a tour the developer paid six figures for.
-  brandFont           String?
+  brandFont            String?
   /// Mini-site template key (see MINI_SITE_TEMPLATES). Decides the page shell —
   /// navbar, hero, section chrome — not the sections themselves, which are
   /// shared so every development gets the same functionality whatever it picks.
-  templateKey         String?
+  templateKey          String?
   /// Opening treatment — full-bleed video, split, or cinematic.
-  heroStyle           String?
+  heroStyle            String?
   /// Section ids in display order. Empty means the default order.
-  sectionOrder        String[]
+  sectionOrder         String[]
   /// Section ids to omit entirely for this development.
-  hiddenSections      String[]
+  hiddenSections       String[]
   /// Per-section copy overrides, keyed by section id:
   ///   { "units": { "heading": "…", "body": "…",
   ///                "ctaLabel": "…", "ctaHref": "…" } }
@@ -1105,7 +1107,7 @@ model Property {
   /// migration for every new field, for data no query ever filters on. Every
   /// field is optional and blank falls back to the template's own wording, so
   /// a development that sets nothing renders exactly as it does today.
-  sectionCopy         Json?
+  sectionCopy          Json?
   /// How each unit type's price is presented, keyed by derived unit type key
   /// ("bed-2", "penthouse") to one of exact | from | range | hidden.
   ///
@@ -1114,57 +1116,57 @@ model Property {
   /// editing what a unit costs. Keys are derived from inventory rather than
   /// declared, so a stale key for a sold-out type is inert rather than an
   /// error.
-  unitPriceDisplay    Json?
+  unitPriceDisplay     Json?
   /// Primary call to action — "Book a viewing", "Request price list"…
-  ctaLabel            String?
+  ctaLabel             String?
   /// SOLID or FLOATING — whether the navbar is pinned flush or floats clear.
-  navbarStyle         String?
+  navbarStyle          String?
   /// LIGHT, DARK or BRAND. Foreground text is derived, never chosen, so a
   /// dark bar cannot end up carrying dark text.
-  navbarTheme         String?
+  navbarTheme          String?
   /// Whether the hero keeps its gradient overlay. Defaults true: the overlay
   /// is what keeps the overlaid status chips legible, so turning it off is a
   /// deliberate choice for renders that do not need it.
-  heroOverlay         Boolean           @default(true)
+  heroOverlay          Boolean   @default(true)
   /// Vanity host, e.g. "tours.developer.co.ke". Unique because it routes.
-  customDomain        String?           @unique
+  customDomain         String?   @unique
   /// Free e-resi address: "<subdomain>.e-resi.com". Defaults to the slug;
   /// the developer can change it. Unique because it routes.
-  subdomain           String?           @unique
+  subdomain            String?   @unique
   /// How customDomain is connected: CLOUDFLARE_ZONE (whole domain added to
   /// e-resi's Cloudflare, developer switches nameservers), CLOUDFLARE_SAAS
   /// (subdomain CNAMEd to us) or MANUAL (automation not configured).
-  domainProvider      String?
+  domainProvider       String?
   /// Cloudflare zone id or custom-hostname id, so it can be checked and removed.
-  domainExternalId    String?
+  domainExternalId     String?
   /// Nameservers the developer must set at their registrar (zone mode).
-  domainNameservers   String[]          @default([])
+  domainNameservers    String[]  @default([])
   /// PENDING until Cloudflare sees the DNS change, then ACTIVE; ERROR with
   /// domainError when Cloudflare refused; MANUAL when not automated.
-  domainStatus        String?
-  domainError         String?
-  domainVerifiedAt    DateTime?
-  domainCheckedAt     DateTime?
+  domainStatus         String?
+  domainError          String?
+  domainVerifiedAt     DateTime?
+  domainCheckedAt      DateTime?
   /// Billing for the custom domain. Mode and fee are snapshotted at request
   /// time, so an admin changing prices later does not reprice a domain a
   /// developer already pays for. ONE_TIME is paid once per development;
   /// MONTHLY is invoiced again before domainPaidThrough.
-  domainBillingMode   String?
-  domainFee           Float?
-  domainInvoiceId     String?
-  domainPaidAt        DateTime?
-  domainPaidThrough   DateTime?
+  domainBillingMode    String?
+  domainFee            Float?
+  domainInvoiceId      String?
+  domainPaidAt         DateTime?
+  domainPaidThrough    DateTime?
   /// The <subdomain>.e-resi.com address only routes once activated — paid
   /// for (one-time) or granted by an admin.
   subdomainActivatedAt DateTime?
-  subdomainInvoiceId  String?
+  subdomainInvoiceId   String?
   /// Hide e-resi attribution entirely. Top-tier only — the free tier keeps a
   /// small "Tours by e-resi" mark, which is what stops the mini-site being a
   /// standalone microsite a developer could just take elsewhere.
-  whiteLabel          Boolean           @default(false)
+  whiteLabel           Boolean   @default(false)
 
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   units               Unit[]
   agentAssignments    PropertyAssignment[]
@@ -1191,16 +1193,16 @@ model Property {
   mandate             Mandate?
 
   conversations Conversation[]
+  /// Approval workflow — why a listing was rejected, and by whom.
+  reviewNotes   String?
+  reviewedById  String?
+  reviewedAt    DateTime?
 
   @@index([slug])
   @@index([status])
   @@index([developerId])
   @@index([city])
   @@index([isFeatured])
-  /// Approval workflow — why a listing was rejected, and by whom.
-  reviewNotes  String?
-  reviewedById String?
-  reviewedAt   DateTime?
 }
 
 // ─────────────────────────────────────────────
@@ -1208,21 +1210,21 @@ model Property {
 // ─────────────────────────────────────────────
 
 model Unit {
-  id           String     @id @default(cuid())
-  propertyId   String
-  property     Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  name         String
-  floor        Int?
-  bedrooms     Int        @default(1)
-  bathrooms    Int        @default(1)
-  sqm          Float?
-  price        Float
-  currency     String     @default("KES")
-  status       UnitStatus @default(AVAILABLE)
-  floorPlanId  String?
-  features     String[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id          String     @id @default(cuid())
+  propertyId  String
+  property    Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name        String
+  floor       Int?
+  bedrooms    Int        @default(1)
+  bathrooms   Int        @default(1)
+  sqm         Float?
+  price       Float
+  currency    String     @default("KES")
+  status      UnitStatus @default(AVAILABLE)
+  floorPlanId String?
+  features    String[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   reservations Reservation[]
   rentUnits    RentUnit[]
@@ -1272,24 +1274,24 @@ model RentListing {
   /// developerId stays populated with the building's developer either way —
   /// every public browse query keys on it — but management rights follow
   /// ownerId/managerKind/managingAgentId, not developerId.
-  ownerId                   String?
-  owner                     User?             @relation("OwnedRentListings", fields: [ownerId], references: [id], onDelete: SetNull)
-  managerKind               RentManagerKind   @default(DEVELOPER)
-  managingAgentId           String?
-  managingAgent             AgentProfile?     @relation("ManagedRentListings", fields: [managingAgentId], references: [id], onDelete: SetNull)
+  ownerId         String?
+  owner           User?           @relation("OwnedRentListings", fields: [ownerId], references: [id], onDelete: SetNull)
+  managerKind     RentManagerKind @default(DEVELOPER)
+  managingAgentId String?
+  managingAgent   AgentProfile?   @relation("ManagedRentListings", fields: [managingAgentId], references: [id], onDelete: SetNull)
   /// The owned unit this listing offers. One listing per ownership — an
   /// owner has one unit to let, and a second listing for it would just be
   /// the double-allocation problem wearing a rental hat.
-  unitOwnershipId           String?           @unique
-  unitOwnership             UnitOwnership?    @relation(fields: [unitOwnershipId], references: [id], onDelete: SetNull)
+  unitOwnershipId String?         @unique
+  unitOwnership   UnitOwnership?  @relation(fields: [unitOwnershipId], references: [id], onDelete: SetNull)
 
-  createdAt                 DateTime          @default(now())
-  updatedAt                 DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  lettingEngagements        LettingEngagement[]
-  rentUnits                 RentUnit[]
-  media                     MediaAsset[]
-  inquiries                 Inquiry[]
+  lettingEngagements LettingEngagement[]
+  rentUnits          RentUnit[]
+  media              MediaAsset[]
+  inquiries          Inquiry[]
 
   conversations Conversation[]
 
@@ -1307,11 +1309,15 @@ model RentUnit {
   id                String         @id @default(cuid())
   rentListingId     String
   rentListing       RentListing    @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
-  /** The physical unit this offer refers to, when one exists — lets a tenant reserve it. */
+  /**
+   * The physical unit this offer refers to, when one exists — lets a tenant reserve it.
+   */
   unitId            String?
   unit              Unit?          @relation(fields: [unitId], references: [id], onDelete: SetNull)
   label             String
-  /** Layout being let: "Studio", "2 Bedroom", "Penthouse". */
+  /**
+   * Layout being let: "Studio", "2 Bedroom", "Penthouse".
+   */
   unitType          String?
   floor             Int?
   bedrooms          Int            @default(1)
@@ -1324,14 +1330,16 @@ model RentUnit {
   furnishing        FurnishingType @default(UNFURNISHED)
   features          String[]
   cinematicSceneIds String[]
-  /** Which of the property's tours to show for this unit type. */
+  /**
+   * Which of the property's tours to show for this unit type.
+   */
   showCinematicTour Boolean        @default(false)
   show3DTour        Boolean        @default(false)
   showVRTour        Boolean        @default(false)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  reservations      Reservation[]
+  reservations Reservation[]
 
   @@index([rentListingId])
   @@index([unitId])
@@ -1342,24 +1350,24 @@ model RentUnit {
 // ─────────────────────────────────────────────
 
 model MediaAsset {
-  id              String       @id @default(cuid())
-  type            MediaType
-  url             String
-  thumbnailUrl    String?
-  title           String?
-  order           Int          @default(0)
-  isFeatured      Boolean      @default(false)
-  sizeBytes       Int?
-  mimeType        String?
-  propertyId      String?
-  property        Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  rentListingId   String?
-  rentListing     RentListing? @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
+  id            String       @id @default(cuid())
+  type          MediaType
+  url           String
+  thumbnailUrl  String?
+  title         String?
+  order         Int          @default(0)
+  isFeatured    Boolean      @default(false)
+  sizeBytes     Int?
+  mimeType      String?
+  propertyId    String?
+  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rentListingId String?
+  rentListing   RentListing? @relation(fields: [rentListingId], references: [id], onDelete: Cascade)
   /// Media of one specific unit — its interiors, its walkthrough video —
   /// as opposed to the building's shared gallery.
-  unitId          String?
-  unit            Unit?        @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  createdAt       DateTime     @default(now())
+  unitId        String?
+  unit          Unit?        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
 
   @@index([propertyId])
   @@index([rentListingId])
@@ -1401,36 +1409,36 @@ model CinematicScene {
 /// separate captures at different times, and a buyer choosing "Kitchen" should
 /// load the kitchen rather than wait for a tower they did not ask for.
 model DigitalTwin {
-  id            String   @id @default(cuid())
-  propertyId    String
-  property      Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   /// What this model is of — "Full building", "2 Bed Show Unit", "Amenities".
   /// Shown as the label on the switcher a visitor picks from.
-  label         String   @default("Full building")
+  label     String   @default("Full building")
   /// Groups the switcher: BUILDING, UNIT, AMENITY, ROOM.
-  kind          TwinKind @default(BUILDING)
+  kind      TwinKind @default(BUILDING)
   /// A still for the switcher tile, so a visitor sees what they are choosing.
-  posterUrl     String?
+  posterUrl String?
   /// Which model opens first. Exactly one per property should carry it.
-  isPrimary     Boolean  @default(false)
-  order         Int      @default(0)
+  isPrimary Boolean  @default(false)
+  order     Int      @default(0)
 
   /// The published .glb — Draco or Meshopt compressed, KTX2 textures.
-  meshUrl       String
+  meshUrl  String
   /// A heavily decimated shell loaded first, so the dollhouse appears while
   /// the detailed geometry is still streaming. Optional: a small model does
   /// not need one.
-  proxyUrl      String?
+  proxyUrl String?
 
   /// Metres per model unit. Almost always 1 — glTF is metre-scaled by
   /// definition — but a model exported from a unit-less tool is not, and
   /// publishing measurements from an unverified scale would hand a buyer
   /// confident wrong numbers.
-  scale         Float    @default(1)
+  scale         Float   @default(1)
   /// Confirmed on site against a known dimension. Measurement stays hidden in
   /// the viewer until this is true.
-  scaleVerified Boolean  @default(false)
+  scaleVerified Boolean @default(false)
 
   /// Reported at upload so the delivery budget is visible rather than
   /// discovered on a phone over mobile data.
@@ -1439,46 +1447,46 @@ model DigitalTwin {
 
   /// Where the camera starts, in model space. Without this the viewer has to
   /// guess, and a model whose origin sits off in a corner opens on nothing.
-  originX       Float    @default(0)
-  originY       Float    @default(0)
-  originZ       Float    @default(0)
+  originX Float @default(0)
+  originY Float @default(0)
+  originZ Float @default(0)
 
   /// Storey labels, bottom to top — drives the floor selector.
-  floors        String[]
+  floors String[]
 
-  capturedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  capturedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  waypoints     TwinWaypoint[]
-  tags          TwinTag[]
+  waypoints TwinWaypoint[]
+  tags      TwinTag[]
 
   @@index([propertyId])
 }
 
 /// One stop on the guided tour: where the camera goes and what it says there.
 model TwinWaypoint {
-  id          String      @id @default(cuid())
-  twinId      String
-  twin        DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
+  id     String      @id @default(cuid())
+  twinId String
+  twin   DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
 
-  label       String
+  label   String
   /// Shown over the model when the tour reaches this stop.
-  caption     String?
+  caption String?
   /// Which route this belongs to — "Full tour", "Kitchen", "Amenities".
-  route       String?
+  route   String?
 
   /// Camera position and the point it looks at, both in model space.
-  posX        Float
-  posY        Float
-  posZ        Float
-  lookX       Float       @default(0)
-  lookY       Float       @default(0)
-  lookZ       Float       @default(0)
+  posX  Float
+  posY  Float
+  posZ  Float
+  lookX Float @default(0)
+  lookY Float @default(0)
+  lookZ Float @default(0)
 
   /// Which storey this stop is on, indexing DigitalTwin.floors.
-  floor       Int         @default(0)
-  order       Int         @default(0)
+  floor Int @default(0)
+  order Int @default(0)
 
   /// A 360° image rendered from this exact spot, if one has been baked.
   ///
@@ -1491,16 +1499,16 @@ model TwinWaypoint {
   /// Set when the panorama was rendered, so a stale bake can be spotted.
   panoramaAt  DateTime?
 
-  createdAt   DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   @@index([twinId])
 }
 
 /// A pin on a specific point of the building, with something to say about it.
 model TwinTag {
-  id        String      @id @default(cuid())
-  twinId    String
-  twin      DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
+  id     String      @id @default(cuid())
+  twinId String
+  twin   DigitalTwin @relation(fields: [twinId], references: [id], onDelete: Cascade)
 
   title     String
   body      String?
@@ -1509,21 +1517,21 @@ model TwinTag {
   posX      Float
   posY      Float
   posZ      Float
-  floor     Int         @default(0)
-  createdAt DateTime    @default(now())
+  floor     Int      @default(0)
+  createdAt DateTime @default(now())
 
   @@index([twinId])
 }
 
 model TourSection3D {
-  id         String        @id @default(cuid())
+  id         String   @id @default(cuid())
   propertyId String
-  property   Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   label      String
-  order      Int           @default(0)
-  createdAt  DateTime      @default(now())
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
 
-  scenes     TourScene3D[]
+  scenes TourScene3D[]
 
   @@index([propertyId])
 }
@@ -1629,30 +1637,30 @@ model ConstructionUpdate {
 // ─────────────────────────────────────────────
 
 model Inquiry {
-  id              String        @id @default(cuid())
-  propertyId      String?
-  property        Property?     @relation(fields: [propertyId], references: [id])
-  rentListingId   String?
-  rentListing     RentListing?  @relation(fields: [rentListingId], references: [id])
-  userId          String?
-  user            User?         @relation(fields: [userId], references: [id])
-  name            String
-  email           String
-  phone           String?
-  message         String
-  interestedUnit  String?
-  status          InquiryStatus @default(NEW)
+  id             String        @id @default(cuid())
+  propertyId     String?
+  property       Property?     @relation(fields: [propertyId], references: [id])
+  rentListingId  String?
+  rentListing    RentListing?  @relation(fields: [rentListingId], references: [id])
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  name           String
+  email          String
+  phone          String?
+  message        String
+  interestedUnit String?
+  status         InquiryStatus @default(NEW)
   /// The agent who introduced this lead, when one did.
-  agentId         String?
-  agent           AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentId        String?
+  agent          AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
   /// Set when a reply turned this lead into a chat thread, so the inbox can
   /// point at the conversation instead of dead-ending in email.
-  conversationId  String?
-  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  replies         InquiryReply[]
+  replies InquiryReply[]
 
   @@index([propertyId])
   @@index([rentListingId])
@@ -1661,13 +1669,13 @@ model Inquiry {
 }
 
 model InquiryReply {
-  id         String   @id @default(cuid())
-  inquiryId  String
-  inquiry    Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
-  senderId   String
-  sender     User     @relation(fields: [senderId], references: [id])
-  message    String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  inquiryId String
+  inquiry   Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  message   String
+  createdAt DateTime @default(now())
 
   @@index([inquiryId])
 }
@@ -1677,28 +1685,28 @@ model InquiryReply {
 // ─────────────────────────────────────────────
 
 model Booking {
-  id          String        @id @default(cuid())
-  propertyId  String
-  property    Property      @relation(fields: [propertyId], references: [id])
-  userId      String?
-  user        User?         @relation(fields: [userId], references: [id])
+  id         String        @id @default(cuid())
+  propertyId String
+  property   Property      @relation(fields: [propertyId], references: [id])
+  userId     String?
+  user       User?         @relation(fields: [userId], references: [id])
   /// The agent who introduced this buyer, when one did. Set from the ?ref=
   /// on a shared link, or chosen by the developer when logging it manually.
   /// SetNull rather than Cascade: losing an agent must not erase the
   /// developer's booking.
-  agentId     String?
-  agent       AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  name        String
-  email       String
-  phone       String?
-  date        DateTime
-  time        String
-  type        BookingType   @default(PHYSICAL)
-  status      BookingStatus @default(PENDING)
-  message     String?
-  meetingUrl  String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  agentId    String?
+  agent      AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  name       String
+  email      String
+  phone      String?
+  date       DateTime
+  time       String
+  type       BookingType   @default(PHYSICAL)
+  status     BookingStatus @default(PENDING)
+  message    String?
+  meetingUrl String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
   @@index([propertyId])
   @@index([userId])
@@ -1731,10 +1739,10 @@ model Reservation {
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  documents  Document[]
-  payments   Payment[]
-  deal       Deal?
-  ownership  UnitOwnership?
+  documents Document[]
+  payments  Payment[]
+  deal      Deal?
+  ownership UnitOwnership?
 
   @@index([unitId])
   @@index([userId])
@@ -1746,29 +1754,29 @@ model Reservation {
 // ─────────────────────────────────────────────
 
 model Document {
-  id            String       @id @default(cuid())
-  reservationId String?
-  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  id                String       @id @default(cuid())
+  reservationId     String?
+  reservation       Reservation? @relation(fields: [reservationId], references: [id])
   /// Property-level documents: the developer's own library for one
   /// development — approvals, title deeds, brochures — independent of any
   /// single sale.
-  propertyId    String?
-  property      Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User         @relation(fields: [userId], references: [id])
-  name          String
-  url           String
-  type          String
-  sizeBytes     Int?
+  propertyId        String?
+  property          Property?    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User         @relation(fields: [userId], references: [id])
+  name              String
+  url               String
+  type              String
+  sizeBytes         Int?
   /// The developer asks the buyer to sign this one. Satisfied when a signed
   /// version points back at it.
-  requiresSignature Boolean  @default(false)
+  requiresSignature Boolean      @default(false)
   /// A signed re-upload points at the document it answers. Null for
   /// originals.
-  parentId      String?
-  parent        Document?    @relation("SignedVersion", fields: [parentId], references: [id], onDelete: Cascade)
-  signedVersions Document[]  @relation("SignedVersion")
-  createdAt     DateTime     @default(now())
+  parentId          String?
+  parent            Document?    @relation("SignedVersion", fields: [parentId], references: [id], onDelete: Cascade)
+  signedVersions    Document[]   @relation("SignedVersion")
+  createdAt         DateTime     @default(now())
 
   @@index([reservationId])
   @@index([propertyId])
@@ -1809,10 +1817,10 @@ model DeveloperStaff {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
+  activity StaffActivity[]
+
   @@unique([developerId, email])
   @@index([developerId])
-
-  activity        StaffActivity[]
 }
 
 /// One operation a staff member performed while acting as the developer —
@@ -1961,22 +1969,21 @@ model Payment {
 // ─────────────────────────────────────────────
 
 model ProductionTier {
-  id          String             @id @default(cuid())
-  propertyId  String             @unique
-  property    Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  tier        ProductionTierType @default(LISTING_ONLY)
+  id          String                @id @default(cuid())
+  propertyId  String                @unique
+  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tier        ProductionTierType    @default(LISTING_ONLY)
   /// Where the paid production work has got to.
   orderStatus ProductionOrderStatus @default(ORDERED)
   scheduledAt DateTime?
   deliveredAt DateTime?
   crewNotes   String?
   paidAmount  Float?
-  activatedAt DateTime           @default(now())
+  activatedAt DateTime              @default(now())
   expiresAt   DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 }
-
 
 // ─────────────────────────────────────────────
 // CHAT
@@ -1991,15 +1998,15 @@ model ProductionTier {
 /// started it, `counterparty` was contacted. Roles live on the User, not in
 /// these column names, so a new participant type needs no schema change.
 model Conversation {
-  id             String    @id @default(cuid())
+  id             String        @id @default(cuid())
   initiatorId    String
-  initiator      User      @relation("ConversationInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  initiator      User          @relation("ConversationInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
   counterpartyId String
-  counterparty   User      @relation("ConversationCounterparty", fields: [counterpartyId], references: [id], onDelete: Cascade)
+  counterparty   User          @relation("ConversationCounterparty", fields: [counterpartyId], references: [id], onDelete: Cascade)
   propertyId     String?
-  property       Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property       Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   rentListingId  String?
-  rentListing    RentListing? @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
+  rentListing    RentListing?  @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
   /// Set when the conversation is about an agent rather than a listing, so an
   /// enquiry to an agent has context the way a property enquiry does.
   agentId        String?
@@ -2012,10 +2019,12 @@ model Conversation {
   /// another pair of relations would not be.
   leadDealId     String?
   leadInquiryId  String?
-  lastMessageAt  DateTime  @default(now())
-  createdAt     DateTime  @default(now())
+  lastMessageAt  DateTime      @default(now())
+  createdAt      DateTime      @default(now())
 
-  messages       ChatMessage[]
+  messages  ChatMessage[]
+  /// Inquiries that were converted into this thread.
+  inquiries Inquiry[]
 
   /// One thread per pair per context — re-contacting about the same listing
   /// continues the thread rather than starting a second one.
@@ -2027,8 +2036,6 @@ model Conversation {
   @@index([initiatorId])
   @@index([counterpartyId])
   @@index([lastMessageAt])
-  /// Inquiries that were converted into this thread.
-  inquiries      Inquiry[]
 }
 
 model ChatMessage {
@@ -2138,13 +2145,13 @@ model ServiceCatalogItem {
 /// row here means "use the catalog's default price", which is also what keeps
 /// existing installs working unchanged until an admin sets a type price.
 model ServicePriceOverride {
-  id            String             @id @default(cuid())
-  serviceId     String
-  service       ServiceCatalogItem @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  propertyType  PropertyCategory
-  price         Float
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id           String             @id @default(cuid())
+  serviceId    String
+  service      ServiceCatalogItem @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  propertyType PropertyCategory
+  price        Float
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@unique([serviceId, propertyType])
   @@index([propertyType])
@@ -2233,25 +2240,25 @@ enum InvoiceStatus {
 }
 
 model Invoice {
-  id          String        @id @default(cuid())
+  id     String        @id @default(cuid())
   /// Human-facing sequential reference, e.g. "INV-2026-000042".
-  number      String        @unique
-  kind        InvoiceKind
-  status      InvoiceStatus @default(DRAFT)
+  number String        @unique
+  kind   InvoiceKind
+  status InvoiceStatus @default(DRAFT)
 
-  userId      String
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Set for subscription invoices; ties the invoice to its billing run.
-  listingFeeRunId String?   @unique
+  listingFeeRunId String?        @unique
   listingFeeRun   ListingFeeRun? @relation(fields: [listingFeeRunId], references: [id], onDelete: SetNull)
   /// Set for agent listing-fee invoices; same idea, other side of the market.
-  agentFeeRunId String?     @unique
-  agentFeeRun   AgentFeeRun? @relation(fields: [agentFeeRunId], references: [id], onDelete: SetNull)
+  agentFeeRunId   String?        @unique
+  agentFeeRun     AgentFeeRun?   @relation(fields: [agentFeeRunId], references: [id], onDelete: SetNull)
   /// For DOMAIN invoices: CUSTOM_DOMAIN or SUBDOMAIN — what paying unlocks.
-  domainItem  String?
+  domainItem      String?
   /// Set for production invoices.
-  propertyId  String?
-  property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  propertyId      String?
+  property        Property?      @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   /// Snapshot of the biller and customer at issue time — an invoice must not
   /// change retroactively when a company renames itself.
@@ -2259,31 +2266,31 @@ model Invoice {
   billedToEmail String
 
   /// Line items as [{ description, quantity, unitAmount, amount }].
-  lineItems   Json
-  subtotal    Float
-  taxPercent  Float         @default(0)
-  taxAmount   Float         @default(0)
-  total       Float
-  currency    String        @default("KES")
+  lineItems  Json
+  subtotal   Float
+  taxPercent Float  @default(0)
+  taxAmount  Float  @default(0)
+  total      Float
+  currency   String @default("KES")
 
-  issuedAt    DateTime?
-  dueAt       DateTime
-  paidAt      DateTime?
+  issuedAt     DateTime?
+  dueAt        DateTime
+  paidAt       DateTime?
   /// When the account is suspended if this stays unpaid. Set when a reminder
   /// carrying a termination warning goes out.
   terminatesAt DateTime?
 
   /// How many reminders have been sent, and when the last one went.
-  remindersSent Int         @default(0)
+  remindersSent  Int       @default(0)
   lastReminderAt DateTime?
 
-  paymentId   String?
-  notes       String?
+  paymentId String?
+  notes     String?
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  receipt     Receipt?
+  receipt Receipt?
 
   @@index([userId])
   @@index([status])
@@ -2326,17 +2333,17 @@ model Receipt {
 /// ProductionTier keeps modelling the packaged tier a listing sits on; this
 /// models the work actually owed.
 model ProductionOrder {
-  id          String                @id @default(cuid())
-  propertyId  String
-  property    Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String                @id @default(cuid())
+  propertyId String
+  property   Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// Catalog key, e.g. "photography". Matches ServiceCatalogItem.key when the
   /// service is still in the catalog; kept as a plain string so an order
   /// survives the catalog entry being renamed or retired.
-  serviceKey  String
-  label       String
-  amount      Float
-  currency    String                @default("KES")
-  status      ProductionOrderStatus @default(ORDERED)
+  serviceKey String
+  label      String
+  amount     Float
+  currency   String                @default("KES")
+  status     ProductionOrderStatus @default(ORDERED)
 
   /// What the developer asked for at order time.
   preferredDate String?
@@ -2349,10 +2356,10 @@ model ProductionOrder {
   crewNotes   String?
 
   /// The invoice line this was billed on, if it has been billed at all.
-  invoiceId   String?
+  invoiceId String?
 
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([propertyId, serviceKey])
   @@index([status])
@@ -2401,15 +2408,81 @@ model SiteVisit {
 
   /// Host the page was served on — e-resi.com, <name>.e-resi.com or a
   /// developer's own domain.
-  host        String?
+  host       String?
   /// The development this page belongs to, whichever address served it.
   /// Lets a developer see their own traffic.
-  propertyId  String?
-  property    Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([propertyId, createdAt])
   @@index([visitorId, createdAt])
   @@index([sessionId])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// SUPPORT
+// ─────────────────────────────────────────────
+
+enum SupportCategory {
+  ENQUIRY
+  HELP
+  ACCOUNT
+  BILLING
+  PARTNERSHIP
+  OTHER
+}
+
+enum SupportStatus {
+  OPEN
+  RESOLVED
+}
+
+/// A conversation between someone and the e-resi team: a signed-in user of
+/// any role, or a visitor who left an email or phone number. Separate from
+/// Conversation, which is always between two accounts about a listing.
+model SupportThread {
+  id            String          @id @default(cuid())
+  /// Null for a visitor who was not signed in.
+  userId        String?
+  user          User?           @relation("SupportThreadUser", fields: [userId], references: [id], onDelete: SetNull)
+  /// Role at the time of writing, so the inbox can group without a join.
+  role          UserRole?
+  name          String
+  email         String?
+  phone         String?
+  category      SupportCategory @default(ENQUIRY)
+  subject       String
+  status        SupportStatus   @default(OPEN)
+  /// Lets a visitor without an account reopen the thread from the link in
+  /// their reply email, or from the same browser.
+  accessToken   String          @unique
+  /// Page they were on when they wrote in.
+  pageUrl       String?
+  adminUnread   Boolean         @default(true)
+  userUnread    Boolean         @default(false)
+  lastMessageAt DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([status, lastMessageAt])
+}
+
+model SupportMessage {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     SupportThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  fromAdmin  Boolean       @default(false)
+  authorId   String?
+  author     User?         @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  /// Display name at the time of writing (staff write as themselves).
+  authorName String
+  body       String
+  createdAt  DateTime      @default(now())
+
+  @@index([threadId, createdAt])
 }

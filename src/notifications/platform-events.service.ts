@@ -582,6 +582,45 @@ export class PlatformEventsService {
     );
   }
 
+  // ─── Support ─────────────────────────────────────────────────────────────
+
+  /** Someone opened a support conversation. Emailed: it waits on a person. */
+  async supportThreadOpened(fromName: string, subject: string, threadId: string) {
+    await this.toAdmins(
+      `New support message from ${fromName}`,
+      `"${subject}" — open the support inbox to reply.`,
+      { label: 'Open support inbox', path: `/admin/support?thread=${threadId}` },
+      { id: threadId, type: 'SupportThread' },
+    );
+  }
+
+  /** A follow-up on an existing support conversation. In-app only. */
+  async supportUserReplied(fromName: string, subject: string, threadId: string) {
+    await this.toAdmins(
+      `${fromName} replied in support`,
+      `New message on "${subject}".`,
+      { label: 'Open conversation', path: `/admin/support?thread=${threadId}` },
+      { id: threadId, type: 'SupportThread' },
+      false,
+    );
+  }
+
+  /** The e-resi team answered a signed-in user's support conversation. */
+  async supportAdminReplied(userId: string, role: string | null, subject: string, excerpt: string, threadId: string) {
+    const portal = role === 'DEVELOPER' ? '/dashboard' : role === 'AGENT' ? '/agent' : role === 'ADMIN' ? '/admin' : '/account';
+    await this.toUser(
+      userId,
+      'GENERAL',
+      `e-resi support replied: ${subject}`,
+      excerpt,
+      {
+        cta: { label: 'View conversation', path: `${portal}/support?thread=${threadId}` },
+        resourceId: threadId,
+        resourceType: 'SupportThread',
+      },
+    );
+  }
+
   async newInquiry(propertyName: string, fromName: string, inquiryId: string) {
     await this.toAdmins(
       `New inquiry on ${propertyName}`,
