@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CreateUnitDto } from './dto/create-unit.dto.js';
+import { BulkCreateUnitsDto } from './dto/bulk-create-units.dto.js';
 import { UpdateUnitDto } from './dto/update-unit.dto.js';
 import { UnitsService } from './units.service.js';
 
@@ -37,6 +38,18 @@ export class UnitsController {
     @Body() dto: CreateUnitDto,
   ) {
     return this.unitsService.create(slug, user.id, user.role, dto);
+  }
+
+  @Post('bulk')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer: import many units at once (all or nothing)' })
+  bulkCreate(
+    @Param('slug') slug: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Body() dto: BulkCreateUnitsDto,
+  ) {
+    return this.unitsService.bulkCreate(slug, user.id, user.role, dto.units);
   }
 
   @Patch(':id')

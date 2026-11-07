@@ -43,6 +43,61 @@ export class UnitsService {
     });
   }
 
+  /**
+   * Import many units at once — the bulk upload from the units page.
+   *
+   * All or nothing: every row is checked before anything is written, so a
+   * developer fixing row 40 of their sheet never ends up with rows 1–39
+   * imported twice on the retry. Names must be unique within the sheet and
+   * against the development's existing units, since a buyer told "Unit A-101"
+   * must be able to find exactly one.
+   */
+  async bulkCreate(propertySlug: string, userId: string, userRole: UserRole, units: CreateUnitDto[]) {
+    const property = await this.assertPropertyOwner(propertySlug, userId, userRole);
+
+    const key = (n: string) => n.trim().toLowerCase();
+    const seen = new Set<string>();
+    const repeated = new Set<string>();
+    for (const u of units) {
+      const k = key(u.name);
+      if (seen.has(k)) repeated.add(u.name.trim());
+      seen.add(k);
+    }
+    if (repeated.size) {
+      throw new BadRequestException(`These unit names appear more than once in the file: ${[...repeated].slice(0, 10).join(', ')}`);
+    }
+
+    const existing = await this.prisma.unit.findMany({ where: { propertyId: property.id }, select: { name: true } });
+    const taken = existing.map((e) => e.name).filter((n) => seen.has(key(n)));
+    if (taken.length) {
+      throw new BadRequestException(`These units already exist in this development: ${taken.slice(0, 10).join(', ')}`);
+    }
+
+    const planIds = [...new Set(units.map((u) => u.floorPlanId).filter((x): x is string => !!x))];
+    if (planIds.length) {
+      const plans = await this.prisma.floorPlan.count({ where: { id: { in: planIds }, propertyId: property.id } });
+      if (plans !== planIds.length) throw new BadRequestException('A floor plan in the file does not belong to this development');
+    }
+
+    const currency = (property.currency ?? 'KES').toUpperCase();
+    const result = await this.prisma.unit.createMany({
+      data: units.map((dto) => ({
+        propertyId: property.id,
+        name: dto.name.trim(),
+        floor: dto.floor,
+        bedrooms: dto.bedrooms ?? 1,
+        bathrooms: dto.bathrooms ?? 1,
+        sqm: dto.sqm,
+        price: dto.price,
+        currency: (dto.currency ?? currency).toUpperCase(),
+        status: dto.status ?? 'AVAILABLE',
+        features: dto.features ?? [],
+        floorPlanId: dto.floorPlanId,
+      })),
+    });
+    return { created: result.count };
+  }
+
   async findAll(propertySlug: string) {
     const property = await this.prisma.property.findUnique({ where: { slug: propertySlug } });
     if (!property) throw new NotFoundException('Property not found');
