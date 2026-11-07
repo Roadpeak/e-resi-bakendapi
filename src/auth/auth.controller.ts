@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,6 +9,7 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +28,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { SendVerificationCodeDto, VerifyCodeDto } from './dto/verify-code.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { GoogleOneTapDto } from './dto/google-one-tap.dto.js';
 
 /**
  * The role chosen before the redirect, carried in OAuth `state`.
@@ -105,6 +108,61 @@ export class AuthController {
       const message = err instanceof Error ? err.message : 'Google sign-in failed';
       res.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}`);
     }
+  }
+
+  /**
+   * The Google OAuth client ID, for Google Identity Services on the page.
+   * Public by design (it is embedded in every Google sign-in button); serving
+   * it here keeps it in one place instead of a second frontend build variable.
+   */
+  @Public()
+  @Get('google/client-id')
+  @ApiOperation({ summary: 'Public: Google client ID for One Tap' })
+  googleClientId() {
+    return { clientId: this.config.get<string>('GOOGLE_CLIENT_ID') ?? null };
+  }
+
+  /**
+   * Google One Tap: sign in, or create an account, without leaving the page.
+   *
+   * Used on property pages so a visitor becomes a known lead in one tap while
+   * they keep browsing. The ID token is verified with Google and must be
+   * issued to our client for a verified address; then it goes through the
+   * same googleSignIn() as the redirect flow (link-or-create, refresh cookie).
+   */
+  @Public()
+  @Post('google/one-tap')
+  @ApiOperation({ summary: 'Sign in / sign up with a Google One Tap credential' })
+  async googleOneTap(@Body() dto: GoogleOneTapDto, @Res({ passthrough: true }) res: Response) {
+    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
+    if (!clientId) throw new BadRequestException('Google sign-in is not configured');
+
+    const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(dto.credential)}`);
+    if (!r.ok) throw new UnauthorizedException('Google could not verify this sign-in');
+    const t = (await r.json()) as {
+      aud?: string; iss?: string; sub?: string; email?: string; email_verified?: string | boolean;
+      given_name?: string; family_name?: string; name?: string; picture?: string; exp?: string;
+    };
+    const verified = t.email_verified === true || t.email_verified === 'true';
+    if (t.aud !== clientId || !['accounts.google.com', 'https://accounts.google.com'].includes(t.iss ?? '')) {
+      throw new UnauthorizedException('This sign-in was not issued for e-resi');
+    }
+    if (!t.email || !t.sub || !verified) throw new UnauthorizedException('Google did not confirm this email address');
+    if (t.exp && Number(t.exp) * 1000 < Date.now()) throw new UnauthorizedException('This sign-in has expired — try again');
+
+    const [first, ...rest] = (t.name ?? '').split(' ');
+    return this.authService.googleSignIn(
+      {
+        googleId: t.sub,
+        email: t.email.toLowerCase(),
+        firstName: t.given_name || first || t.email.split('@')[0],
+        lastName: t.family_name || rest.join(' ') || '',
+        avatarUrl: t.picture,
+        emailVerified: verified,
+      },
+      dto.role ?? 'INVESTOR',
+      res,
+    );
   }
 
   @Post('logout')
