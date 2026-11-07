@@ -179,6 +179,7 @@ export class UsersService {
         ...(dto.companyName !== undefined && { companyName: dto.companyName }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.establishedYear !== undefined && { establishedYear: dto.establishedYear }),
+        ...(dto.completedProjects !== undefined && { completedProjects: dto.completedProjects }),
         ...(dto.website !== undefined && { website: dto.website }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
         ...(dto.phone !== undefined && { phone: dto.phone }),

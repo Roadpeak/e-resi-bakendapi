@@ -34,6 +34,13 @@ class SocialsDto {
 }
 
 export class UpdateDeveloperProfileDto {
+  /** Shown on the public developer page ("76 projects completed"). */
+  @ApiPropertyOptional({ example: 12 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  completedProjects?: number;
+
   @ApiPropertyOptional({ example: 'Acme Developers Ltd' })
   @IsOptional()
   @IsString()
