@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 
 import { resolveNotificationLink } from './notification-links.js';
+import { staffNotificationWhere } from './staff-notification-scope.js';
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -26,8 +27,14 @@ export class NotificationsService {
 
   // ─── Get user notifications ───────────────────────────────────────────────
 
-  async findMine(userId: string, pagination: PaginationDto, unreadOnly = false) {
-    const where = { userId, ...(unreadOnly && { read: false }) };
+  /** The notifications this reader may see: all of them, or a staff member's granted slice. */
+  private scope(userId: string, staffPages?: string[]) {
+    return staffPages ? { userId, ...staffNotificationWhere(staffPages) } : { userId };
+  }
+
+  async findMine(userId: string, pagination: PaginationDto, unreadOnly = false, staffPages?: string[]) {
+    const base = this.scope(userId, staffPages);
+    const where = { ...base, ...(unreadOnly && { read: false }) };
 
     const [data, total, unreadCount] = await Promise.all([
       this.prisma.notification.findMany({
@@ -37,7 +44,7 @@ export class NotificationsService {
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.notification.count({ where }),
-      this.prisma.notification.count({ where: { userId, read: false } }),
+      this.prisma.notification.count({ where: { ...base, read: false } }),
     ]);
 
     // Every portal opens notifications through `link`, resolved for this
@@ -63,18 +70,17 @@ export class NotificationsService {
 
   // ─── Mark as read ─────────────────────────────────────────────────────────
 
-  async markRead(id: string, userId: string) {
-    const notification = await this.prisma.notification.findUnique({ where: { id } });
+  async markRead(id: string, userId: string, staffPages?: string[]) {
+    const notification = await this.prisma.notification.findFirst({ where: { id, ...this.scope(userId, staffPages) } });
     if (!notification) throw new NotFoundException('Notification not found');
-    if (notification.userId !== userId) throw new NotFoundException('Notification not found');
     return this.prisma.notification.update({ where: { id }, data: { read: true } });
   }
 
   // ─── Mark all as read ─────────────────────────────────────────────────────
 
-  async markAllRead(userId: string) {
+  async markAllRead(userId: string, staffPages?: string[]) {
     const { count } = await this.prisma.notification.updateMany({
-      where: { userId, read: false },
+      where: { ...this.scope(userId, staffPages), read: false },
       data: { read: true },
     });
     return { message: `${count} notification(s) marked as read` };
@@ -82,17 +88,17 @@ export class NotificationsService {
 
   // ─── Delete notification ──────────────────────────────────────────────────
 
-  async remove(id: string, userId: string) {
-    const notification = await this.prisma.notification.findUnique({ where: { id } });
-    if (!notification || notification.userId !== userId) throw new NotFoundException('Notification not found');
+  async remove(id: string, userId: string, staffPages?: string[]) {
+    const notification = await this.prisma.notification.findFirst({ where: { id, ...this.scope(userId, staffPages) } });
+    if (!notification) throw new NotFoundException('Notification not found');
     await this.prisma.notification.delete({ where: { id } });
     return { message: 'Notification deleted' };
   }
 
   // ─── Unread count ─────────────────────────────────────────────────────────
 
-  async unreadCount(userId: string) {
-    const count = await this.prisma.notification.count({ where: { userId, read: false } });
+  async unreadCount(userId: string, staffPages?: string[]) {
+    const count = await this.prisma.notification.count({ where: { ...this.scope(userId, staffPages), read: false } });
     return { count };
   }
 }

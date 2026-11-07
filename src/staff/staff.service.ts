@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { resolveAppUrl } from '../common/app-url.js';
+import { StorageService } from '../media/storage.service.js';
 
 /** Dashboard pages a developer can delegate. Overview is always granted. */
 export const STAFF_PAGES = [
@@ -31,6 +32,7 @@ export class StaffService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     config: ConfigService,
+    private readonly storage: StorageService,
   ) {
     this.appUrl = resolveAppUrl(config);
   }
@@ -61,7 +63,7 @@ export class StaffService {
       where: { developerId: dev.id },
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { firstName: true, lastName: true, lastLoginAt: true } },
+        user: { select: { firstName: true, lastName: true, lastLoginAt: true, avatarUrl: true } },
       },
     });
     return staff.map(({ inviteToken, ...s }) => s);
@@ -169,7 +171,28 @@ export class StaffService {
     };
   }
 
-  async acceptInvite(token: string, dto: { password: string; firstName: string; lastName: string }) {
+  /** The invite as it stands, or why it can no longer be used. */
+  private async openInvite(token: string) {
+    const staff = await this.prisma.developerStaff.findUnique({ where: { inviteToken: token } });
+    if (!staff || staff.status !== 'INVITED') throw new NotFoundException('This invitation is no longer valid');
+    if (staff.inviteExpiresAt && staff.inviteExpiresAt < new Date()) {
+      throw new BadRequestException('This invitation has expired — ask for a new one');
+    }
+    return staff;
+  }
+
+  /**
+   * Profile photo for someone accepting an invite. They have no account yet,
+   * so the invite token is what authorises the upload.
+   */
+  async uploadInvitePhoto(token: string, file?: Express.Multer.File) {
+    await this.openInvite(token);
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file.mimetype?.startsWith('image/')) throw new BadRequestException('Profile photo must be an image');
+    return this.storage.upload('avatars', file.originalname, file.buffer, file.mimetype);
+  }
+
+  async acceptInvite(token: string, dto: { password: string; firstName: string; lastName: string; avatarUrl: string }) {
     const staff = await this.prisma.developerStaff.findUnique({
       where: { inviteToken: token },
     });
@@ -195,7 +218,7 @@ export class StaffService {
       }
       user = await this.prisma.user.update({
         where: { id: user.id },
-        data: { password: hashed, role: 'DEVELOPER', emailVerified: true },
+        data: { password: hashed, role: 'DEVELOPER', emailVerified: true, avatarUrl: dto.avatarUrl },
       });
     } else {
       user = await this.prisma.user.create({
@@ -204,6 +227,7 @@ export class StaffService {
           password: hashed,
           firstName: dto.firstName.trim(),
           lastName: dto.lastName.trim(),
+          avatarUrl: dto.avatarUrl,
           role: 'DEVELOPER',
           // The invite email reached them — that IS the verification.
           emailVerified: true,

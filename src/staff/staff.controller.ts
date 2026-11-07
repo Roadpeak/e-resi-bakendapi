@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AcceptInviteDto } from './dto/accept-invite.dto.js';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -44,11 +46,20 @@ export class StaffController {
   }
 
   @Public()
+  @Post('invite/:token/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Public: upload the profile photo for an invite being accepted (max 5MB)' })
+  invitePhoto(@Param('token') token: string, @UploadedFile() file: Express.Multer.File) {
+    return this.service.uploadInvitePhoto(token, file);
+  }
+
+  @Public()
   @Post('invite/:token/accept')
-  @ApiOperation({ summary: 'Public: accept an invite — set password, activate the account' })
+  @ApiOperation({ summary: 'Public: accept an invite — photo, password, activate the account' })
   accept(
     @Param('token') token: string,
-    @Body() dto: { password: string; firstName: string; lastName: string },
+    @Body() dto: AcceptInviteDto,
   ) {
     return this.service.acceptInvite(token, dto);
   }

@@ -23,6 +23,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { SendVerificationCodeDto, VerifyCodeDto } from './dto/verify-code.dto.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
@@ -189,9 +190,22 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update current user profile' })
   updateMe(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; staff?: { userId: string } },
     @Body() dto: UpdateProfileDto,
   ) {
-    return this.authService.updateMe(user.id, dto);
+    // A staff request carries the employer's id (see jwt.strategy). Their own
+    // profile lives on their own user — editing user.id would rewrite the
+    // company owner's name, phone and photo.
+    return this.authService.updateMe(user.staff?.userId ?? user.id, dto);
+  }
+
+  @Post('change-password')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change your password (requires the current one)' })
+  changePassword(
+    @CurrentUser() user: { id: string; staff?: { userId: string } },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.staff?.userId ?? user.id, dto);
   }
 }

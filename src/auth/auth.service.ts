@@ -18,6 +18,7 @@ import type { LoginDto } from './dto/login.dto.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import type { ResetPasswordDto } from './dto/reset-password.dto.js';
 import type { UpdateProfileDto } from './dto/update-profile.dto.js';
+import type { ChangePasswordDto } from './dto/change-password.dto.js';
 
 type SafeUser = Omit<
   User,
@@ -455,11 +456,19 @@ export class AuthService {
     // the company's data) but the person's own name and email — and the page
     // grants the UI renders from.
     if (staff) {
+      // Their own photo and phone, not the company's logo and number.
+      const me = await this.prisma.user.findUnique({
+        where: { id: staff.userId },
+        select: { avatarUrl: true, phone: true },
+      });
       return {
         ...safe,
         email: staff.email,
         firstName: staff.firstName,
         lastName: staff.lastName,
+        phone: me?.phone ?? null,
+        avatarUrl: me?.avatarUrl ?? null,
+        profileImageUrl: me?.avatarUrl ?? null,
         isStaff: true,
         staffPages: staff.pages,
       };
@@ -488,5 +497,30 @@ export class AuthService {
     });
 
     return this.sanitize(updated);
+  }
+
+  // ─── Change password (signed in) ─────────────────────────────────────────────
+
+  /**
+   * Change the signed-in person's password, proving the current one first.
+   * For a team member `userId` is their own account, never the employer's.
+   * Other sessions keep working until their refresh token expires.
+   */
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+    if (!user.password) {
+      throw new BadRequestException('This account signs in with Google. Use "Forgot password" to add a password.');
+    }
+    const ok = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!ok) throw new BadRequestException('Your current password is incorrect');
+    if (await bcrypt.compare(dto.newPassword, user.password)) {
+      throw new BadRequestException('Choose a password different from your current one');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(dto.newPassword, 12) },
+    });
+    return { message: 'Password updated' };
   }
 }
