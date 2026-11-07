@@ -429,6 +429,7 @@ model DeveloperProfile {
   listingFeeRuns    ListingFeeRun[]
   agentPartnerships AgentPartnership[]
   deals             Deal[]
+  leads                 DeveloperLead[]
   mandates          Mandate[]
 }
 
@@ -517,6 +518,7 @@ model AgentProfile {
   partnerships        AgentPartnership[]
   feeRuns             AgentFeeRun[]
   deals               Deal[]
+  leads               DeveloperLead[]
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -1189,6 +1191,7 @@ model Property {
   siteVisits          SiteVisit[]
   productionTier      ProductionTier?
   deals               Deal[]
+  leads               DeveloperLead[]
   clientRoomItems     ClientRoomItem[]
   mandate             Mandate?
 
@@ -2485,4 +2488,65 @@ model SupportMessage {
   createdAt  DateTime      @default(now())
 
   @@index([threadId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// LEADS (added by the developer's team)
+// ─────────────────────────────────────────────
+
+/// Where a hand-added lead came from.
+enum LeadSource {
+  WALK_IN
+  PHONE_CALL
+  REFERRAL
+  EVENT
+  SOCIAL_MEDIA
+  EMAIL
+  WEBSITE
+  AGENT
+  OTHER
+}
+
+/// How far a hand-added lead has progressed.
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  VIEWING
+  NEGOTIATING
+  WON
+  LOST
+}
+
+/// A lead the developer's team added by hand: a walk-in, a phone call, a
+/// show visitor. Leads collected automatically (inquiries, viewing requests)
+/// and leads agents register (deals) stay in their own tables; the Leads
+/// page merges all of them.
+model DeveloperLead {
+  id            String           @id @default(cuid())
+  developerId   String
+  developer     DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  /// SetNull: removing a development must not erase who was interested in it.
+  propertyId    String?
+  property      Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  /// The agent who referred them, when one did.
+  agentId       String?
+  agent         AgentProfile?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  phone         String?
+  source        LeadSource       @default(OTHER)
+  status        LeadStatus       @default(NEW)
+  /// What they are after, in the team's words: "2 bed, high floor".
+  interest      String?
+  budget        Float?
+  notes         String?
+  /// Who added it — the owner or a team member — for accountability.
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([developerId, createdAt])
+  @@index([propertyId])
 }

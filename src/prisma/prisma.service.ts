@@ -81,6 +81,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get unitOwnership() { return prismaInstance.unitOwnership; }
   get neighborhood() { return prismaInstance.neighborhood; }
   get developerStaff() { return prismaInstance.developerStaff; }
+  get developerLead() { return prismaInstance.developerLead; }
   get staffActivity() { return prismaInstance.staffActivity; }
   get lettingEngagement() { return prismaInstance.lettingEngagement; }
   get mandateRequest() { return prismaInstance.mandateRequest; }

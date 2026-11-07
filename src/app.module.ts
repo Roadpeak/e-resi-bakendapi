@@ -26,6 +26,7 @@ import { DocumentsModule } from './documents/documents.module.js';
 import { SavedPropertiesModule } from './saved-properties/saved-properties.module.js';
 import { NeighborhoodsModule } from './neighborhoods/neighborhoods.module.js';
 import { StaffModule } from './staff/staff.module.js';
+import { LeadsModule } from './leads/leads.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { BillingModule } from './billing/billing.module.js';
 import { ChatModule } from './chat/chat.module.js';
@@ -63,6 +64,7 @@ import { AppService } from './app.service.js';
     SavedPropertiesModule,
     NeighborhoodsModule,
     StaffModule,
+    LeadsModule,
     NotificationsModule,
     BillingModule,
     ChatModule,

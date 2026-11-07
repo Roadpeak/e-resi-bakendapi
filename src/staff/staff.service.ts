@@ -12,7 +12,7 @@ import { StorageService } from '../media/storage.service.js';
 /** Dashboard pages a developer can delegate. Overview is always granted. */
 export const STAFF_PAGES = [
   'properties', 'units', 'reservations', 'rentals', 'messages', 'partners',
-  'deals', 'mandates', 'inquiries', 'bookings', 'performance', 'analytics',
+  'deals', 'mandates', 'inquiries', 'leads', 'bookings', 'performance', 'analytics',
   'documents', 'billing', 'profile', 'team',
 ] as const;
 
