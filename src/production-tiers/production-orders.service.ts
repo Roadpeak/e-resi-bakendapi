@@ -74,6 +74,9 @@ export class ProductionOrdersService {
       const brief = selected[key] ?? {};
       const item = byKey.get(key);
       const prior = existingByKey.get(key);
+      // A service the admin has disabled (or removed) can't be newly ordered —
+      // e.g. picked in a draft before it was switched off.
+      if (!prior && !item) continue;
 
       const data = {
         label: item?.label ?? prior?.label ?? humanise(key),
