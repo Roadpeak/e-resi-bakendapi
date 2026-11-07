@@ -62,7 +62,9 @@ export class ProductionOrdersService {
       .catch(() => [] as { key: string; label: string; price: number; currency: string }[]);
     const byKey = new Map(catalog.map((c: { key: string; label: string; price: number; currency: string }) => [c.key, c]));
 
-    const existing = await this.prisma.productionOrder.findMany({ where: { propertyId } });
+    const existing = await this.prisma.productionOrder.findMany({ where: { propertyId }, orderBy: { createdAt: 'asc' } });
+    // A service can have several orders over time (re-ordered after delivery);
+    // the submission speaks for the latest one.
     const existingByKey = new Map(existing.map((o) => [o.serviceKey, o]));
 
     let created = 0;
@@ -186,27 +188,36 @@ export class ProductionOrdersService {
 
     const unknown = items.filter((i) => !byKey.has(i.serviceKey));
     if (unknown.length) {
+      // Distinguish a service an admin switched off from a key that never existed.
+      const all = await this.pricing.listServicesForType(property.category, true);
+      const disabled = all.filter((c: { key: string; isActive: boolean }) => !c.isActive && unknown.some((u) => u.serviceKey === c.key));
       throw new BadRequestException(
-        `Not in the catalog: ${unknown.map((u) => u.serviceKey).join(', ')}`,
+        disabled.length
+          ? `Currently unavailable: ${disabled.map((d: { label: string }) => d.label).join(', ')}`
+          : `Not in the catalog: ${unknown.map((u) => u.serviceKey).join(', ')}`,
       );
     }
 
-    // Re-ordering a service already in production would double-bill it. Only a
-    // cancelled one may be raised again.
-    const existing = await this.prisma.productionOrder.findMany({
-      where: { propertyId: property.id, serviceKey: { in: items.map((i) => i.serviceKey) } },
+    // A service already in progress must not be raised twice (double billing).
+    // Delivered or cancelled work can be ordered again: a second shoot, a
+    // refreshed tour. Each order keeps its own row, schedule and invoice.
+    const IN_PROGRESS = ['ORDERED', 'SCHEDULED', 'IN_PRODUCTION'] as const;
+    const blocked = await this.prisma.productionOrder.findMany({
+      where: {
+        propertyId: property.id,
+        serviceKey: { in: items.map((i) => i.serviceKey) },
+        status: { in: [...IN_PROGRESS] },
+      },
     });
-    const blocked = existing.filter((o) => o.status !== 'CANCELLED');
     if (blocked.length) {
       throw new BadRequestException(
-        `Already ordered: ${blocked.map((b) => b.label).join(', ')}`,
+        `Already in progress: ${blocked.map((b) => b.label).join(', ')}. You can order it again once it's delivered.`,
       );
     }
 
     const created = [];
     for (const item of items) {
       const cat = byKey.get(item.serviceKey)!;
-      const prior = existing.find((o) => o.serviceKey === item.serviceKey);
 
       const data = {
         label: cat.label,
@@ -216,18 +227,13 @@ export class ProductionOrdersService {
         preferredDate: item.preferredDate || null,
         instructions: item.instructions || null,
         accessInfo: item.accessInfo || null,
-        // A re-order is new work: clear the schedule and invoice of the
-        // cancelled attempt so it cannot be mistaken for already billed.
-        scheduledAt: null,
-        deliveredAt: null,
-        invoiceId: null,
       };
 
-      created.push(prior
-        ? await this.prisma.productionOrder.update({ where: { id: prior.id }, data })
-        : await this.prisma.productionOrder.create({
-          data: { propertyId: property.id, serviceKey: item.serviceKey, ...data },
-        }));
+      // Always a new row: earlier orders (delivered or cancelled) keep their
+      // own schedule and invoice as history.
+      created.push(await this.prisma.productionOrder.create({
+        data: { propertyId: property.id, serviceKey: item.serviceKey, ...data },
+      }));
     }
 
     await this.mergeIntoSubmission(property.id, items);

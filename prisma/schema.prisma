@@ -2364,7 +2364,9 @@ model ProductionOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([propertyId, serviceKey])
+  /// Not unique: a service can be ordered again once earlier work is
+  /// delivered or cancelled (a second shoot, a refreshed tour).
+  @@index([propertyId, serviceKey])
   @@index([status])
   @@index([propertyId])
 }

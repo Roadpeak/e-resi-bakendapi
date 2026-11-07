@@ -65,7 +65,9 @@ export class PricingController {
       action: 'pricing.tier.update',
       targetType: 'PricingPlan',
       targetId: id,
-      summary: `${after.label}: ${before.price} → ${after.price} ${after.currency}`,
+      summary: dto.isActive !== undefined && dto.isActive !== before.isActive
+        ? `${after.label} ${after.isActive ? 'enabled' : 'disabled'} for ordering`
+        : `${after.label}: ${before.price} → ${after.price} ${after.currency}`,
       changes: this.audit.diff(before as unknown as Record<string, unknown>, dto as Record<string, unknown>),
     });
     return after;
@@ -106,7 +108,9 @@ export class PricingController {
       action: 'pricing.service.update',
       targetType: 'ServiceCatalogItem',
       targetId: id,
-      summary: `${after.label}: ${before.price} → ${after.price} ${after.currency}`,
+      summary: dto.isActive !== undefined && dto.isActive !== before.isActive
+        ? `${after.label} ${after.isActive ? 'enabled' : 'disabled'} for ordering`
+        : `${after.label}: ${before.price} → ${after.price} ${after.currency}`,
       changes: this.audit.diff(before as unknown as Record<string, unknown>, dto as Record<string, unknown>),
     });
     return after;
