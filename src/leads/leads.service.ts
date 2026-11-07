@@ -23,6 +23,8 @@ export interface LeadRow {
   message: string | null;
   budget: number | null;
   addedBy: string | null;
+  /** Raw source key, for editing hand-added leads. */
+  source?: string;
   createdAt: Date;
 }
 
@@ -114,7 +116,7 @@ export class LeadsService {
         name: m.name, email: m.email ?? null, phone: m.phone ?? null,
         property: m.property, agent: m.agent, status: m.status,
         interest: m.interest ?? null, message: m.notes ?? null, budget: m.budget ?? null,
-        addedBy: m.createdByName ?? null, createdAt: m.createdAt,
+        addedBy: m.createdByName ?? null, source: m.source, createdAt: m.createdAt,
       })),
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
