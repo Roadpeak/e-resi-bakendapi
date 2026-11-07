@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AnalyticsService } from '../analytics/analytics.service.js';
 import type { CreateLeadDto } from './dto/create-lead.dto.js';
 import type { UpdateLeadDto } from './dto/update-lead.dto.js';
 
 /** Where a lead reached the developer from, as the Leads page groups them. */
 export type LeadChannel = 'AUTOMATIC' | 'AGENT' | 'MANUAL';
-export type LeadKind = 'INQUIRY' | 'BOOKING' | 'AGENT_DEAL' | 'MANUAL';
+export type LeadKind = 'INQUIRY' | 'BOOKING' | 'AGENT_DEAL' | 'MANUAL' | 'VIEWER';
 
 export interface LeadRow {
   id: string;
@@ -25,6 +26,8 @@ export interface LeadRow {
   addedBy: string | null;
   /** Raw source key, for editing hand-added leads. */
   source?: string;
+  /** For page viewers: what to pass to POST /analytics/viewers/capture. */
+  viewer?: { userId: string; propertyId: string; views: number };
   createdAt: Date;
 }
 
@@ -32,6 +35,9 @@ const SOURCE_LABEL: Record<string, string> = {
   WALK_IN: 'Walk-in', PHONE_CALL: 'Phone call', REFERRAL: 'Referral', EVENT: 'Event',
   SOCIAL_MEDIA: 'Social media', EMAIL: 'Email', WEBSITE: 'Website', AGENT: 'Agent', OTHER: 'Other',
 };
+
+/** How far back page viewers count as leads. */
+const VIEWER_DAYS = 365;
 
 /** Per-source cap: the page shows the most recent leads, newest first. */
 const TAKE = 500;
@@ -45,7 +51,10 @@ const TAKE = 500;
  */
 @Injectable()
 export class LeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly analytics: AnalyticsService,
+  ) {}
 
   private async developerOf(userId: string) {
     const dev = await this.prisma.developerProfile.findUnique({ where: { userId } });
@@ -63,7 +72,7 @@ export class LeadsService {
     const prop = { select: { id: true, name: true, slug: true } } as const;
     const agent = { select: { id: true, displayName: true } } as const;
 
-    const [inquiries, bookings, deals, manual] = await Promise.all([
+    const [inquiries, bookings, deals, manual, viewers] = await Promise.all([
       this.prisma.inquiry.findMany({
         where: { propertyId: { in: propertyIds } },
         include: { property: prop, agent },
@@ -88,6 +97,9 @@ export class LeadsService {
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
+      // Signed-in buyers who opened a development's page — the same list the
+      // analytics page shows. Over a year, so quiet interest is not lost.
+      this.analytics.interestedViewers({ developerUserId: userId }, VIEWER_DAYS),
     ]);
 
     const rows: LeadRow[] = [
@@ -111,6 +123,20 @@ export class LeadsService {
         property: d.property, agent: d.agent, status: d.stage,
         interest: null, message: null, budget: null, addedBy: null, createdAt: d.createdAt,
       })),
+      // Viewers who already sent an inquiry for that development are listed
+      // under it; showing them twice would double-count the same person.
+      ...viewers.rows
+        .filter((v) => v.user && !v.alreadyLead)
+        .map((v): LeadRow => ({
+          id: `${v.userId}:${v.propertyId}`, kind: 'VIEWER', channel: 'AUTOMATIC',
+          sourceLabel: `Opened the page · viewed ${v.views} time${v.views === 1 ? '' : 's'}`,
+          name: [v.user!.firstName, v.user!.lastName].filter(Boolean).join(' ') || v.user!.email,
+          email: v.user!.email, phone: v.user!.phone ?? null,
+          property: v.property, agent: null, status: 'VIEWED',
+          interest: null, message: null, budget: null, addedBy: null,
+          viewer: { userId: v.userId, propertyId: v.propertyId, views: v.views },
+          createdAt: v.lastViewedAt ? new Date(v.lastViewedAt) : new Date(0),
+        })),
       ...manual.map((m): LeadRow => ({
         id: m.id, kind: 'MANUAL', channel: 'MANUAL', sourceLabel: SOURCE_LABEL[m.source] ?? 'Other',
         name: m.name, email: m.email ?? null, phone: m.phone ?? null,
