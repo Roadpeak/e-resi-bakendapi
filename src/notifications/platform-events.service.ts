@@ -672,6 +672,30 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * A new automatic lead for a developer: an inquiry, a viewing request, or a
+   * signed-in buyer opening one of their developments. Opens the Leads page.
+   * Never throws — a lead is saved whether or not the notification lands.
+   */
+  async newLeadForDeveloper(
+    developerUserId: string,
+    lead: {
+      type: 'INQUIRY_RECEIVED' | 'GENERAL';
+      title: string;
+      body: string;
+      resourceId: string;
+      resourceType: 'Inquiry' | 'Booking' | 'Lead';
+    },
+  ) {
+    try {
+      await this.notifications.createNotification(
+        developerUserId, lead.type, lead.title, lead.body, lead.resourceId, lead.resourceType, '/dashboard/leads',
+      );
+    } catch {
+      // Ignored — see above.
+    }
+  }
+
   async newBooking(propertyName: string, byName: string, bookingId: string) {
     await this.toAdmins(
       `Viewing booked — ${propertyName}`,

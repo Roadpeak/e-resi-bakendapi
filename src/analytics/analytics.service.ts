@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AnalyticsEventType, Prisma, UserRole } from '@prisma/client';
+import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DealsService } from '../agents/deals.service.js';
 
@@ -20,6 +21,7 @@ export class AnalyticsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deals: DealsService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   // ─── Track event ──────────────────────────────────────────────────────────
@@ -33,7 +35,17 @@ export class AnalyticsService {
       });
       agentId = agent?.id;
     }
-    return this.prisma.analyticsEvent.create({
+    // A signed-in customer's first view of a development is an automatic lead
+    // for its developer. Checked before this view is written; notified in the
+    // background so tracking stays fast.
+    const firstView = dto.type === 'PAGE_VIEW' && userId && dto.propertyId
+      ? !(await this.prisma.analyticsEvent.findFirst({
+          where: { type: 'PAGE_VIEW', userId, propertyId: dto.propertyId },
+          select: { id: true },
+        }))
+      : false;
+
+    const event = await this.prisma.analyticsEvent.create({
       data: {
         type: dto.type,
         propertyId: dto.propertyId,
@@ -44,6 +56,33 @@ export class AnalyticsService {
         metadata: dto.metadata,
       },
     });
+
+    if (firstView) void this.notifyViewerLead(userId!, dto.propertyId!);
+    return event;
+  }
+
+  /** Tell the developer a signed-in buyer opened their development — once per person per development. */
+  private async notifyViewerLead(userId: string, propertyId: string) {
+    try {
+      const [viewer, property] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, phone: true, role: true } }),
+        this.prisma.property.findUnique({ where: { id: propertyId }, select: { name: true, developer: { select: { userId: true } } } }),
+      ]);
+      // Only customers are leads: developers and admins previewing a page are not.
+      if (!viewer || !['BUYER', 'INVESTOR', 'TENANT'].includes(viewer.role)) return;
+      const devUserId = property?.developer?.userId;
+      if (!devUserId || devUserId === userId) return;
+      const name = `${viewer.firstName} ${viewer.lastName}`.trim() || 'A signed-in buyer';
+      await this.events.newLeadForDeveloper(devUserId, {
+        type: 'GENERAL',
+        title: `New lead: ${name}`,
+        body: `${name} opened ${property!.name}${viewer.phone ? ` · ${viewer.phone}` : ''}. Save them as a lead from the Leads page.`,
+        resourceId: `${userId}:${propertyId}`,
+        resourceType: 'Lead',
+      });
+    } catch {
+      // Never let a notification break tracking.
+    }
   }
 
   // ─── Property stats (developer dashboard) ────────────────────────────────

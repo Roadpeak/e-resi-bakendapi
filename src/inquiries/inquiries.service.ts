@@ -80,8 +80,24 @@ export class InquiriesService {
         ...(dto.rentListingId && { rentListingId: dto.rentListingId }),
         ...(userId && { userId }),
       },
-      include: { property: { select: { name: true } } },
+      include: {
+        property: { select: { name: true, developer: { select: { userId: true } } } },
+        rentListing: { select: { name: true, developer: { select: { userId: true } } } },
+      },
     });
+
+    // Tell the developer — this is an automatic lead for them.
+    const developerUserId = inquiry.property?.developer?.userId ?? inquiry.rentListing?.developer?.userId;
+    if (developerUserId) {
+      const where = inquiry.property?.name ?? inquiry.rentListing?.name ?? 'your listing';
+      await this.events.newLeadForDeveloper(developerUserId, {
+        type: 'INQUIRY_RECEIVED',
+        title: `New lead: ${dto.name}`,
+        body: `${dto.name} sent an inquiry about ${where}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+        resourceId: inquiry.id,
+        resourceType: 'Inquiry',
+      });
+    }
 
     await this.events.newInquiry(
       inquiry.property?.name ?? 'a listing', dto.name, inquiry.id,

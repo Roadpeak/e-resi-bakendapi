@@ -60,6 +60,21 @@ export class BookingsService {
     });
 
     await this.events.newBooking(booking.property.name, dto.name, booking.id);
+    // Tell the developer — a viewing request is an automatic lead for them.
+    if (property.developerId) {
+      const dev = await this.prisma.developerProfile.findUnique({
+        where: { id: property.developerId }, select: { userId: true },
+      });
+      if (dev) {
+        await this.events.newLeadForDeveloper(dev.userId, {
+          type: 'GENERAL',
+          title: `New lead: ${dto.name}`,
+          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${booking.property.name}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+          resourceId: booking.id,
+          resourceType: 'Booking',
+        });
+      }
+    }
     // A booking that arrived through an agent's link is the agent's viewing
     // to run — they brought the client and they close the deal — so the
     // handling notification goes to them.

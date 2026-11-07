@@ -47,6 +47,8 @@ const RESOURCE_PAGE: Record<string, string> = {
   LettingEngagement: 'rentals',
   ChatThread: 'messages',
   Conversation: 'messages',
+  // A signed-in buyer who opened a development: lives on the Leads page.
+  Lead: 'leads',
 };
 
 /**
