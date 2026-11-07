@@ -2240,6 +2240,9 @@ enum InvoiceStatus {
   OVERDUE
   PAID
   CANCELLED
+  /// Cleared by an administrator without payment (logged in the audit
+  /// trail with who and why). Settled, but no money was received.
+  WAIVED
 }
 
 model Invoice {
@@ -2289,6 +2292,11 @@ model Invoice {
 
   paymentId String?
   notes     String?
+
+  /// Set when an administrator waived this invoice.
+  waivedAt     DateTime?
+  waivedById   String?
+  waiverReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

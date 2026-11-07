@@ -195,7 +195,7 @@ export class DomainBillingService implements OnModuleInit {
 
     if (p.subdomainInvoiceId) {
       const open = await this.prisma.invoice.findUnique({ where: { id: p.subdomainInvoiceId } });
-      if (open && open.status !== 'CANCELLED' && open.status !== 'PAID') {
+      if (open && open.status !== 'CANCELLED' && open.status !== 'PAID' && open.status !== 'WAIVED') {
         return { activated: false as const, invoice: { id: open.id, number: open.number, total: open.total, currency: open.currency } };
       }
     }

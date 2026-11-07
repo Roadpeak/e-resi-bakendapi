@@ -44,7 +44,7 @@ export class InvoicesService {
   /** Withdraw an unpaid invoice, e.g. for a domain the developer removed. */
   async cancel(invoiceId: string) {
     await this.prisma.invoice.updateMany({
-      where: { id: invoiceId, status: { notIn: ['PAID', 'CANCELLED'] } },
+      where: { id: invoiceId, status: { notIn: ['PAID', 'CANCELLED', 'WAIVED'] } },
       data: { status: 'CANCELLED' },
     });
   }
@@ -327,8 +327,8 @@ export class InvoicesService {
   async sendReminder(invoiceId: string): Promise<Invoice> {
     const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === 'PAID') {
-      throw new BadRequestException(`${invoice.number} is already paid`);
+    if (invoice.status === 'PAID' || invoice.status === 'WAIVED') {
+      throw new BadRequestException(`${invoice.number} is already ${invoice.status === 'WAIVED' ? 'waived' : 'paid'}`);
     }
     if (invoice.status === 'CANCELLED') {
       throw new BadRequestException(`${invoice.number} was cancelled`);
@@ -488,6 +488,76 @@ export class InvoicesService {
     return receipt;
   }
 
+  // ─── Waiver ──────────────────────────────────────────────────────────────
+
+  /**
+   * Waive an unpaid monthly listing-fee invoice (developer or agent) — an
+   * administrator's decision. Other invoice kinds are refused. The invoice becomes
+   * WAIVED (settled, but not paid: no receipt, no payment, revenue reports
+   * don't count it). Whatever paying would have unlocked is unlocked: the
+   * suspension countdown stops, the billing run is closed as skipped, an
+   * agent hidden for non-payment is listed again.
+   * The caller records the audit entry.
+   */
+  async waive(params: { invoiceId: string; actorId: string; reason: string }) {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: params.invoiceId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.status === 'PAID') throw new BadRequestException(`${invoice.number} is already paid`);
+    if (invoice.status === 'WAIVED') throw new BadRequestException(`${invoice.number} is already waived`);
+    if (invoice.status === 'CANCELLED') throw new BadRequestException(`${invoice.number} was cancelled`);
+    // Only the monthly listing fee (developer or agent) can be waived —
+    // production, domains and other charges are paid for real work.
+    if (invoice.kind !== 'SUBSCRIPTION' || (!invoice.listingFeeRunId && !invoice.agentFeeRunId)) {
+      throw new BadRequestException('Only monthly listing-fee invoices can be waived');
+    }
+
+    const waivedAt = new Date();
+    const updated = await this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: 'WAIVED',
+        waivedAt,
+        waivedById: params.actorId,
+        waiverReason: params.reason,
+        terminatesAt: null,
+      },
+    });
+
+    // Close the billing run this invoice belongs to, so the next sweep does
+    // not try to charge it again.
+    if (invoice.listingFeeRunId) {
+      await this.prisma.listingFeeRun.update({
+        where: { id: invoice.listingFeeRunId },
+        data: { status: 'SKIPPED', failureText: `Waived by admin: ${params.reason}`.slice(0, 500) },
+      }).catch((e) => this.logger.error(`Waive: listing run ${invoice.listingFeeRunId}: ${(e as Error).message}`));
+    }
+    if (invoice.agentFeeRunId) {
+      const run = await this.prisma.agentFeeRun.update({
+        where: { id: invoice.agentFeeRunId },
+        data: { status: 'SKIPPED', failureText: `Waived by admin: ${params.reason}`.slice(0, 500), graceEndsAt: null },
+        select: { agentId: true },
+      }).catch((e) => { this.logger.error(`Waive: agent run ${invoice.agentFeeRunId}: ${(e as Error).message}`); return null; });
+      // A waived fee lifts a non-payment suspension, as paying would.
+      if (run) {
+        await this.prisma.agentProfile.update({
+          where: { id: run.agentId },
+          data: { isListed: true, suspendedAt: null },
+        }).catch(() => undefined);
+      }
+    }
+
+    await this.notifications.createNotification(
+      invoice.userId,
+      'GENERAL',
+      `Listing fee waived (${invoice.number})`,
+      `Your listing fee of ${invoice.currency} ${invoice.total.toLocaleString()} has been waived. Nothing is owed on it.`,
+      invoice.id,
+      'Invoice',
+    ).catch(() => undefined);
+
+    return updated;
+  }
+
   // ─── Paying an invoice ───────────────────────────────────────────────────
 
   /**
@@ -504,6 +574,9 @@ export class InvoicesService {
     if (userId && invoice.userId !== userId) throw new NotFoundException('Invoice not found');
     if (invoice.status === 'PAID' || invoice.receipt) {
       throw new BadRequestException(`${invoice.number} is already paid`);
+    }
+    if (invoice.status === 'WAIVED') {
+      throw new BadRequestException(`${invoice.number} was waived — nothing to pay`);
     }
     if (invoice.status === 'CANCELLED') {
       throw new BadRequestException(`${invoice.number} was cancelled`);

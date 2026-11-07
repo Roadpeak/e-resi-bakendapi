@@ -528,7 +528,7 @@ export class PropertiesService {
     const invoiceIds = [property.domainInvoiceId, property.subdomainInvoiceId].filter((x): x is string => !!x);
     const openInvoices = invoiceIds.length
       ? await this.prisma.invoice.findMany({
-          where: { id: { in: invoiceIds }, status: { notIn: ['PAID', 'CANCELLED'] } },
+          where: { id: { in: invoiceIds }, status: { notIn: ['PAID', 'CANCELLED', 'WAIVED'] } },
           select: { id: true, number: true, total: true, currency: true, dueAt: true },
         })
       : [];
