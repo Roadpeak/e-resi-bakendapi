@@ -33,6 +33,8 @@ export interface LeadRow {
   details?: { label: string; value: string }[];
   /** Website leads: which form. */
   siteType?: string;
+  /** Website viewing bookings: the slot. */
+  slotAt?: Date | null;
   createdAt: Date;
 }
 
@@ -189,7 +191,7 @@ export class LeadsService {
           name: l.name, email: l.email, phone: l.phone,
           property: l.property, agent: null, status: l.status,
           interest: d.interest, message: l.message, budget: null, addedBy: null,
-          details: d.details, siteType: l.type, createdAt: l.createdAt,
+          details: d.details, siteType: l.type, slotAt: l.slotAt, createdAt: l.createdAt,
         };
       }),
       ...manual.map((m): LeadRow => ({
