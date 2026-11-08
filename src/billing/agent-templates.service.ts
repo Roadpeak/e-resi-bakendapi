@@ -21,6 +21,12 @@ const CATALOGUE: { key: string; name: string; description: string; tier: SiteTem
   { key: 'PORTAL', name: 'Portal', description: 'Your site as a property app: sidebar navigation, featured carousel with thumbnails, search panel with category tiles and budget filters.', tier: 'PREMIUM', sortOrder: 5 },
   { key: 'ARCADIA', name: 'Arcadia', description: 'Warm one-pager for individual agents: arch photos with drifting shapes, buyer and seller paths, one story at a time, contact form on the page.', tier: 'PREMIUM', sortOrder: 6 },
   { key: 'CREST', name: 'Crest', description: 'Crisp brokerage site: slide-in menu, featured-development hero with key facts, numbered category cards, tagged listings.', tier: 'PREMIUM', sortOrder: 7 },
+  { key: 'NEST', name: 'Nest', description: 'App-like and friendly: bento hero with reviews scrolling upward, booking-style listing cards, floating tab bar.', tier: 'PREMIUM', sortOrder: 8 },
+  { key: 'LINEA', name: 'Linea', description: 'Minimal, link-in-bio style: live listing search, a one-sentence hero with your photo inline, live clock, badges, load-more grid.', tier: 'PREMIUM', sortOrder: 9 },
+  { key: 'ROAM', name: 'Roam', description: 'Bold and friendly: giant headline over a rising photo, appraisal call to action, tilted client cards drifting past, bright area strip.', tier: 'PREMIUM', sortOrder: 10 },
+  { key: 'SUMMIT', name: 'Summit', description: 'Quiet luxury: inset rounded hero with huge thin type, cycling featured-home card, full-screen menu, buying/selling mini form.', tier: 'PREMIUM', sortOrder: 11 },
+  { key: 'METRO', name: 'Metro', description: 'Full-service agency: Properties dropdown (buy, sell, let), rolling odometer numbers, fact-rich listings, four-step process.', tier: 'PREMIUM', sortOrder: 12 },
+  { key: 'RESIDENCE', name: 'Residence', description: 'Complete estate agency: search panel over the hero with popular searches, KPI strip, neighbourhood list with preview, owner cards.', tier: 'PREMIUM', sortOrder: 13 },
 ];
 
 /** Sections every template understands, in the default order. */
