@@ -440,7 +440,7 @@ model DeveloperProfile {
   listingFeeRuns    ListingFeeRun[]
   agentPartnerships AgentPartnership[]
   deals             Deal[]
-  leads                 DeveloperLead[]
+  leads             DeveloperLead[]
   mandates          Mandate[]
 }
 
@@ -524,19 +524,19 @@ model AgentProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  reviews             AgentReview[]
-  conversations       Conversation[]
-  partnerships        AgentPartnership[]
-  feeRuns             AgentFeeRun[]
-  deals               Deal[]
-  leads               DeveloperLead[]
+  reviews       AgentReview[]
+  conversations Conversation[]
+  partnerships  AgentPartnership[]
+  feeRuns       AgentFeeRun[]
+  deals         Deal[]
+  leads         DeveloperLead[]
   /// Developments this agent lists as owner (not through a partnership).
-  ownedListings       Property[]       @relation("AgentOwnedListings")
-  ownedLeads          DeveloperLead[]  @relation("AgentOwnedLeads")
+  ownedListings Property[]         @relation("AgentOwnedListings")
+  ownedLeads    DeveloperLead[]    @relation("AgentOwnedLeads")
 
   // ─── Agent website (<siteHandle>.e-resi.com and/or a custom domain) ───────
   /// The chosen e-resi address label; routes once siteActivatedAt is set.
-  siteHandle            String?   @unique
+  siteHandle            String?               @unique
   siteActivatedAt       DateTime?
   /// Open invoice for the address fee, if any.
   siteInvoiceId         String?
@@ -544,19 +544,19 @@ model AgentProfile {
   siteAccent            String?
   siteHeroUrl           String?
   /// The agent's own domain for their site, e.g. kellerwilliams.co.ke.
-  siteCustomDomain      String?   @unique
+  siteCustomDomain      String?               @unique
   /// AWAITING_PAYMENT | PENDING | ACTIVE | ERROR | MANUAL
   siteDomainStatus      String?
   siteDomainProvider    String?
   siteDomainExternalId  String?
-  siteDomainNameservers String[]  @default([])
+  siteDomainNameservers String[]              @default([])
   siteDomainError       String?
   siteDomainCheckedAt   DateTime?
   siteDomainPaidAt      DateTime?
   siteDomainInvoiceId   String?
   /// Which template the agent website renders (AgentSiteTemplate.key). Falls
   /// back to CLASSIC when the chosen one is inactive or no longer unlocked.
-  siteTemplate          String    @default("CLASSIC")
+  siteTemplate          String                @default("CLASSIC")
   /// Section order and visibility: [{ id, visible }]. Templates render the
   /// sections they support in this order; unknown ids are ignored.
   siteSections          Json?
@@ -566,11 +566,14 @@ model AgentProfile {
   /// Short legal or disclaimer note under the footer.
   siteFooterNote        String?
   siteItems             AgentSiteItem[]
-  clientRooms         ClientRoom[]
-  mandateRequests     MandateRequest[]
-  analyticsEvents     AnalyticsEvent[]
-  managedRentListings RentListing[]       @relation("ManagedRentListings")
-  lettingEngagements  LettingEngagement[]
+  /// Which website forms are on, and viewing hours (see agent-site-leads.service).
+  siteForms             Json?
+  siteLeads             AgentSiteLead[]
+  clientRooms           ClientRoom[]
+  mandateRequests       MandateRequest[]
+  analyticsEvents       AnalyticsEvent[]
+  managedRentListings   RentListing[]         @relation("ManagedRentListings")
+  lettingEngagements    LettingEngagement[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -1073,25 +1076,25 @@ model MandateRequest {
 // ─────────────────────────────────────────────
 
 model Property {
-  id               String           @id @default(cuid())
-  slug             String           @unique
-  name             String
-  tagline          String?
-  description      String?
-  category         PropertyCategory @default(APARTMENT)
-  status           PropertyStatus   @default(DRAFT)
+  id                          String            @id @default(cuid())
+  slug                        String            @unique
+  name                        String
+  tagline                     String?
+  description                 String?
+  category                    PropertyCategory  @default(APARTMENT)
+  status                      PropertyStatus    @default(DRAFT)
   /// Exactly one owner: a developer, or an agent listing it themselves
   /// (the developer need not be on e-resi). Enforced by a CHECK constraint.
-  developerId      String?
-  developer        DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Restrict)
-  listedByAgentId  String?
-  listedByAgent    AgentProfile?     @relation("AgentOwnedListings", fields: [listedByAgentId], references: [id], onDelete: Restrict)
+  developerId                 String?
+  developer                   DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Restrict)
+  listedByAgentId             String?
+  listedByAgent               AgentProfile?     @relation("AgentOwnedListings", fields: [listedByAgentId], references: [id], onDelete: Restrict)
   /// For agent-owned listings: the developer's name as the agent gives it.
-  developerName    String?
+  developerName               String?
   /// The agent confirmed they are authorised to market this development.
-  marketingAuthorityConfirmed Boolean @default(false)
+  marketingAuthorityConfirmed Boolean           @default(false)
   /// Optional mandate / authority letter from the developer.
-  mandateDocUrl    String?
+  mandateDocUrl               String?
 
   // ─── Listing fee ───────────────────────────────────────────────────────────
   /// Admin's per-listing choice; null follows the default for its owner type.
@@ -1109,36 +1112,36 @@ model Property {
   listingPendingPlanAt DateTime?
   /// The open listing-fee invoice, if one is awaiting payment.
   listingInvoiceId     String?
-  addressLine      String?
-  neighborhood     String?
-  city             String           @default("Nairobi")
-  county           String?
-  country          String           @default("Kenya")
-  latitude         Float?
-  longitude        Float?
-  heroImageUrl     String?
-  heroVideoUrl     String?
-  priceFrom        Float?
-  priceTo          Float?
-  currency         String           @default("KES")
-  hasCinematicTour Boolean          @default(false)
-  has3DTour        Boolean          @default(false)
-  hasVRTour        Boolean          @default(false)
-  isFeatured       Boolean          @default(false)
-  tags             String[]
+  addressLine          String?
+  neighborhood         String?
+  city                 String       @default("Nairobi")
+  county               String?
+  country              String       @default("Kenya")
+  latitude             Float?
+  longitude            Float?
+  heroImageUrl         String?
+  heroVideoUrl         String?
+  priceFrom            Float?
+  priceTo              Float?
+  currency             String       @default("KES")
+  hasCinematicTour     Boolean      @default(false)
+  has3DTour            Boolean      @default(false)
+  hasVRTour            Boolean      @default(false)
+  isFeatured           Boolean      @default(false)
+  tags                 String[]
   /// On-site facilities the development itself has — pool, gym, borehole,
   /// backup generator, 24/7 guards. Distinct from the `amenities` relation
   /// below, which holds nearby landmarks the development does NOT own
   /// (schools, hospitals, malls) and carries a distance to each.
-  features         String[]
+  features             String[]
   /// On-site facilities that belong to a home rather than the development —
   /// fitted kitchen, ensuite, balcony, DSQ. Split from `features` because a
   /// buyer reads "what comes with my apartment" and "what the building has"
   /// as two different questions, and answering both from one list forces them
   /// to work out which is which.
-  unitFeatures     String[]
-  completionDate   DateTime?
-  submissionData   Json?
+  unitFeatures         String[]
+  completionDate       DateTime?
+  submissionData       Json?
 
   // ─── House rules ─────────────────────────────────────────────────────────
   /// Null means "not stated" rather than "no pets" — a blank policy and a
@@ -1266,6 +1269,7 @@ model Property {
   productionTier      ProductionTier?
   deals               Deal[]
   leads               DeveloperLead[]
+  siteLeads           AgentSiteLead[]
   clientRoomItems     ClientRoomItem[]
   mandate             Mandate?
 
@@ -2615,23 +2619,23 @@ enum LeadStatus {
 /// and leads agents register (deals) stay in their own tables; the Leads
 /// page merges all of them.
 model DeveloperLead {
-  id            String           @id @default(cuid())
+  id            String            @id @default(cuid())
   /// Exactly one owner: a developer, or an agent for their own listings.
   developerId   String?
   developer     DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Cascade)
   ownerAgentId  String?
-  ownerAgent    AgentProfile?    @relation("AgentOwnedLeads", fields: [ownerAgentId], references: [id], onDelete: Cascade)
+  ownerAgent    AgentProfile?     @relation("AgentOwnedLeads", fields: [ownerAgentId], references: [id], onDelete: Cascade)
   /// SetNull: removing a development must not erase who was interested in it.
   propertyId    String?
-  property      Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property      Property?         @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   /// The agent who referred them, when one did.
   agentId       String?
-  agent         AgentProfile?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agent         AgentProfile?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
   name          String
   email         String?
   phone         String?
-  source        LeadSource       @default(OTHER)
-  status        LeadStatus       @default(NEW)
+  source        LeadSource        @default(OTHER)
+  status        LeadStatus        @default(NEW)
   /// What they are after, in the team's words: "2 bed, high floor".
   interest      String?
   budget        Float?
@@ -2639,8 +2643,8 @@ model DeveloperLead {
   /// Who added it — the owner or a team member — for accountability.
   createdById   String?
   createdByName String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([developerId, createdAt])
   @@index([ownerAgentId, createdAt])
@@ -2655,16 +2659,16 @@ enum SiteTemplateTier {
 /// Agent-website templates. The design lives in the web app under the same
 /// key; admin decides which are free and what a premium one costs to unlock.
 model AgentSiteTemplate {
-  key         String           @id
+  key         String                @id
   name        String
   description String?
-  tier        SiteTemplateTier @default(FREE)
+  tier        SiteTemplateTier      @default(FREE)
   /// One-time unlock price for PREMIUM templates (0 = unlock at no charge).
-  unlockPrice Float            @default(0)
-  isActive    Boolean          @default(true)
-  sortOrder   Int              @default(0)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  unlockPrice Float                 @default(0)
+  isActive    Boolean               @default(true)
+  sortOrder   Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
   unlocks     AgentTemplateUnlock[]
 }
 
@@ -2684,6 +2688,7 @@ model AgentTemplateUnlock {
 }
 
 enum AgentSiteItemType {
+  ROLE
   TEAM
   TESTIMONIAL
   PAST_SALE
@@ -2712,4 +2717,37 @@ model AgentSiteItem {
 
   @@unique([agentId, slug])
   @@index([agentId, type, sortOrder])
+}
+
+enum AgentSiteLeadType {
+  CONTACT
+  VALUATION
+  VIEWING
+  CAREER
+  NEWSLETTER
+}
+
+/// Something a visitor sent from an agent's website: a message, a valuation
+/// request, a viewing booking, a job application or a newsletter sign-up.
+model AgentSiteLead {
+  id         String            @id @default(cuid())
+  agentId    String
+  agent      AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  type       AgentSiteLeadType
+  status     LeadStatus        @default(NEW)
+  name       String
+  email      String?
+  phone      String?
+  message    String?
+  propertyId String?
+  property   Property?         @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  /// Viewing bookings: the slot start.
+  slotAt     DateTime?
+  /// Type-specific answers (intent, timeframe, address, role…), validated.
+  data       Json?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([agentId, createdAt])
+  @@index([agentId, type, slotAt])
 }

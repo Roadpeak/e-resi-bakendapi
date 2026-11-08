@@ -21,8 +21,8 @@ const CATALOGUE: { key: string; name: string; description: string; tier: SiteTem
 
 /** Sections every template understands, in the default order. */
 export const SITE_SECTIONS = [
-  'stats', 'listings', 'services', 'process', 'about', 'team', 'sold', 'testimonials',
-  'areas', 'awards', 'journal', 'faq', 'contact',
+  'stats', 'listings', 'services', 'process', 'valuation', 'about', 'team', 'sold', 'testimonials',
+  'areas', 'awards', 'journal', 'careers', 'faq', 'newsletter', 'contact',
 ] as const;
 export type SiteSectionId = (typeof SITE_SECTIONS)[number];
 export type SiteSection = { id: SiteSectionId; visible: boolean };

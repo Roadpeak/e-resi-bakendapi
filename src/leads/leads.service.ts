@@ -1,12 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
+import { describeSiteLead } from '../billing/agent-site-leads.service.js';
 import type { CreateLeadDto } from './dto/create-lead.dto.js';
 import type { UpdateLeadDto } from './dto/update-lead.dto.js';
 
 /** Where a lead reached the developer from, as the Leads page groups them. */
 export type LeadChannel = 'AUTOMATIC' | 'AGENT' | 'MANUAL';
-export type LeadKind = 'INQUIRY' | 'BOOKING' | 'AGENT_DEAL' | 'MANUAL' | 'VIEWER';
+export type LeadKind = 'INQUIRY' | 'BOOKING' | 'AGENT_DEAL' | 'MANUAL' | 'VIEWER' | 'SITE';
 
 export interface LeadRow {
   id: string;
@@ -28,6 +29,10 @@ export interface LeadRow {
   source?: string;
   /** For page viewers: what to pass to POST /analytics/viewers/capture. */
   viewer?: { userId: string; propertyId: string; views: number };
+  /** Website leads: what the form asked, as label/value pairs. */
+  details?: { label: string; value: string }[];
+  /** Website leads: which form. */
+  siteType?: string;
   createdAt: Date;
 }
 
@@ -90,7 +95,7 @@ export class LeadsService {
     const prop = { select: { id: true, name: true, slug: true } } as const;
     const agent = { select: { id: true, displayName: true } } as const;
 
-    const [inquiries, bookings, deals, manual, viewers] = await Promise.all([
+    const [inquiries, bookings, deals, manual, viewers, site] = await Promise.all([
       this.prisma.inquiry.findMany({
         // Agents also see the inquiries they referred to other developments.
         where: isAgent
@@ -124,6 +129,15 @@ export class LeadsService {
       // Signed-in buyers who opened a development's page — the same list the
       // analytics page shows. Over a year, so quiet interest is not lost.
       this.analytics.interestedViewers(isAgent ? { agentUserId: userId } : { developerUserId: userId }, VIEWER_DAYS),
+      // Forms sent from the agent's own website.
+      isAgent
+        ? this.prisma.agentSiteLead.findMany({
+          where: { agentId: owner.id },
+          include: { property: prop },
+          orderBy: { createdAt: 'desc' },
+          take: TAKE,
+        })
+        : Promise.resolve([]),
     ]);
 
     const own = new Set(propertyIds);
@@ -168,6 +182,16 @@ export class LeadsService {
           viewer: { userId: v.userId, propertyId: v.propertyId, views: v.views },
           createdAt: v.lastViewedAt ? new Date(v.lastViewedAt) : new Date(0),
         })),
+      ...site.map((l): LeadRow => {
+        const d = describeSiteLead(l);
+        return {
+          id: l.id, kind: 'SITE', channel: 'AUTOMATIC', sourceLabel: `Your website · ${d.label.toLowerCase()}`,
+          name: l.name, email: l.email, phone: l.phone,
+          property: l.property, agent: null, status: l.status,
+          interest: d.interest, message: l.message, budget: null, addedBy: null,
+          details: d.details, siteType: l.type, createdAt: l.createdAt,
+        };
+      }),
       ...manual.map((m): LeadRow => ({
         id: m.id, kind: 'MANUAL', channel: 'MANUAL', sourceLabel: SOURCE_LABEL[m.source] ?? 'Other',
         name: m.name, email: m.email ?? null, phone: m.phone ?? null,

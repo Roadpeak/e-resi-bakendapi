@@ -55,6 +55,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get agentSiteTemplate() { return prismaInstance.agentSiteTemplate; }
   get agentTemplateUnlock() { return prismaInstance.agentTemplateUnlock; }
   get agentSiteItem() { return prismaInstance.agentSiteItem; }
+  get agentSiteLead() { return prismaInstance.agentSiteLead; }
   get notification() { return prismaInstance.notification; }
   get analyticsEvent() { return prismaInstance.analyticsEvent; }
   get siteVisit() { return prismaInstance.siteVisit; }

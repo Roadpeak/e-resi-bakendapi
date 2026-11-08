@@ -408,6 +408,29 @@ export class PlatformEventsService {
     );
   }
 
+  /**
+   * Something arrived from an agent's own website. Bookings and messages are
+   * emailed as well, since a website lead goes cold within hours; newsletter
+   * sign-ups only land in-app.
+   */
+  async agentSiteLead(userId: string, title: string, body: string, leadId: string, email = true) {
+    await this.toUser(userId, 'GENERAL', title, body, {
+      email,
+      cta: { label: 'Open leads', path: '/agent/leads' },
+      resourceId: leadId,
+      resourceType: 'AgentSiteLead',
+    });
+  }
+
+  /** A note to a website visitor (no account), e.g. "your viewing is requested". */
+  async siteVisitorNotice(to: string, subject: string, body: string) {
+    try {
+      await this.mail.sendNotice(to, subject, subject, body);
+    } catch (err) {
+      this.logger.error(`Visitor notice failed: ${(err as Error).message}`);
+    }
+  }
+
   /** A unit is now formally yours on the platform. */
   async ownershipRecorded(userId: string, unitName: string, propertyName: string) {
     await this.toUser(

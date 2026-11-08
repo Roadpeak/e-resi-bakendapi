@@ -15,6 +15,8 @@ import { AgentSiteService } from './agent-site.service.js';
 import { AgentSiteController } from './agent-site.controller.js';
 import { AgentTemplatesService } from './agent-templates.service.js';
 import { AgentSiteContentService } from './agent-site-content.service.js';
+import { AgentSiteLeadsService } from './agent-site-leads.service.js';
+import { SupportThrottlerGuard } from '../support/support-throttler.guard.js';
 import { AgentTemplatesAdminController } from './agent-templates.controller.js';
 import { DomainsModule } from '../domains/domains.module.js';
 
@@ -25,8 +27,8 @@ import { DomainsModule } from '../domains/domains.module.js';
   providers: [
     DocumentPdfService,
     BillingService, PaymentProvidersService, PaystackService,
-    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService, AgentTemplatesService, AgentSiteContentService,
+    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService, AgentTemplatesService, AgentSiteContentService, AgentSiteLeadsService, SupportThrottlerGuard,
   ],
-  exports: [BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
+  exports: [AgentSiteLeadsService, BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
 })
 export class BillingModule {}

@@ -12,6 +12,7 @@ import {
 import { InvoicesService } from './invoices.service.js';
 import { AgentTemplatesService, normaliseSections } from './agent-templates.service.js';
 import { AgentSiteContentService } from './agent-site-content.service.js';
+import { publicForms, readForms } from './agent-site-leads.service.js';
 
 /**
  * Agent websites: <handle>.e-resi.com and/or the agent's own domain, serving
@@ -365,7 +366,7 @@ export class AgentSiteService implements OnModuleInit {
         specialties: true, serviceAreas: true, phone: true, whatsapp: true, email: true, officeAddress: true,
         socials: true, ratingAverage: true, ratingCount: true, dealsCompleted: true,
         siteTagline: true, siteAccent: true, siteHeroUrl: true, siteHandle: true, siteActivatedAt: true,
-        siteCustomDomain: true, siteDomainStatus: true, siteTemplate: true, siteSections: true, createdAt: true, siteLicenceNo: true, siteFooterNote: true,
+        siteCustomDomain: true, siteDomainStatus: true, siteTemplate: true, siteSections: true, createdAt: true, siteLicenceNo: true, siteFooterNote: true, siteForms: true,
       },
     });
     if (!a) throw new NotFoundException('Agent not found');
@@ -399,7 +400,7 @@ export class AgentSiteService implements OnModuleInit {
       // Partnered developments credit the agent through their referral link.
       units: p._count.units, kind, href: kind === 'PARTNER' ? `${href(p)}?ref=${a.id}` : href(p),
     });
-    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, siteTemplate, siteSections, createdAt, siteLicenceNo, siteFooterNote, ...profile } = a;
+    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, siteTemplate, siteSections, createdAt, siteLicenceNo, siteFooterNote, siteForms, ...profile } = a;
     const content = await this.content.forSite(a.id);
     // No platform reviews yet? Show the average of the agent's own testimonials.
     const rated = content.testimonials.map((t) => Number((t as { rating?: number }).rating)).filter((n) => n > 0);
@@ -426,6 +427,7 @@ export class AgentSiteService implements OnModuleInit {
       listings,
       content,
       legal: { licenceNo: siteLicenceNo, footerNote: siteFooterNote },
+      forms: publicForms(readForms(siteForms)),
     };
   }
 

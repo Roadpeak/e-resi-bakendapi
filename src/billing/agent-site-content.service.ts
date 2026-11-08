@@ -18,6 +18,14 @@ type Field =
   | { kind: 'list'; max: number; itemMax: number };
 
 export const CONTENT_SCHEMA: Record<AgentSiteItemType, Record<string, Field>> = {
+  /** An opening on the careers section. */
+  ROLE: {
+    title: { kind: 'text', max: 100, required: true },
+    location: { kind: 'text', max: 80 },
+    employment: { kind: 'enum', options: ['FULL_TIME', 'PART_TIME', 'COMMISSION', 'CONTRACT', 'INTERNSHIP'] },
+    description: { kind: 'text', max: 2000 },
+    requirements: { kind: 'list', max: 8, itemMax: 120 },
+  },
   TEAM: {
     name: { kind: 'text', max: 80, required: true },
     role: { kind: 'text', max: 80 },
@@ -234,7 +242,7 @@ export class AgentSiteContentService {
     }).sort((x, y) => String(y.publishedAt ?? '').localeCompare(String(x.publishedAt ?? '')));
     return {
       team: of('TEAM'), testimonials: of('TESTIMONIAL'), sold: of('PAST_SALE'), faqs: of('FAQ'),
-      services: of('SERVICE'), steps: of('STEP'), awards: of('AWARD'), posts,
+      services: of('SERVICE'), steps: of('STEP'), awards: of('AWARD'), roles: of('ROLE'), posts,
     };
   }
 

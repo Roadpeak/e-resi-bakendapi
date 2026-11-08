@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AgentSiteItemType, UserRole } from '@prisma/client';
-import { IsArray, IsBoolean, IsEnum, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { AgentSiteItemType, AgentSiteLeadType, LeadStatus, UserRole } from '@prisma/client';
+import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -9,6 +10,68 @@ import { normaliseDomain, subdomainOf } from '../properties/custom-domain.js';
 import { AgentSiteService } from './agent-site.service.js';
 import { AgentTemplatesService } from './agent-templates.service.js';
 import { AgentSiteContentService } from './agent-site-content.service.js';
+import { AgentSiteLeadsService } from './agent-site-leads.service.js';
+import { SupportThrottlerGuard } from '../support/support-throttler.guard.js';
+
+class SubmitLeadDto {
+  @IsEnum(AgentSiteLeadType)
+  type: AgentSiteLeadType;
+
+  @IsOptional() @IsString() @MaxLength(100)
+  name?: string;
+
+  @IsOptional() @IsString() @MaxLength(160)
+  email?: string;
+
+  @IsOptional() @IsString() @MaxLength(30)
+  phone?: string;
+
+  @IsOptional() @IsString() @MaxLength(2000)
+  message?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  propertyId?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  slotAt?: string;
+
+  @IsOptional() @IsObject()
+  data?: Record<string, unknown>;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  website?: string;
+}
+
+class FormsDto {
+  @IsOptional() @IsBoolean() contact?: boolean;
+  @IsOptional() @IsBoolean() valuation?: boolean;
+  @IsOptional() @IsBoolean() viewing?: boolean;
+  @IsOptional() @IsBoolean() newsletter?: boolean;
+  @IsOptional() @IsBoolean() careers?: boolean;
+
+  @IsOptional() @IsArray() @IsInt({ each: true }) @Min(0, { each: true }) @Max(6, { each: true })
+  days?: number[];
+
+  @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  start?: string;
+
+  @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  end?: string;
+
+  @IsOptional() @IsIn([30, 45, 60, 90, 120])
+  slotMinutes?: number;
+
+  @IsOptional() @IsArray() @IsIn(['IN_PERSON', 'VIDEO'], { each: true })
+  modes?: ('IN_PERSON' | 'VIDEO')[];
+
+  @IsOptional() @IsInt() @Min(0) @Max(168)
+  noticeHours?: number;
+}
+
+class LeadStatusDto {
+  @IsEnum(LeadStatus)
+  status: LeadStatus;
+}
 
 class CreateItemDto {
   @IsEnum(AgentSiteItemType)
@@ -85,6 +148,7 @@ export class AgentSiteController {
     private readonly sites: AgentSiteService,
     private readonly templates: AgentTemplatesService,
     private readonly content: AgentSiteContentService,
+    private readonly leads: AgentSiteLeadsService,
   ) {}
 
   @Public()
@@ -232,6 +296,68 @@ export class AgentSiteController {
   @ApiBearerAuth()
   myPost(@CurrentUser() user: Actor, @Param('slug') slug: string) {
     return this.content.postForOwner(user.id, slug);
+  }
+
+  // ─── Forms and website leads ────────────────────────────────────────────
+
+  @Get('me/forms')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: which website forms are on, and viewing hours' })
+  myForms(@CurrentUser() user: Actor) {
+    return this.leads.forms(user.id);
+  }
+
+  @Put('me/forms')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  saveForms(@CurrentUser() user: Actor, @Body() dto: FormsDto) {
+    return this.leads.saveForms(user.id, dto);
+  }
+
+  @Patch('me/leads/:id')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: move a website lead along (contacted, won…)' })
+  leadStatus(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: LeadStatusDto) {
+    return this.leads.setStatus(user.id, id, dto.status);
+  }
+
+  @Delete('me/leads/:id')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  removeLead(@CurrentUser() user: Actor, @Param('id') id: string) {
+    return this.leads.remove(user.id, id);
+  }
+
+  @Get('me/slots')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  mySlots(@CurrentUser() user: Actor) {
+    return this.leads.slotsForOwner(user.id);
+  }
+
+  @Get('me/subscribers')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  subscribers(@CurrentUser() user: Actor) {
+    return this.leads.subscribers(user.id);
+  }
+
+  @Public()
+  @Get(':agentId/slots')
+  @ApiOperation({ summary: 'Public: open viewing slots on an agent website (next two weeks)' })
+  slots(@Param('agentId') agentId: string) {
+    return this.leads.slots(agentId);
+  }
+
+  @Public()
+  @Post(':agentId/leads')
+  @UseGuards(SupportThrottlerGuard)
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Public: send a form from an agent website' })
+  submit(@Param('agentId') agentId: string, @Body() dto: SubmitLeadDto) {
+    return this.leads.submit(agentId, dto);
   }
 
   @Public()
