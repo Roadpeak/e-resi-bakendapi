@@ -10,6 +10,13 @@ import type { Request } from 'express';
  * that: it is echoed back verbatim on the callback. Passport only forwards it
  * when given here, per-request, since it is not known at strategy construction.
  */
+/** An internal e-resi path ("/chat/agent/x"), never another site. */
+export function safeNext(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s || s.length > 300 || !s.startsWith('/') || s.startsWith('//') || s.includes('\\')) return null;
+  return /^\/[\w\-./?=&%]*$/.test(s) ? s : null;
+}
+
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
   private readonly logger = new Logger(GoogleOAuthGuard.name);
@@ -36,11 +43,13 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
   getAuthenticateOptions(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<Request>();
     const role = String(req.query.role ?? '').toUpperCase();
+    const next = safeNext(req.query.next);
 
     return {
       // Only these two are offered; the callback re-validates rather than
-      // trusting whatever comes back.
-      state: role === 'TENANT' ? 'TENANT' : 'INVESTOR',
+      // trusting whatever comes back. An internal return path rides along
+      // (e.g. an agent website's "chat" button → straight into that chat).
+      state: `${role === 'TENANT' ? 'TENANT' : 'INVESTOR'}${next ? `|${Buffer.from(next).toString('base64url')}` : ''}`,
     };
   }
 }

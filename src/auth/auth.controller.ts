@@ -19,7 +19,7 @@ import { resolveAppUrl } from '../common/app-url.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { AuthService } from './auth.service.js';
-import { GoogleOAuthGuard } from './guards/google-oauth.guard.js';
+import { GoogleOAuthGuard, safeNext } from './guards/google-oauth.guard.js';
 import type { GoogleProfile } from './strategies/google.strategy.js';
 import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -39,7 +39,18 @@ import { GoogleOneTapDto } from './dto/google-one-tap.dto.js';
  * value cannot mint a developer or agent account.
  */
 function parseOAuthRole(state: string): 'INVESTOR' | 'TENANT' {
-  return state.toUpperCase() === 'TENANT' ? 'TENANT' : 'INVESTOR';
+  return state.split('|')[0].toUpperCase() === 'TENANT' ? 'TENANT' : 'INVESTOR';
+}
+
+/** The return path carried in OAuth state, re-validated. */
+function parseOAuthNext(state: string): string | null {
+  const enc = state.split('|')[1];
+  if (!enc) return null;
+  try {
+    return safeNext(Buffer.from(enc, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
 }
 
 @ApiTags('Auth')
@@ -91,22 +102,24 @@ export class AuthController {
     @Res() res: Response,
   ): Promise<void> {
     const appUrl = resolveAppUrl(this.config);
+    const state = String(req.query.state ?? '');
+    const next = parseOAuthNext(state);
 
     try {
       const profile = req.user as GoogleProfile | undefined;
       if (!profile) throw new Error('No profile returned from Google');
 
-      const role = parseOAuthRole((req.query.state as string) ?? '');
+      const role = parseOAuthRole(state);
       const { accessToken } = await this.authService.googleSignIn(profile, role, res);
 
       // The access token goes back in the URL fragment, not the query string:
       // a fragment is never sent to the server and stays out of access logs,
       // Referer headers and the browser history entry the server sees. The
       // refresh token is already set as an httpOnly cookie by googleSignIn.
-      res.redirect(`${appUrl}/google/complete#access_token=${encodeURIComponent(accessToken)}`);
+      res.redirect(`${appUrl}/google/complete${next ? `?next=${encodeURIComponent(next)}` : ''}#access_token=${encodeURIComponent(accessToken)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Google sign-in failed';
-      res.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}`);
+      res.redirect(`${appUrl}/login?error=${encodeURIComponent(message)}${next ? `&redirect=${encodeURIComponent(next)}` : ''}`);
     }
   }
 
