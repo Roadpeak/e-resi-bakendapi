@@ -532,6 +532,7 @@ model AgentProfile {
   leads               DeveloperLead[]
   /// Developments this agent lists as owner (not through a partnership).
   ownedListings       Property[]       @relation("AgentOwnedListings")
+  ownedLeads          DeveloperLead[]  @relation("AgentOwnedLeads")
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -2578,8 +2579,11 @@ enum LeadStatus {
 /// page merges all of them.
 model DeveloperLead {
   id            String           @id @default(cuid())
-  developerId   String
-  developer     DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  /// Exactly one owner: a developer, or an agent for their own listings.
+  developerId   String?
+  developer     DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  ownerAgentId  String?
+  ownerAgent    AgentProfile?    @relation("AgentOwnedLeads", fields: [ownerAgentId], references: [id], onDelete: Cascade)
   /// SetNull: removing a development must not erase who was interested in it.
   propertyId    String?
   property      Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
@@ -2602,5 +2606,6 @@ model DeveloperLead {
   updatedAt     DateTime         @updatedAt
 
   @@index([developerId, createdAt])
+  @@index([ownerAgentId, createdAt])
   @@index([propertyId])
 }

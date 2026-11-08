@@ -88,7 +88,8 @@ export class InquiriesService {
     });
 
     // Tell the developer — this is an automatic lead for them.
-    const developerUserId = inquiry.property?.developer?.userId ?? inquiry.rentListing?.developer?.userId;
+    const ownerAgentUserId = inquiry.property?.listedByAgent?.userId;
+    const developerUserId = inquiry.property?.developer?.userId ?? inquiry.rentListing?.developer?.userId ?? ownerAgentUserId;
     if (developerUserId) {
       const where = inquiry.property?.name ?? inquiry.rentListing?.name ?? 'your listing';
       await this.events.newLeadForDeveloper(developerUserId, {
@@ -97,7 +98,7 @@ export class InquiriesService {
         body: `${dto.name} sent an inquiry about ${where}${dto.phone ? ` · ${dto.phone}` : ''}.`,
         resourceId: inquiry.id,
         resourceType: 'Inquiry',
-      });
+      }, ownerAgentUserId && !inquiry.property?.developer ? '/agent/leads' : undefined);
     }
 
     await this.events.newInquiry(
@@ -133,7 +134,11 @@ export class InquiriesService {
     });
     if (!agent) throw new ForbiddenException('Agent profile required');
 
-    const where = { agentId: agent.id, ...(status && { status }) };
+    // Referrals assigned to them, plus everything on developments they own.
+    const where = {
+      OR: [{ agentId: agent.id }, { property: { listedByAgentId: agent.id } }],
+      ...(status && { status }),
+    };
     const [data, total] = await Promise.all([
       this.prisma.inquiry.findMany({
         where,
@@ -141,7 +146,7 @@ export class InquiriesService {
         take: pagination.limit ?? 20,
         orderBy: { createdAt: 'desc' },
         include: {
-          property: { select: { id: true, slug: true, name: true, heroImageUrl: true } },
+          property: { select: { id: true, slug: true, name: true, heroImageUrl: true, listedByAgentId: true } },
           rentListing: { select: { id: true, slug: true, name: true } },
           replies: { select: { id: true } },
         },

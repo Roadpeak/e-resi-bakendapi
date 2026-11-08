@@ -686,10 +686,12 @@ export class PlatformEventsService {
       resourceId: string;
       resourceType: 'Inquiry' | 'Booking' | 'Lead';
     },
+    /** Agents who own the listing read their leads in the agent portal. */
+    link = '/dashboard/leads',
   ) {
     try {
       await this.notifications.createNotification(
-        developerUserId, lead.type, lead.title, lead.body, lead.resourceId, lead.resourceType, '/dashboard/leads',
+        developerUserId, lead.type, lead.title, lead.body, lead.resourceId, lead.resourceType, link,
       );
     } catch {
       // Ignored — see above.

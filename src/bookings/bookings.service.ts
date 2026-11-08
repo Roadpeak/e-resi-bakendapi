@@ -75,6 +75,20 @@ export class BookingsService {
           resourceType: 'Booking',
         });
       }
+    } else if (property.listedByAgentId) {
+      // Agent-owned listing: the viewing request is the listing agent's lead.
+      const owner = await this.prisma.agentProfile.findUnique({
+        where: { id: property.listedByAgentId }, select: { userId: true },
+      });
+      if (owner) {
+        await this.events.newLeadForDeveloper(owner.userId, {
+          type: 'GENERAL',
+          title: `New lead: ${dto.name}`,
+          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${booking.property.name}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+          resourceId: booking.id,
+          resourceType: 'Booking',
+        }, '/agent/leads');
+      }
     }
     // A booking that arrived through an agent's link is the agent's viewing
     // to run — they brought the client and they close the deal — so the
@@ -106,7 +120,11 @@ export class BookingsService {
     });
     if (!agent) throw new ForbiddenException('Agent profile required');
 
-    const where = { agentId: agent.id, ...(status && { status }) };
+    // Referrals assigned to them, plus everything on developments they own.
+    const where = {
+      OR: [{ agentId: agent.id }, { property: { listedByAgentId: agent.id } }],
+      ...(status && { status }),
+    };
     const [data, total] = await Promise.all([
       this.prisma.booking.findMany({
         where,
@@ -114,7 +132,7 @@ export class BookingsService {
         take: pagination.limit ?? 20,
         orderBy: { date: 'asc' },
         include: {
-          property: { select: { id: true, slug: true, name: true, heroImageUrl: true, city: true } },
+          property: { select: { id: true, slug: true, name: true, heroImageUrl: true, listedByAgentId: true, city: true } },
         },
       }),
       this.prisma.booking.count({ where }),

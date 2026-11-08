@@ -111,7 +111,7 @@ export class AnalyticsController {
   }
 
   @Get('developer/overview')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: get own dashboard overview stats' })
   developerStats(@CurrentUser() user: { id: string }) {
@@ -119,7 +119,7 @@ export class AnalyticsController {
   }
 
   @Get('developer/engagement')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: daily engagement series + traffic sources' })
   @ApiQuery({ name: 'days', required: false, type: Number })

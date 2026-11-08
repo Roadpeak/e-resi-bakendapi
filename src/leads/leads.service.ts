@@ -36,6 +36,13 @@ const SOURCE_LABEL: Record<string, string> = {
   SOCIAL_MEDIA: 'Social media', EMAIL: 'Email', WEBSITE: 'Website', AGENT: 'Agent', OTHER: 'Other',
 };
 
+interface LeadOwner {
+  kind: 'DEVELOPER' | 'AGENT';
+  id: string;
+  propertyWhere: { developerId: string } | { listedByAgentId: string };
+  leadWhere: { developerId: string } | { ownerAgentId: string };
+}
+
 /** How far back page viewers count as leads. */
 const VIEWER_DAYS = 365;
 
@@ -56,16 +63,27 @@ export class LeadsService {
     private readonly analytics: AnalyticsService,
   ) {}
 
-  private async developerOf(userId: string) {
-    const dev = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!dev) throw new ForbiddenException('Developer profile required');
-    return dev;
+  /**
+   * Whose leads these are: a developer, or an agent for the developments
+   * they list themselves (plus the clients they refer elsewhere).
+   */
+  private async ownerOf(userId: string): Promise<LeadOwner> {
+    const dev = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (dev) {
+      return { kind: 'DEVELOPER', id: dev.id, propertyWhere: { developerId: dev.id }, leadWhere: { developerId: dev.id } };
+    }
+    const agent = await this.prisma.agentProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (agent) {
+      return { kind: 'AGENT', id: agent.id, propertyWhere: { listedByAgentId: agent.id }, leadWhere: { ownerAgentId: agent.id } };
+    }
+    throw new ForbiddenException('Developer or agent profile required');
   }
 
   async list(userId: string) {
-    const dev = await this.developerOf(userId);
+    const owner = await this.ownerOf(userId);
+    const isAgent = owner.kind === 'AGENT';
     const properties = await this.prisma.property.findMany({
-      where: { developerId: dev.id },
+      where: owner.propertyWhere,
       select: { id: true, name: true, slug: true },
     });
     const propertyIds = properties.map((p) => p.id);
@@ -74,51 +92,63 @@ export class LeadsService {
 
     const [inquiries, bookings, deals, manual, viewers] = await Promise.all([
       this.prisma.inquiry.findMany({
-        where: { propertyId: { in: propertyIds } },
+        // Agents also see the inquiries they referred to other developments.
+        where: isAgent
+          ? { OR: [{ propertyId: { in: propertyIds } }, { agentId: owner.id }] }
+          : { propertyId: { in: propertyIds } },
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
       this.prisma.booking.findMany({
-        where: { propertyId: { in: propertyIds } },
+        where: isAgent
+          ? { OR: [{ propertyId: { in: propertyIds } }, { agentId: owner.id }] }
+          : { propertyId: { in: propertyIds } },
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
       this.prisma.deal.findMany({
-        where: { developerId: dev.id },
+        // An agent's deals are the clients they registered with developers.
+        where: isAgent ? { agentId: owner.id } : { developerId: owner.id },
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
       this.prisma.developerLead.findMany({
-        where: { developerId: dev.id },
+        where: owner.leadWhere,
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
       // Signed-in buyers who opened a development's page — the same list the
       // analytics page shows. Over a year, so quiet interest is not lost.
-      this.analytics.interestedViewers({ developerUserId: userId }, VIEWER_DAYS),
+      this.analytics.interestedViewers(isAgent ? { agentUserId: userId } : { developerUserId: userId }, VIEWER_DAYS),
     ]);
+
+    const own = new Set(propertyIds);
+    // For an agent, "AGENT" means a client they referred to someone else's
+    // development; anything on their own listing is automatic.
+    const viaAgent = (agentId: string | null, propertyId: string | null) =>
+      isAgent ? !(propertyId && own.has(propertyId)) : !!agentId;
 
     const rows: LeadRow[] = [
       ...inquiries.map((i): LeadRow => ({
-        id: i.id, kind: 'INQUIRY', channel: i.agentId ? 'AGENT' : 'AUTOMATIC',
-        sourceLabel: i.agentId ? 'Agent referral · inquiry' : 'Website inquiry',
+        id: i.id, kind: 'INQUIRY', channel: viaAgent(i.agentId, i.propertyId) ? 'AGENT' : 'AUTOMATIC',
+        sourceLabel: viaAgent(i.agentId, i.propertyId) ? (isAgent ? 'Your referral · inquiry' : 'Agent referral · inquiry') : 'Website inquiry',
         name: i.name, email: i.email, phone: i.phone ?? null,
         property: i.property, agent: i.agent, status: i.status,
         interest: i.interestedUnit ?? null, message: i.message, budget: null, addedBy: null, createdAt: i.createdAt,
       })),
       ...bookings.map((b): LeadRow => ({
-        id: b.id, kind: 'BOOKING', channel: b.agentId ? 'AGENT' : 'AUTOMATIC',
-        sourceLabel: `${b.agentId ? 'Agent referral · ' : ''}${b.type === 'VIRTUAL' ? 'Virtual tour request' : 'Viewing request'}`,
+        id: b.id, kind: 'BOOKING', channel: viaAgent(b.agentId, b.propertyId) ? 'AGENT' : 'AUTOMATIC',
+        sourceLabel: `${viaAgent(b.agentId, b.propertyId) ? (isAgent ? 'Your referral · ' : 'Agent referral · ') : ''}${b.type === 'VIRTUAL' ? 'Virtual tour request' : 'Viewing request'}`,
         name: b.name, email: b.email, phone: b.phone ?? null,
         property: b.property, agent: b.agent, status: b.status,
         interest: null, message: b.message ?? null, budget: null, addedBy: null, createdAt: b.createdAt,
       })),
       ...deals.map((d): LeadRow => ({
-        id: d.id, kind: 'AGENT_DEAL', channel: 'AGENT', sourceLabel: 'Registered by agent',
+        id: d.id, kind: 'AGENT_DEAL', channel: 'AGENT', sourceLabel: isAgent ? 'Client you registered' : 'Registered by agent',
         name: d.clientName, email: d.clientEmail ?? null, phone: d.clientPhone ?? null,
         property: d.property, agent: d.agent, status: d.stage,
         interest: null, message: null, budget: null, addedBy: null, createdAt: d.createdAt,
@@ -128,7 +158,8 @@ export class LeadsService {
       ...viewers.rows
         .filter((v) => v.user && !v.alreadyLead)
         .map((v): LeadRow => ({
-          id: `${v.userId}:${v.propertyId}`, kind: 'VIEWER', channel: 'AUTOMATIC',
+          id: `${v.userId}:${v.propertyId}`, kind: 'VIEWER',
+          channel: isAgent && !own.has(v.propertyId) ? 'AGENT' : 'AUTOMATIC',
           sourceLabel: `Opened the page · viewed ${v.views} time${v.views === 1 ? '' : 's'}`,
           name: [v.user!.firstName, v.user!.lastName].filter(Boolean).join(' ') || v.user!.email,
           email: v.user!.email, phone: v.user!.phone ?? null,
@@ -149,21 +180,21 @@ export class LeadsService {
     return { leads: rows, properties };
   }
 
-  private async assertProperty(developerId: string, propertyId?: string | null) {
+  private async assertProperty(owner: LeadOwner, propertyId?: string | null) {
     if (!propertyId) return;
-    const ok = await this.prisma.property.count({ where: { id: propertyId, developerId } });
+    const ok = await this.prisma.property.count({ where: { id: propertyId, ...owner.propertyWhere } });
     if (!ok) throw new BadRequestException('That development is not one of yours');
   }
 
   async create(userId: string, author: { id: string; name: string }, dto: CreateLeadDto) {
-    const dev = await this.developerOf(userId);
+    const owner = await this.ownerOf(userId);
     if (!dto.email?.trim() && !dto.phone?.trim()) {
       throw new BadRequestException('Add a phone number or an email so the team can reach them');
     }
-    await this.assertProperty(dev.id, dto.propertyId);
+    await this.assertProperty(owner, dto.propertyId);
     return this.prisma.developerLead.create({
       data: {
-        developerId: dev.id,
+        ...owner.leadWhere,
         name: dto.name.trim(),
         email: dto.email?.trim().toLowerCase() || null,
         phone: dto.phone?.trim() || null,
@@ -180,15 +211,15 @@ export class LeadsService {
   }
 
   private async ownLead(userId: string, id: string) {
-    const dev = await this.developerOf(userId);
-    const lead = await this.prisma.developerLead.findFirst({ where: { id, developerId: dev.id } });
+    const owner = await this.ownerOf(userId);
+    const lead = await this.prisma.developerLead.findFirst({ where: { id, ...owner.leadWhere } });
     if (!lead) throw new NotFoundException('Lead not found');
-    return { dev, lead };
+    return { owner, lead };
   }
 
   async update(userId: string, id: string, dto: UpdateLeadDto) {
-    const { dev, lead } = await this.ownLead(userId, id);
-    if (dto.propertyId !== undefined) await this.assertProperty(dev.id, dto.propertyId);
+    const { owner, lead } = await this.ownLead(userId, id);
+    if (dto.propertyId !== undefined) await this.assertProperty(owner, dto.propertyId);
     const email = dto.email !== undefined ? dto.email?.trim().toLowerCase() || null : lead.email;
     const phone = dto.phone !== undefined ? dto.phone?.trim() || null : lead.phone;
     if (!email && !phone) throw new BadRequestException('Keep a phone number or an email for this lead');

@@ -17,7 +17,7 @@ type Actor = {
 
 @ApiTags('Leads')
 @ApiBearerAuth()
-@Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+@Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
 @Controller('leads')
 export class LeadsController {
   constructor(private readonly service: LeadsService) {}

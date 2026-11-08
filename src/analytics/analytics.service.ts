@@ -71,7 +71,8 @@ export class AnalyticsService {
       ]);
       // Only customers are leads: developers and admins previewing a page are not.
       if (!viewer || !['BUYER', 'INVESTOR', 'TENANT'].includes(viewer.role)) return;
-      const devUserId = property?.developer?.userId;
+      const agentOwner = !property?.developer ? property?.listedByAgent?.userId : undefined;
+      const devUserId = property?.developer?.userId ?? agentOwner;
       if (!devUserId || devUserId === userId) return;
       const name = `${viewer.firstName} ${viewer.lastName}`.trim() || 'A signed-in buyer';
       await this.events.newLeadForDeveloper(devUserId, {
@@ -80,7 +81,7 @@ export class AnalyticsService {
         body: `${name} opened ${property!.name}${viewer.phone ? ` · ${viewer.phone}` : ''}. Save them as a lead from the Leads page.`,
         resourceId: `${userId}:${propertyId}`,
         resourceType: 'Lead',
-      });
+      }, agentOwner ? '/agent/leads' : undefined);
     } catch {
       // Never let a notification break tracking.
     }
@@ -335,30 +336,38 @@ export class AnalyticsService {
 
   // ─── Developer overview ───────────────────────────────────────────────────
 
+  /**
+   * Whose listings an overview covers: a developer's, or the developments an
+   * agent lists themselves. Rentals only ever belong to developers.
+   */
+  private async listingScope(userId: string) {
+    const developer = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (developer) return { prop: { developerId: developer.id }, rent: { developerId: developer.id } as { developerId: string } | null };
+    const agent = await this.prisma.agentProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (agent) return { prop: { listedByAgentId: agent.id }, rent: null };
+    return null;
+  }
+
   async developerStats(userId: string) {
-    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!developer) return null;
+    const scope = await this.listingScope(userId);
+    if (!scope) return null;
+    const own = scope.prop;
+    const ownOrRent = scope.rent ? [{ property: own }, { rentListing: scope.rent }] : [{ property: own }];
 
     const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [properties, activeListings, totalInquiries, pendingBookings, activeReservations] = await Promise.all([
-      this.prisma.property.count({ where: { developerId: developer.id } }),
-      this.prisma.property.count({ where: { developerId: developer.id, status: 'ACTIVE' } }),
+      this.prisma.property.count({ where: own }),
+      this.prisma.property.count({ where: { ...own, status: 'ACTIVE' } }),
       this.prisma.inquiry.count({
-        where: {
-          OR: [
-            { property: { developerId: developer.id } },
-            { rentListing: { developerId: developer.id } },
-          ],
-          createdAt: { gte: since30d },
-        },
+        where: { OR: ownOrRent, createdAt: { gte: since30d } },
       }),
       this.prisma.booking.count({
-        where: { property: { developerId: developer.id }, status: 'PENDING' },
+        where: { property: own, status: 'PENDING' },
       }),
       this.prisma.reservation.count({
         where: {
-          unit: { property: { developerId: developer.id } },
+          unit: { property: own },
           stage: { notIn: ['TITLE_TRANSFERRED', 'CANCELLED'] },
         },
       }),
@@ -375,15 +384,15 @@ export class AnalyticsService {
   // ─── Developer: daily engagement + traffic sources ────────────────────────
 
   async developerEngagement(userId: string, days = 7) {
-    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!developer) return null;
+    const scope = await this.listingScope(userId);
+    if (!scope) return null;
 
     const clamped = Math.max(1, Math.min(days, 90));
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (clamped - 1));
 
-    const propertyFilter = { property: { developerId: developer.id } };
+    const propertyFilter = { property: scope.prop };
 
     const [events, inquiries, bookings] = await Promise.all([
       this.prisma.analyticsEvent.findMany({
@@ -392,7 +401,7 @@ export class AnalyticsService {
       }),
       this.prisma.inquiry.findMany({
         where: {
-          OR: [propertyFilter, { rentListing: { developerId: developer.id } }],
+          OR: scope.rent ? [propertyFilter, { rentListing: scope.rent }] : [propertyFilter],
           createdAt: { gte: since },
         },
         select: { createdAt: true },
@@ -652,6 +661,9 @@ export class AnalyticsService {
 
     let propertyIds: string[] | undefined;
     let agentId: string | undefined;
+    // Agents: views through their referral links, plus every view of a
+    // development they own.
+    let ownIds: string[] = [];
     if (who.developerUserId) {
       const developer = await this.prisma.developerProfile.findUnique({
         where: { userId: who.developerUserId },
@@ -672,6 +684,7 @@ export class AnalyticsService {
       });
       if (!agent) throw new ForbiddenException('Agent profile required');
       agentId = agent.id;
+      ownIds = (await this.prisma.property.findMany({ where: { listedByAgentId: agent.id }, select: { id: true } })).map((p) => p.id);
     }
 
     const grouped = await this.prisma.analyticsEvent.groupBy({
@@ -681,7 +694,9 @@ export class AnalyticsService {
         userId: { not: null },
         createdAt: { gte: since },
         ...(propertyIds && { propertyId: { in: propertyIds } }),
-        ...(agentId && { agentId }),
+        ...(agentId && (ownIds.length
+          ? { OR: [{ agentId }, { propertyId: { in: ownIds } }] }
+          : { agentId })),
       },
       _count: true,
       _max: { createdAt: true },
