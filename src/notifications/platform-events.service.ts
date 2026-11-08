@@ -45,6 +45,12 @@ export class PlatformEventsService {
       resourceType?: string;
     } = {},
   ): Promise<void> {
+    // Agents' billing lives under /agent: a developer billing link would
+    // bounce them to their dashboard.
+    if (opts.cta?.path === '/dashboard/billing') {
+      const who = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } }).catch(() => null);
+      if (who?.role === 'AGENT') opts = { ...opts, cta: { ...opts.cta, path: '/agent/billing' } };
+    }
     try {
       await this.notifications.createNotification(
         userId, type, title, body, opts.resourceId, opts.resourceType, opts.cta?.path,

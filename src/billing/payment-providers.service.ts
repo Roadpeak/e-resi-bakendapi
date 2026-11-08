@@ -100,8 +100,8 @@ export class PaymentProvidersService {
   }
 
   /** Start the agreement flow — returns the PayPal approval URL to redirect to. */
-  async paypalStart(): Promise<{ approvalUrl: string; token: string; sandbox: boolean }> {
-    const returnUrl = `${this.frontendUrl}/dashboard/billing?paypal=confirm`;
+  async paypalStart(billingPath = '/dashboard/billing'): Promise<{ approvalUrl: string; token: string; sandbox: boolean }> {
+    const returnUrl = `${this.frontendUrl}${billingPath}?paypal=confirm`;
     if (!this.paypalConfigured) {
       const token = `SIM-BA-${Date.now()}`;
       this.logger.warn('[SANDBOX] PayPal not configured — simulating approval redirect');
@@ -119,7 +119,7 @@ export class PaymentProvidersService {
           type: 'MERCHANT_INITIATED_BILLING',
           merchant_preferences: {
             return_url: returnUrl,
-            cancel_url: `${this.frontendUrl}/dashboard/billing?paypal=cancelled`,
+            cancel_url: `${this.frontendUrl}${billingPath}?paypal=cancelled`,
           },
         },
       }),

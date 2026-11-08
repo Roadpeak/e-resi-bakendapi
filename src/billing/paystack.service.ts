@@ -79,13 +79,15 @@ export class PaystackService {
     email: string,
     userId: string,
     currency = 'KES',
+    /** Where the card owner's billing page lives: agents and developers differ. */
+    billingPath = '/dashboard/billing',
   ): Promise<{ authorizationUrl: string; reference: string; testMode: boolean }> {
     const reference = `link_${userId}_${Date.now()}`;
 
     if (!this.configured) {
       this.logger.warn('[SANDBOX] Paystack not configured — simulating card link');
       return {
-        authorizationUrl: `${this.frontendUrl}/dashboard/billing?paystack=simulated&reference=${reference}`,
+        authorizationUrl: `${this.frontendUrl}${billingPath}?paystack=simulated&reference=${reference}`,
         reference,
         testMode: true,
       };
@@ -101,7 +103,7 @@ export class PaystackService {
           amount: 10000,
           currency,
           reference,
-          callback_url: `${this.frontendUrl}/dashboard/billing?paystack=callback`,
+          callback_url: `${this.frontendUrl}${billingPath}?paystack=callback`,
           channels: ['card'],
           metadata: { userId, purpose: 'card_link' },
         },

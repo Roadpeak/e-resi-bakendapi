@@ -144,7 +144,7 @@ export class BillingService {
   async startPaystackCardLink(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    return this.paystack.startCardLink(user.email, userId);
+    return this.paystack.startCardLink(user.email, userId, 'KES', billingPathFor(user.role));
   }
 
   /**
@@ -381,8 +381,9 @@ export class BillingService {
   }
 
   /** Start PayPal linking — returns the approval URL for the redirect. */
-  async paypalStart() {
-    return this.providers.paypalStart();
+  async paypalStart(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    return this.providers.paypalStart(billingPathFor(user?.role));
   }
 
   /** Confirm the approved PayPal agreement → vault it for monthly billing. */
@@ -586,4 +587,9 @@ export class BillingService {
     }
     return { message: 'Payment method removed' };
   }
+}
+
+/** Agents keep their billing under /agent; everyone else under /dashboard. */
+export function billingPathFor(role?: string | null) {
+  return role === 'AGENT' ? '/agent/billing' : '/dashboard/billing';
 }

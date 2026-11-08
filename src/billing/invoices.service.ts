@@ -271,7 +271,10 @@ export class InvoicesService {
     const intro = isSubscription
       ? `Your listing fee for the coming period is due on ${fmtDate(invoice.dueAt)}. `
         + 'It will be charged automatically to your default payment method.'
-      : `Payment for your production order is due by ${fmtDate(invoice.dueAt)}.`;
+      : invoice.kind === 'PRODUCTION'
+        ? `Payment for your production order is due by ${fmtDate(invoice.dueAt)}.`
+        : `Payment is due by ${fmtDate(invoice.dueAt)}.`;
+    const billingUrl = await this.billingUrl(invoice.userId);
 
     const invoiceDoc: DocumentParams = {
       heading: 'Invoice',
@@ -289,10 +292,11 @@ export class InvoicesService {
         { label: 'Due', value: fmtDate(invoice.dueAt) },
       ],
       intro,
-      cta: { label: 'View invoice', url: `${this.appUrl}/dashboard/billing` },
+      cta: { label: 'View invoice', url: billingUrl },
       footnote: isSubscription
         ? 'No action is needed if your card is up to date. Listing fees stop as soon as a development is taken down.'
-        : 'Production is scheduled once payment is received.',
+        : invoice.kind === 'PRODUCTION' ? 'Production is scheduled once payment is received.'
+          : 'What you are paying for is switched on as soon as payment is received.',
     };
     const invoicePdf = await this.pdf.render(invoiceDoc).catch(() => null);
     await this.mail.sendDocument(
@@ -374,7 +378,7 @@ export class InvoicesService {
         intro: overdue
           ? `This invoice was due on ${fmtDate(invoice.dueAt)} and remains unpaid.`
           : `This invoice falls due on ${fmtDate(invoice.dueAt)}.`,
-        cta: { label: 'Pay now', url: `${this.appUrl}/dashboard/billing` },
+        cta: { label: 'Pay now', url: await this.billingUrl(invoice.userId) },
         footnote: 'If you have already paid, please ignore this message.',
       },
     );
@@ -937,6 +941,12 @@ export class InvoicesService {
   }
 
   // ─── Queries ─────────────────────────────────────────────────────────────
+
+  /** The payer's billing page: agents have their own under /agent. */
+  private async billingUrl(userId: string) {
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    return `${this.appUrl}${u?.role === 'AGENT' ? '/agent/billing' : '/dashboard/billing'}`;
+  }
 
   async listMine(userId: string) {
     return this.prisma.invoice.findMany({

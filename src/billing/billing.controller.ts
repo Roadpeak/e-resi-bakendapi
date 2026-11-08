@@ -243,8 +243,8 @@ export class BillingController {
 
   @Post('methods/paypal/start')
   @ApiOperation({ summary: 'Start PayPal linking — returns the approval URL (billing agreement for automatic monthly billing)' })
-  paypalStart() {
-    return this.service.paypalStart();
+  paypalStart(@CurrentUser() user: { id: string }) {
+    return this.service.paypalStart(user.id);
   }
 
   @Post('methods/paypal/confirm')
