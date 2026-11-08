@@ -1,12 +1,23 @@
-import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { normaliseDomain, subdomainOf } from '../properties/custom-domain.js';
 import { AgentSiteService } from './agent-site.service.js';
+import { AgentTemplatesService } from './agent-templates.service.js';
+
+class TemplateDto {
+  @IsString() @MaxLength(40)
+  key: string;
+}
+
+class SectionsDto {
+  @IsArray()
+  sections: { id: string; visible: boolean }[];
+}
 
 class HandleDto {
   @IsString() @MaxLength(63)
@@ -34,7 +45,7 @@ type Actor = { id: string };
 @ApiTags('Agent website')
 @Controller('agent-site')
 export class AgentSiteController {
-  constructor(private readonly sites: AgentSiteService) {}
+  constructor(private readonly sites: AgentSiteService, private readonly templates: AgentTemplatesService) {}
 
   @Public()
   @Get('prices')
@@ -63,8 +74,41 @@ export class AgentSiteController {
   @Get('me/preview')
   @Roles(UserRole.AGENT)
   @ApiBearerAuth()
-  preview(@CurrentUser() user: Actor) {
-    return this.sites.previewMine(user.id);
+  @ApiOperation({ summary: 'Agent: preview the site, optionally in a template not yet unlocked' })
+  preview(@CurrentUser() user: Actor, @Query('template') template?: string) {
+    return this.sites.previewMine(user.id, template);
+  }
+
+  @Get('me/templates')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: template gallery with access, current template and section order' })
+  myTemplates(@CurrentUser() user: Actor) {
+    return this.templates.mine(user.id);
+  }
+
+  @Post('me/templates/:key/unlock')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: unlock a template (free → now, premium → one-time invoice)' })
+  unlockTemplate(@CurrentUser() user: Actor, @Param('key') key: string) {
+    return this.templates.unlock(user.id, key);
+  }
+
+  @Put('me/template')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: switch to an unlocked template' })
+  selectTemplate(@CurrentUser() user: Actor, @Body() dto: TemplateDto) {
+    return this.templates.select(user.id, dto.key);
+  }
+
+  @Put('me/sections')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: section order and visibility' })
+  sections(@CurrentUser() user: Actor, @Body() dto: SectionsDto) {
+    return this.templates.saveSections(user.id, dto.sections);
   }
 
   @Patch('me/branding')

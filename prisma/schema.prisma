@@ -554,6 +554,13 @@ model AgentProfile {
   siteDomainCheckedAt   DateTime?
   siteDomainPaidAt      DateTime?
   siteDomainInvoiceId   String?
+  /// Which template the agent website renders (AgentSiteTemplate.key). Falls
+  /// back to CLASSIC when the chosen one is inactive or no longer unlocked.
+  siteTemplate          String    @default("CLASSIC")
+  /// Section order and visibility: [{ id, visible }]. Templates render the
+  /// sections they support in this order; unknown ids are ignored.
+  siteSections          Json?
+  templateUnlocks       AgentTemplateUnlock[]
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -2298,6 +2305,8 @@ enum InvoiceKind {
   LISTING
   /// An agent's website: their e-resi address or their custom domain.
   AGENT_SITE
+  /// One-time unlock of a premium agent-website template.
+  AGENT_TEMPLATE
 }
 
 enum InvoiceStatus {
@@ -2631,4 +2640,40 @@ model DeveloperLead {
   @@index([developerId, createdAt])
   @@index([ownerAgentId, createdAt])
   @@index([propertyId])
+}
+
+enum SiteTemplateTier {
+  FREE
+  PREMIUM
+}
+
+/// Agent-website templates. The design lives in the web app under the same
+/// key; admin decides which are free and what a premium one costs to unlock.
+model AgentSiteTemplate {
+  key         String           @id
+  name        String
+  description String?
+  tier        SiteTemplateTier @default(FREE)
+  /// One-time unlock price for PREMIUM templates (0 = unlock at no charge).
+  unlockPrice Float            @default(0)
+  isActive    Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  unlocks     AgentTemplateUnlock[]
+}
+
+/// A premium template an agent has bought (paidAt set) or is paying for.
+model AgentTemplateUnlock {
+  id          String            @id @default(cuid())
+  agentId     String
+  agent       AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  templateKey String
+  template    AgentSiteTemplate @relation(fields: [templateKey], references: [key], onDelete: Cascade)
+  invoiceId   String?
+  paidAt      DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@unique([agentId, templateKey])
+  @@index([templateKey])
 }

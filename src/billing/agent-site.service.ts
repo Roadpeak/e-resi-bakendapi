@@ -10,6 +10,7 @@ import {
   isReservedDomain, normaliseDomain, normaliseSubdomain, subdomainProblem,
 } from '../properties/custom-domain.js';
 import { InvoicesService } from './invoices.service.js';
+import { AgentTemplatesService, normaliseSections } from './agent-templates.service.js';
 
 /**
  * Agent websites: <handle>.e-resi.com and/or the agent's own domain, serving
@@ -47,6 +48,7 @@ export class AgentSiteService implements OnModuleInit {
     private readonly invoices: InvoicesService,
     private readonly notifications: NotificationsService,
     private readonly cf: CloudflareService,
+    private readonly templates: AgentTemplatesService,
   ) {}
 
   async onModuleInit() {
@@ -353,7 +355,7 @@ export class AgentSiteService implements OnModuleInit {
   }
 
   /** The site's content: profile, branding, own listings and partnered developments. */
-  async site(agentId: string, preview = false) {
+  async site(agentId: string, preview = false, templateOverride?: string | null) {
     const a = await this.prisma.agentProfile.findFirst({
       where: { id: agentId, ...(preview ? {} : { kybStatus: KybStatus.APPROVED, isListed: true }) },
       select: {
@@ -361,7 +363,7 @@ export class AgentSiteService implements OnModuleInit {
         specialties: true, serviceAreas: true, phone: true, whatsapp: true, email: true, officeAddress: true,
         socials: true, ratingAverage: true, ratingCount: true, dealsCompleted: true,
         siteTagline: true, siteAccent: true, siteHeroUrl: true, siteHandle: true, siteActivatedAt: true,
-        siteCustomDomain: true, siteDomainStatus: true,
+        siteCustomDomain: true, siteDomainStatus: true, siteTemplate: true, siteSections: true, createdAt: true,
       },
     });
     if (!a) throw new NotFoundException('Agent not found');
@@ -395,17 +397,30 @@ export class AgentSiteService implements OnModuleInit {
       // Partnered developments credit the agent through their referral link.
       units: p._count.units, kind, href: kind === 'PARTNER' ? `${href(p)}?ref=${a.id}` : href(p),
     });
-    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, ...profile } = a;
+    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, siteTemplate, siteSections, createdAt, ...profile } = a;
+    const listings = [...own.map((p) => card(p, 'OWN')), ...partnered.map((p) => card(p, 'PARTNER'))];
     return {
       agent: profile,
       url: this.publicUrl({ siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus }),
-      listings: [...own.map((p) => card(p, 'OWN')), ...partnered.map((p) => card(p, 'PARTNER'))],
+      template: templateOverride ?? await this.templates.effectiveTemplate(a.id, siteTemplate),
+      sections: normaliseSections(siteSections),
+      // Figures templates can show without the agent typing anything in.
+      stats: {
+        listings: listings.length,
+        own: own.length,
+        partnered: partnered.length,
+        units: listings.reduce((n, l) => n + l.units, 0),
+        cities: new Set(listings.map((l) => l.city).filter(Boolean)).size,
+        withTours: listings.filter((l) => l.has3DTour || l.hasVRTour || l.hasCinematicTour).length,
+        onPlatformSince: createdAt.getFullYear(),
+      },
+      listings,
     };
   }
 
   /** Owner preview (any verification state). */
-  async previewMine(userId: string) {
+  async previewMine(userId: string, template?: string) {
     const a = await this.agentOf(userId);
-    return this.site(a.id, true);
+    return this.site(a.id, true, await this.templates.previewable(template));
   }
 }
