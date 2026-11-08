@@ -2689,6 +2689,9 @@ model AgentTemplateUnlock {
 
 enum AgentSiteItemType {
   ROLE
+  AREA
+  CASE_STUDY
+  PACKAGE
   TEAM
   TESTIMONIAL
   PAST_SALE

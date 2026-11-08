@@ -27,11 +27,17 @@ export interface SiteForms {
   modes: ViewingMode[];
   /** How far ahead a slot must be to be bookable. */
   noticeHours: number;
+  /** Mortgage calculator section and its starting values. */
+  calculator: boolean;
+  mortgageRate: number;
+  depositPct: number;
+  termYears: number;
 }
 
 export const DEFAULT_FORMS: SiteForms = {
   contact: true, valuation: true, viewing: true, newsletter: true, careers: true,
   days: [1, 2, 3, 4, 5, 6], start: '09:00', end: '17:00', slotMinutes: 60, modes: ['IN_PERSON', 'VIDEO'], noticeHours: 4,
+  calculator: true, mortgageRate: 13, depositPct: 20, termYears: 20,
 };
 
 /** Nairobi is UTC+3 all year (no daylight saving). */
@@ -110,6 +116,10 @@ export function readForms(raw: unknown): SiteForms {
   const modes = Array.isArray(r.modes) ? r.modes.filter((m): m is ViewingMode => m === 'IN_PERSON' || m === 'VIDEO') : DEFAULT_FORMS.modes;
   return {
     contact: bool('contact'), valuation: bool('valuation'), viewing: bool('viewing'), newsletter: bool('newsletter'), careers: bool('careers'),
+    calculator: bool('calculator'),
+    mortgageRate: num(r.mortgageRate, 1, 40) ?? DEFAULT_FORMS.mortgageRate,
+    depositPct: num(r.depositPct, 0, 90) ?? DEFAULT_FORMS.depositPct,
+    termYears: Math.round(num(r.termYears, 1, 35) ?? DEFAULT_FORMS.termYears),
     days, start, end,
     slotMinutes: SLOT_CHOICES.includes(Number(r.slotMinutes)) ? Number(r.slotMinutes) : DEFAULT_FORMS.slotMinutes,
     modes: modes.length ? [...new Set(modes)] : DEFAULT_FORMS.modes,
@@ -122,6 +132,7 @@ export function publicForms(f: SiteForms) {
   return {
     contact: f.contact, valuation: f.valuation, viewing: f.viewing && f.days.length > 0, newsletter: f.newsletter, careers: f.careers,
     modes: f.modes, slotMinutes: f.slotMinutes,
+    calculator: f.calculator, mortgageRate: f.mortgageRate, depositPct: f.depositPct, termYears: f.termYears,
   };
 }
 

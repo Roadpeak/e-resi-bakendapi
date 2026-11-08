@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuard
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AgentSiteItemType, AgentSiteLeadType, LeadStatus, UserRole } from '@prisma/client';
-import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -66,6 +66,17 @@ class FormsDto {
 
   @IsOptional() @IsInt() @Min(0) @Max(168)
   noticeHours?: number;
+
+  @IsOptional() @IsBoolean() calculator?: boolean;
+
+  @IsOptional() @IsNumber() @Min(1) @Max(40)
+  mortgageRate?: number;
+
+  @IsOptional() @IsNumber() @Min(0) @Max(90)
+  depositPct?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(35)
+  termYears?: number;
 }
 
 class LeadStatusDto {
@@ -358,6 +369,20 @@ export class AgentSiteController {
   @ApiOperation({ summary: 'Public: send a form from an agent website' })
   submit(@Param('agentId') agentId: string, @Body() dto: SubmitLeadDto) {
     return this.leads.submit(agentId, dto);
+  }
+
+  @Get('me/areas/:slug')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  myArea(@CurrentUser() user: Actor, @Param('slug') slug: string) {
+    return this.content.areaForOwner(user.id, slug);
+  }
+
+  @Public()
+  @Get(':agentId/areas/:slug')
+  @ApiOperation({ summary: 'Public: one area guide on an agent website' })
+  area(@Param('agentId') agentId: string, @Param('slug') slug: string) {
+    return this.content.area(agentId, slug);
   }
 
   @Public()

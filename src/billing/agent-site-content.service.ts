@@ -18,6 +18,43 @@ type Field =
   | { kind: 'list'; max: number; itemMax: number };
 
 export const CONTENT_SCHEMA: Record<AgentSiteItemType, Record<string, Field>> = {
+  /** A neighbourhood guide with its own page. */
+  AREA: {
+    name: { kind: 'text', max: 80, required: true },
+    tagline: { kind: 'text', max: 140 },
+    coverUrl: { kind: 'url' },
+    summary: { kind: 'text', max: 400 },
+    body: { kind: 'text', max: 20000 },
+    highlights: { kind: 'list', max: 8, itemMax: 100 },
+    priceFrom: { kind: 'number', min: 0, max: 1e12 },
+    rentFrom: { kind: 'number', min: 0, max: 1e10 },
+    commute: { kind: 'text', max: 120 },
+    schools: { kind: 'list', max: 8, itemMax: 80 },
+    /** Matches listings whose neighbourhood or city contains this. */
+    match: { kind: 'text', max: 80 },
+  },
+  /** A deal told as a story: challenge, approach, result. */
+  CASE_STUDY: {
+    title: { kind: 'text', max: 120, required: true },
+    clientType: { kind: 'enum', options: ['BUYER', 'SELLER', 'TENANT', 'LANDLORD', 'INVESTOR', 'DEVELOPER'] },
+    location: { kind: 'text', max: 100 },
+    coverUrl: { kind: 'url' },
+    challenge: { kind: 'text', max: 800 },
+    approach: { kind: 'text', max: 1200 },
+    result: { kind: 'text', max: 800 },
+    metrics: { kind: 'list', max: 4, itemMax: 40 },
+    quote: { kind: 'text', max: 400 },
+    date: { kind: 'month' },
+  },
+  /** A landlord / management package with its fee. */
+  PACKAGE: {
+    name: { kind: 'text', max: 60, required: true },
+    fee: { kind: 'text', max: 40, required: true },
+    feeNote: { kind: 'text', max: 60 },
+    description: { kind: 'text', max: 300 },
+    points: { kind: 'list', max: 10, itemMax: 90 },
+    featured: { kind: 'enum', options: ['YES', 'NO'] },
+  },
   /** An opening on the careers section. */
   ROLE: {
     title: { kind: 'text', max: 100, required: true },
@@ -87,6 +124,8 @@ export const CONTENT_SCHEMA: Record<AgentSiteItemType, Record<string, Field>> = 
 };
 
 const MAX_PER_TYPE = 60;
+/** Types with their own page on the site, so they need a link. */
+const SLUGGED: AgentSiteItemType[] = ['POST', 'AREA'];
 
 function clean(type: AgentSiteItemType, raw: unknown) {
   const input = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -171,7 +210,7 @@ export class AgentSiteContentService {
     await this.prisma.agentSiteItem.create({
       data: {
         agentId: a.id, type, data: d as Prisma.InputJsonValue, isPublished, sortOrder: count,
-        ...(type === 'POST' && { slug: await this.uniqueSlug(a.id, String(d.title)) }),
+        ...(SLUGGED.includes(type) && { slug: await this.uniqueSlug(a.id, String(d.title ?? d.name)) }),
       },
     });
     return this.mine(userId);
@@ -188,7 +227,7 @@ export class AgentSiteContentService {
         ...(d && { data: d as Prisma.InputJsonValue }),
         ...(dto.isPublished !== undefined && { isPublished: dto.isPublished }),
         // A post keeps its link once published unless the title changes before anyone could share it.
-        ...(d && item.type === 'POST' && !item.isPublished && { slug: await this.uniqueSlug(a.id, String(d.title), id) }),
+        ...(d && SLUGGED.includes(item.type) && (!item.isPublished || !item.slug) && { slug: await this.uniqueSlug(a.id, String(d.title ?? d.name), id) }),
       },
     });
     return this.mine(userId);
@@ -240,10 +279,32 @@ export class AgentSiteContentService {
         excerpt: rest.excerpt ?? String(body ?? '').slice(0, 200),
       } as Record<string, unknown> & { publishedAt?: string };
     }).sort((x, y) => String(y.publishedAt ?? '').localeCompare(String(x.publishedAt ?? '')));
+    const guides = items.filter((i) => i.type === 'AREA').map((i) => {
+      const { body, ...rest } = i.data as Record<string, unknown>;
+      return { id: i.id, slug: i.slug, ...rest, hasPage: !!String(body ?? '').trim() };
+    });
     return {
+      guides, cases: of('CASE_STUDY'), packages: of('PACKAGE'),
       team: of('TEAM'), testimonials: of('TESTIMONIAL'), sold: of('PAST_SALE'), faqs: of('FAQ'),
       services: of('SERVICE'), steps: of('STEP'), awards: of('AWARD'), roles: of('ROLE'), posts,
     };
+  }
+
+  async areaForOwner(userId: string, slug: string) {
+    const a = await this.agentOf(userId);
+    return this.area(a.id, slug, true);
+  }
+
+  /** One area guide page. */
+  async area(agentId: string, slug: string, preview = false) {
+    const a = await this.prisma.agentProfile.findFirst({
+      where: { id: agentId, ...(preview ? {} : { kybStatus: KybStatus.APPROVED, isListed: true }) },
+      select: { id: true },
+    });
+    if (!a) throw new NotFoundException('Not found');
+    const i = await this.prisma.agentSiteItem.findFirst({ where: { agentId, type: 'AREA', slug, ...(preview ? {} : { isPublished: true }) } });
+    if (!i) throw new NotFoundException('Area not found');
+    return { id: i.id, slug: i.slug, ...(i.data as Record<string, unknown>) };
   }
 
   async postForOwner(userId: string, slug: string) {
