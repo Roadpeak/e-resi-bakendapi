@@ -11,16 +11,18 @@ import { DocumentPdfService } from './document-pdf.service.js';
 import { PaystackService } from './paystack.service.js';
 import { DomainBillingService } from './domain-billing.service.js';
 import { ListingPlanService } from './listing-plan.service.js';
+import { AgentSiteService } from './agent-site.service.js';
+import { AgentSiteController } from './agent-site.controller.js';
 import { DomainsModule } from '../domains/domains.module.js';
 
 @Module({
   // AdminModule supplies PricingService; NotificationsModule the in-app feed.
   imports: [forwardRef(() => AdminModule), NotificationsModule, DomainsModule],
-  controllers: [BillingController],
+  controllers: [BillingController, AgentSiteController],
   providers: [
     DocumentPdfService,
     BillingService, PaymentProvidersService, PaystackService,
-    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService,
+    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService,
   ],
   exports: [BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
 })

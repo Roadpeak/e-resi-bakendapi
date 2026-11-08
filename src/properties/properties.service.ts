@@ -446,7 +446,8 @@ export class PropertiesService {
         where: { subdomain: dto.subdomain, NOT: { slug } },
         select: { id: true },
       });
-      if (taken) throw new BadRequestException(`${dto.subdomain}.e-resi.com is already taken`);
+      const agentTaken = await this.prisma.agentProfile.findFirst({ where: { siteHandle: dto.subdomain }, select: { id: true } });
+      if (taken || agentTaken) throw new BadRequestException(`${dto.subdomain}.e-resi.com is already taken`);
     }
 
     if (dto.customDomain) {
@@ -459,7 +460,8 @@ export class PropertiesService {
         where: { customDomain: dto.customDomain, NOT: { slug } },
         select: { slug: true },
       });
-      if (clash) throw new BadRequestException('That domain is already in use');
+      const agentClash = await this.prisma.agentProfile.findFirst({ where: { siteCustomDomain: dto.customDomain }, select: { id: true } });
+      if (clash || agentClash) throw new BadRequestException('That domain is already in use');
     }
 
     const updated = await this.prisma.property.update({

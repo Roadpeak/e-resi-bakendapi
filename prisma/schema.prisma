@@ -533,6 +533,27 @@ model AgentProfile {
   /// Developments this agent lists as owner (not through a partnership).
   ownedListings       Property[]       @relation("AgentOwnedListings")
   ownedLeads          DeveloperLead[]  @relation("AgentOwnedLeads")
+
+  // ─── Agent website (<siteHandle>.e-resi.com and/or a custom domain) ───────
+  /// The chosen e-resi address label; routes once siteActivatedAt is set.
+  siteHandle            String?   @unique
+  siteActivatedAt       DateTime?
+  /// Open invoice for the address fee, if any.
+  siteInvoiceId         String?
+  siteTagline           String?
+  siteAccent            String?
+  siteHeroUrl           String?
+  /// The agent's own domain for their site, e.g. kellerwilliams.co.ke.
+  siteCustomDomain      String?   @unique
+  /// AWAITING_PAYMENT | PENDING | ACTIVE | ERROR | MANUAL
+  siteDomainStatus      String?
+  siteDomainProvider    String?
+  siteDomainExternalId  String?
+  siteDomainNameservers String[]  @default([])
+  siteDomainError       String?
+  siteDomainCheckedAt   DateTime?
+  siteDomainPaidAt      DateTime?
+  siteDomainInvoiceId   String?
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -2275,6 +2296,8 @@ enum InvoiceKind {
   /// A single development's listing fee — one-time, or one month of a
   /// monthly plan (developer- or agent-owned).
   LISTING
+  /// An agent's website: their e-resi address or their custom domain.
+  AGENT_SITE
 }
 
 enum InvoiceStatus {
