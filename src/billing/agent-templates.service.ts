@@ -17,6 +17,10 @@ const CATALOGUE: { key: string; name: string; description: string; tier: SiteTem
   { key: 'HAVEN', name: 'Haven', description: 'A warm personal-brand site for an individual agent: framed hero, your story, why clients choose you.', tier: 'FREE', sortOrder: 1 },
   { key: 'ATELIER', name: 'Atelier', description: 'Editorial and cinematic for agencies: oversized type, scroll-revealed statements, live numbers, featured-listing spotlight.', tier: 'PREMIUM', sortOrder: 2 },
   { key: 'MERIDIAN', name: 'Meridian', description: 'Quiet luxury: serif type, centre-focus listing carousel, ornament details and a private-consultation call to action.', tier: 'PREMIUM', sortOrder: 3 },
+  { key: 'TERRACE', name: 'Terrace', description: 'Warm agency site: full-bleed hero with feature chips, scroll-filled statement, bento numbers, photo listing cards, step tabs over a big image.', tier: 'PREMIUM', sortOrder: 4 },
+  { key: 'PORTAL', name: 'Portal', description: 'Your site as a property app: sidebar navigation, featured carousel with thumbnails, search panel with category tiles and budget filters.', tier: 'PREMIUM', sortOrder: 5 },
+  { key: 'ARCADIA', name: 'Arcadia', description: 'Warm one-pager for individual agents: arch photos with drifting shapes, buyer and seller paths, one story at a time, contact form on the page.', tier: 'PREMIUM', sortOrder: 6 },
+  { key: 'CREST', name: 'Crest', description: 'Crisp brokerage site: slide-in menu, featured-development hero with key facts, numbered category cards, tagged listings.', tier: 'PREMIUM', sortOrder: 7 },
 ];
 
 /** Sections every template understands, in the default order. */
