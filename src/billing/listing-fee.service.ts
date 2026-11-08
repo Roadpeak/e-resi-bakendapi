@@ -62,7 +62,11 @@ export class ListingFeeService {
    */
   @Cron('0 3 1 * *', { name: 'listing-fees', timeZone: 'Africa/Nairobi' })
   async scheduledRun(): Promise<void> {
-    const summary = await this.runForPeriod(this.previousPeriod(new Date()));
+    const period = this.previousPeriod(new Date());
+    // From December 2026 each development is billed on its own cycle by
+    // ListingPlanService; November is the last month charged in arrears here.
+    if (period >= '2026-12') return;
+    const summary = await this.runForPeriod(period);
     this.logger.log(
       `Listing fees ${summary.period}: ${summary.charged} charged, ${summary.failed} failed, `
       + `${summary.skipped} skipped, ${summary.alreadyDone} already done `

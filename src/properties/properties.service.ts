@@ -218,7 +218,9 @@ export class PropertiesService {
     const bedrooms = query.bedrooms ? Number(query.bedrooms) : undefined;
 
     const where: Record<string, unknown> = {
-      status: query.status ?? PropertyStatus.ACTIVE,
+      // Public browse: only listed statuses, whatever the caller asks for.
+      status: query.status && ([PropertyStatus.ACTIVE, PropertyStatus.OFF_PLAN, PropertyStatus.SOLD_OUT] as PropertyStatus[]).includes(query.status)
+        ? query.status : PropertyStatus.ACTIVE,
       ...(query.category && { category: query.category }),
       ...(query.city && { city: { contains: query.city, mode: 'insensitive' } }),
       ...(query.neighborhood && { neighborhood: { contains: query.neighborhood, mode: 'insensitive' } }),
@@ -680,6 +682,19 @@ export class PropertiesService {
 
     if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
+    }
+    // The listing fee, not the owner, decides when an unpaid listing goes live.
+    if (userRole !== UserRole.ADMIN) {
+      const billingHeld: PropertyStatus[] = [PropertyStatus.PENDING_PAYMENT, PropertyStatus.PAUSED];
+      if (billingHeld.includes(status)) throw new BadRequestException('That status is set by billing');
+      const live: PropertyStatus[] = [PropertyStatus.ACTIVE, PropertyStatus.OFF_PLAN, PropertyStatus.SOLD_OUT];
+      if (billingHeld.includes(property.status) && live.includes(status)) {
+        throw new BadRequestException('Pay the listing fee to put this development live');
+      }
+      // Publishing a draft goes through review, not a status switch.
+      if (property.status === PropertyStatus.DRAFT && live.includes(status)) {
+        throw new BadRequestException('Submitted developments go live once our team approves them');
+      }
     }
 
     return this.prisma.property.update({ where: { slug }, data: { status } });

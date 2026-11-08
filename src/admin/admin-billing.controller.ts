@@ -3,9 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import type { Request } from 'express';
 import { InvoicesService } from '../billing/invoices.service.js';
+import { ListingPlanService } from '../billing/listing-plan.service.js';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { PaymentStatus, ProductionOrderStatus, UserRole } from '@prisma/client';
-import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
@@ -50,6 +51,21 @@ class UpdateOrderDto {
  */
 const WAIVER_PASSCODE_HASH = '$2b$12$JQVjHkvtXlF3mDnhY6RzrOZ8xrp..4.cr/4fSSFZwIjv7baRnQUq6';
 
+class DefaultPlanDto {
+  @IsIn(['DEVELOPER', 'AGENT'])
+  ownerType: 'DEVELOPER' | 'AGENT';
+
+  @IsIn(['MONTHLY', 'ONE_TIME'])
+  plan: 'MONTHLY' | 'ONE_TIME';
+}
+
+class OverridePlanDto {
+  /** null / omitted = follow the default for the owner type. */
+  @IsOptional()
+  @IsIn(['MONTHLY', 'ONE_TIME', null])
+  override?: 'MONTHLY' | 'ONE_TIME' | null;
+}
+
 class WaiveInvoiceDto {
   @IsString()
   @IsNotEmpty()
@@ -73,6 +89,7 @@ export class AdminBillingController {
     private readonly audit: AuditService,
     private readonly orders_: ProductionOrdersService,
     @Inject(forwardRef(() => InvoicesService)) private readonly invoices: InvoicesService,
+    @Inject(forwardRef(() => ListingPlanService)) private readonly listingPlans: ListingPlanService,
     private readonly config: ConfigService,
   ) {}
 
@@ -82,6 +99,43 @@ export class AdminBillingController {
    * browser), and is written to the audit log either way: who waived what,
    * for whom, how much and why; a wrong passcode is logged as a denial.
    */
+  // ─── Listing plans (per-development fees) ──────────────────────────────
+
+  @Get('listing-plans')
+  @ApiOperation({ summary: 'Admin: listing-fee settings and listings waiting on payment' })
+  async getListingPlans() {
+    const [config, counts] = await Promise.all([this.listingPlans.config(), this.listingPlans.counts()]);
+    return { ...config, counts };
+  }
+
+  @Post('listing-plans/default')
+  @ApiOperation({ summary: 'Admin: change the default plan for developer or agent listings (owners get 7 days notice)' })
+  async setDefaultPlan(@Body() dto: DefaultPlanDto, @CurrentUser() actor: { id: string }) {
+    const r = await this.listingPlans.setDefaultPlan(dto.ownerType, dto.plan);
+    await this.audit.record({
+      actorId: actor.id, action: 'billing.listing_plan.default', targetType: 'Setting', targetId: `${dto.ownerType}_listing_plan`,
+      summary: `${dto.ownerType === 'AGENT' ? 'Agent' : 'Developer'} listings now default to ${dto.plan === 'ONE_TIME' ? 'one-time' : 'monthly'}; ${r.listingsNotified} listing(s) notified`,
+    });
+    return r;
+  }
+
+  @Patch('listing-plans/properties/:slug')
+  @ApiOperation({ summary: 'Admin: set or clear one listing\'s plan override' })
+  async setListingOverride(@Param('slug') slug: string, @Body() dto: OverridePlanDto, @CurrentUser() actor: { id: string }) {
+    const r = await this.listingPlans.setOverride(slug, dto.override ?? null);
+    await this.audit.record({
+      actorId: actor.id, action: 'billing.listing_plan.override', targetType: 'Property', targetId: slug,
+      summary: `Listing plan for ${slug}: ${dto.override ?? 'follow default'}`,
+    });
+    return r;
+  }
+
+  @Post('listing-plans/run')
+  @ApiOperation({ summary: 'Admin: run the daily listing-fee job now (renewals, grace, pauses, plan changes)' })
+  runListingPlans() {
+    return this.listingPlans.runDaily();
+  }
+
   @Post('invoices/:id/waive')
   @ApiOperation({ summary: 'Admin: waive an unpaid monthly listing-fee invoice (passcode required, audited)' })
   async waiveInvoice(

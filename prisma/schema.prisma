@@ -54,6 +54,17 @@ enum PropertyStatus {
   OFF_PLAN
   SOLD_OUT
   ARCHIVED
+  /// Approved, waiting for its listing fee before it goes live.
+  PENDING_PAYMENT
+  /// Taken offline after a monthly listing fee went unpaid past its grace
+  /// period. Paying puts it straight back live.
+  PAUSED
+}
+
+/// How a development's listing fee is paid.
+enum ListingPlan {
+  MONTHLY
+  ONE_TIME
 }
 
 enum PropertyCategory {
@@ -1047,6 +1058,23 @@ model Property {
   marketingAuthorityConfirmed Boolean @default(false)
   /// Optional mandate / authority letter from the developer.
   mandateDocUrl    String?
+
+  // ─── Listing fee ───────────────────────────────────────────────────────────
+  /// Admin's per-listing choice; null follows the default for its owner type.
+  listingPlanOverride  ListingPlan?
+  /// The plan this listing is billed on right now.
+  listingPlan          ListingPlan?
+  /// Monthly plans: paid up to this moment; the next charge falls due here.
+  listingPaidThrough   DateTime?
+  /// One-time plans: when the one-time fee was paid (honoured on a switch).
+  listingOneTimePaidAt DateTime?
+  /// An unpaid renewal stays live until this moment, then the listing pauses.
+  listingGraceEndsAt   DateTime?
+  /// A plan change announced to the owner, taking effect at listingPendingPlanAt.
+  listingPendingPlan   ListingPlan?
+  listingPendingPlanAt DateTime?
+  /// The open listing-fee invoice, if one is awaiting payment.
+  listingInvoiceId     String?
   addressLine      String?
   neighborhood     String?
   city             String           @default("Nairobi")
@@ -2243,6 +2271,9 @@ enum InvoiceKind {
   PRODUCTION
   /// A development's custom domain or e-resi address.
   DOMAIN
+  /// A single development's listing fee — one-time, or one month of a
+  /// monthly plan (developer- or agent-owned).
+  LISTING
 }
 
 enum InvoiceStatus {

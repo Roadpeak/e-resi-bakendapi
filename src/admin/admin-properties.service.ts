@@ -1,5 +1,6 @@
 import { ownerUserId } from '../properties/property-owner.js';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
+import { ListingPlanService } from '../billing/listing-plan.service.js';
 import { PropertyStatus } from '@prisma/client';
 import { clearDeleteBlockers } from '../properties/delete-blockers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -13,6 +14,7 @@ export class AdminPropertiesService {
     private readonly prisma: PrismaService,
     private readonly events: PlatformEventsService,
     private readonly domains: DomainsService,
+    @Inject(forwardRef(() => ListingPlanService)) private readonly listingPlans: ListingPlanService,
   ) {}
 
   async list(
@@ -95,15 +97,22 @@ export class AdminPropertiesService {
     });
     if (!before) throw new NotFoundException('Property not found');
 
-    const after = await this.prisma.property.update({
+    let after = await this.prisma.property.update({
       where: { slug },
       data: {
-        status: decision === 'APPROVE' ? PropertyStatus.ACTIVE : PropertyStatus.DRAFT,
+        // Approval no longer publishes directly: the listing fee decides (see below).
+        ...(decision === 'REJECT' && { status: PropertyStatus.DRAFT }),
         reviewNotes: notes ?? null,
         reviewedById: reviewerId,
         reviewedAt: new Date(),
       },
     });
+    if (decision === 'APPROVE') {
+      // Pay before going live: free → live now; otherwise awaiting payment
+      // with an invoice, going live the moment it's paid.
+      await this.listingPlans.onApproved(after.id);
+      after = (await this.prisma.property.findUnique({ where: { id: after.id } }))!;
+    }
 
     // The developer is waiting on this decision — tell them either way, and
     // carry the reason when it is a rejection.

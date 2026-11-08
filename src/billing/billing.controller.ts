@@ -8,6 +8,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { ListingPlanService } from './listing-plan.service.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PayInvoiceMpesaDto, PayMpesaDto, PaypalConfirmDto } from './dto/link-method.dto.js';
 import { BillingService } from './billing.service.js';
@@ -26,9 +27,17 @@ export class BillingController {
     private readonly listingFees: ListingFeeService,
     private readonly agentFees: AgentFeeService,
     private readonly invoices: InvoicesService,
+    private readonly listingPlans: ListingPlanService,
   ) {}
 
   // ─── Invoices & receipts ────────────────────────────────────────────────
+
+  /** Public: listing-fee plans and prices, for quoting in the listing wizard. */
+  @Public()
+  @Get('listing-plans')
+  publicListingPlans() {
+    return this.listingPlans.config();
+  }
 
   @Get('invoices')
   @ApiOperation({ summary: 'Invoices and receipts for the signed-in account' })

@@ -10,6 +10,7 @@ import { PaymentProvidersService } from './payment-providers.service.js';
 import { DocumentPdfService } from './document-pdf.service.js';
 import { PaystackService } from './paystack.service.js';
 import { DomainBillingService } from './domain-billing.service.js';
+import { ListingPlanService } from './listing-plan.service.js';
 import { DomainsModule } from '../domains/domains.module.js';
 
 @Module({
@@ -19,8 +20,8 @@ import { DomainsModule } from '../domains/domains.module.js';
   providers: [
     DocumentPdfService,
     BillingService, PaymentProvidersService, PaystackService,
-    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService,
+    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService,
   ],
-  exports: [BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService],
+  exports: [BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
 })
 export class BillingModule {}

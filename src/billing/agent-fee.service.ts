@@ -96,8 +96,15 @@ export class AgentFeeService {
   }
 
   /** Bill on the 1st, an hour after the developer sweep to spread gateway load. */
+  /** Admin switch: 'agent_fee_enabled'. Per-listing fees are separate (ListingPlanService). */
+  private async membershipEnabled() {
+    return (await this.pricing.getSetting('agent_fee_enabled', 'true')).trim().toLowerCase() === 'true';
+  }
+
   @Cron('0 4 1 * *', { name: 'agent-fees', timeZone: 'Africa/Nairobi' })
   async monthlySweep() {
+    // Membership fee switched off in admin: nobody is charged or hidden for it.
+    if (!(await this.membershipEnabled())) return;
     const period = new Date().toISOString().slice(0, 7);
     try {
       await this.runForPeriod(period);
@@ -113,6 +120,7 @@ export class AgentFeeService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_5AM, { name: 'agent-fee-grace', timeZone: 'Africa/Nairobi' })
   async dailyGraceSweep() {
+    if (!(await this.membershipEnabled())) return;
     try {
       await this.retryFailed();
       await this.enforceGracePeriod();

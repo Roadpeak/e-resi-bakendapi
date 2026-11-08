@@ -507,7 +507,9 @@ export class InvoicesService {
     if (invoice.status === 'CANCELLED') throw new BadRequestException(`${invoice.number} was cancelled`);
     // Only the monthly listing fee (developer or agent) can be waived —
     // production, domains and other charges are paid for real work.
-    if (invoice.kind !== 'SUBSCRIPTION' || (!invoice.listingFeeRunId && !invoice.agentFeeRunId)) {
+    const isListingFee = invoice.kind === 'LISTING'
+      || (invoice.kind === 'SUBSCRIPTION' && (!!invoice.listingFeeRunId || !!invoice.agentFeeRunId));
+    if (!isListingFee) {
       throw new BadRequestException('Only monthly listing-fee invoices can be waived');
     }
 
@@ -544,6 +546,12 @@ export class InvoicesService {
           data: { isListed: true, suspendedAt: null },
         }).catch(() => undefined);
       }
+    }
+
+    // A waived per-listing fee puts the listing live, exactly as paying would.
+    if (invoice.kind === 'LISTING') {
+      const hook = this.paidHooks.get('LISTING');
+      if (hook) await hook(updated).catch((e) => this.logger.error(`Waive hook ${invoice.number}: ${(e as Error).message}`));
     }
 
     await this.notifications.createNotification(
@@ -608,7 +616,7 @@ export class InvoicesService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: invoice.userId },
-      select: { email: true },
+      select: { email: true, role: true },
     });
     if (!user) throw new NotFoundException('User not found');
 
@@ -667,7 +675,8 @@ export class InvoicesService {
       amountMinor,
       currency: invoice.currency,
       reference,
-      callbackPath: '/dashboard/billing',
+      // Agents pay from their own portal and must come back to it.
+      callbackPath: user.role === 'AGENT' ? '/agent/billing' : '/dashboard/billing',
       metadata: { userId, invoiceId: invoice.id, purpose: 'invoice_payment' },
     });
     return { paid: false as const, ...checkout };
