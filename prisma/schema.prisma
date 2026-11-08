@@ -561,6 +561,11 @@ model AgentProfile {
   /// sections they support in this order; unknown ids are ignored.
   siteSections          Json?
   templateUnlocks       AgentTemplateUnlock[]
+  /// Licence / registration line shown in the website footer (e.g. EARB number).
+  siteLicenceNo         String?
+  /// Short legal or disclaimer note under the footer.
+  siteFooterNote        String?
+  siteItems             AgentSiteItem[]
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -2676,4 +2681,35 @@ model AgentTemplateUnlock {
 
   @@unique([agentId, templateKey])
   @@index([templateKey])
+}
+
+enum AgentSiteItemType {
+  TEAM
+  TESTIMONIAL
+  PAST_SALE
+  FAQ
+  SERVICE
+  STEP
+  POST
+  AWARD
+}
+
+/// Content an agent adds to their website: team members, testimonials, past
+/// sales, FAQs, services, process steps, journal posts and awards. Fields
+/// differ per type and are validated by the API before they are stored.
+model AgentSiteItem {
+  id          String            @id @default(cuid())
+  agentId     String
+  agent       AgentProfile      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  type        AgentSiteItemType
+  data        Json
+  /// POST only: URL slug, unique per agent.
+  slug        String?
+  isPublished Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([agentId, slug])
+  @@index([agentId, type, sortOrder])
 }

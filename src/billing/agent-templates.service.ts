@@ -20,7 +20,10 @@ const CATALOGUE: { key: string; name: string; description: string; tier: SiteTem
 ];
 
 /** Sections every template understands, in the default order. */
-export const SITE_SECTIONS = ['stats', 'listings', 'about', 'areas', 'contact'] as const;
+export const SITE_SECTIONS = [
+  'stats', 'listings', 'services', 'process', 'about', 'team', 'sold', 'testimonials',
+  'areas', 'awards', 'journal', 'faq', 'contact',
+] as const;
 export type SiteSectionId = (typeof SITE_SECTIONS)[number];
 export type SiteSection = { id: SiteSectionId; visible: boolean };
 
@@ -35,8 +38,18 @@ export function normaliseSections(raw: unknown): SiteSection[] {
       out.push({ id, visible: (item as { visible?: boolean }).visible !== false });
     }
   }
-  // Sections added after the agent last saved go at the end, switched on.
-  for (const id of SITE_SECTIONS) if (!out.some((s) => s.id === id)) out.push({ id, visible: true });
+  // Sections added after the agent last saved slot in after the section that
+  // precedes them by default (contact stays last), switched on.
+  SITE_SECTIONS.forEach((id, i) => {
+    if (out.some((s) => s.id === id)) return;
+    let at = out.length;
+    for (let j = i - 1; j >= 0; j--) {
+      const k = out.findIndex((s) => s.id === SITE_SECTIONS[j]);
+      if (k >= 0) { at = k + 1; break; }
+    }
+    if (i === 0) at = 0;
+    out.splice(at, 0, { id, visible: true });
+  });
   return out;
 }
 

@@ -14,6 +14,7 @@ import { ListingPlanService } from './listing-plan.service.js';
 import { AgentSiteService } from './agent-site.service.js';
 import { AgentSiteController } from './agent-site.controller.js';
 import { AgentTemplatesService } from './agent-templates.service.js';
+import { AgentSiteContentService } from './agent-site-content.service.js';
 import { AgentTemplatesAdminController } from './agent-templates.controller.js';
 import { DomainsModule } from '../domains/domains.module.js';
 
@@ -24,7 +25,7 @@ import { DomainsModule } from '../domains/domains.module.js';
   providers: [
     DocumentPdfService,
     BillingService, PaymentProvidersService, PaystackService,
-    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService, AgentTemplatesService,
+    ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService, AgentTemplatesService, AgentSiteContentService,
   ],
   exports: [BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
 })

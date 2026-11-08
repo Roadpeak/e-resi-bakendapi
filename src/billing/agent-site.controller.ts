@@ -1,13 +1,49 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import { AgentSiteItemType, UserRole } from '@prisma/client';
+import { IsArray, IsBoolean, IsEnum, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { normaliseDomain, subdomainOf } from '../properties/custom-domain.js';
 import { AgentSiteService } from './agent-site.service.js';
 import { AgentTemplatesService } from './agent-templates.service.js';
+import { AgentSiteContentService } from './agent-site-content.service.js';
+
+class CreateItemDto {
+  @IsEnum(AgentSiteItemType)
+  type: AgentSiteItemType;
+
+  @IsObject()
+  data: Record<string, unknown>;
+
+  @IsOptional() @IsBoolean()
+  isPublished?: boolean;
+}
+
+class UpdateItemDto {
+  @IsOptional() @IsObject()
+  data?: Record<string, unknown>;
+
+  @IsOptional() @IsBoolean()
+  isPublished?: boolean;
+}
+
+class ReorderDto {
+  @IsEnum(AgentSiteItemType)
+  type: AgentSiteItemType;
+
+  @IsArray() @IsString({ each: true })
+  ids: string[];
+}
+
+class LegalDto {
+  @IsOptional() @IsString() @MaxLength(120)
+  licenceNo?: string | null;
+
+  @IsOptional() @IsString() @MaxLength(500)
+  footerNote?: string | null;
+}
 
 class TemplateDto {
   @IsString() @MaxLength(40)
@@ -45,7 +81,11 @@ type Actor = { id: string };
 @ApiTags('Agent website')
 @Controller('agent-site')
 export class AgentSiteController {
-  constructor(private readonly sites: AgentSiteService, private readonly templates: AgentTemplatesService) {}
+  constructor(
+    private readonly sites: AgentSiteService,
+    private readonly templates: AgentTemplatesService,
+    private readonly content: AgentSiteContentService,
+  ) {}
 
   @Public()
   @Get('prices')
@@ -139,6 +179,66 @@ export class AgentSiteController {
   @ApiBearerAuth()
   check(@CurrentUser() user: Actor) {
     return this.sites.refreshMine(user.id);
+  }
+
+  // ─── Content ────────────────────────────────────────────────────────────
+
+  @Get('me/content')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: all website content (team, testimonials, past sales, FAQs, services, steps, posts, awards)' })
+  myContent(@CurrentUser() user: Actor) {
+    return this.content.mine(user.id);
+  }
+
+  @Post('me/content')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  addContent(@CurrentUser() user: Actor, @Body() dto: CreateItemDto) {
+    return this.content.create(user.id, dto.type, dto.data, dto.isPublished ?? true);
+  }
+
+  @Put('me/content/order')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  reorderContent(@CurrentUser() user: Actor, @Body() dto: ReorderDto) {
+    return this.content.reorder(user.id, dto.type, dto.ids);
+  }
+
+  @Patch('me/content/:id')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  updateContent(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: UpdateItemDto) {
+    return this.content.update(user.id, id, dto);
+  }
+
+  @Delete('me/content/:id')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  removeContent(@CurrentUser() user: Actor, @Param('id') id: string) {
+    return this.content.remove(user.id, id);
+  }
+
+  @Patch('me/legal')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Agent: licence number and footer note' })
+  legal(@CurrentUser() user: Actor, @Body() dto: LegalDto) {
+    return this.content.updateLegal(user.id, dto);
+  }
+
+  @Get('me/posts/:slug')
+  @Roles(UserRole.AGENT)
+  @ApiBearerAuth()
+  myPost(@CurrentUser() user: Actor, @Param('slug') slug: string) {
+    return this.content.postForOwner(user.id, slug);
+  }
+
+  @Public()
+  @Get(':agentId/posts/:slug')
+  @ApiOperation({ summary: 'Public: one journal post on an agent website' })
+  post(@Param('agentId') agentId: string, @Param('slug') slug: string) {
+    return this.content.post(agentId, slug);
   }
 
   @Public()

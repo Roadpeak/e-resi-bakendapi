@@ -11,6 +11,7 @@ import {
 } from '../properties/custom-domain.js';
 import { InvoicesService } from './invoices.service.js';
 import { AgentTemplatesService, normaliseSections } from './agent-templates.service.js';
+import { AgentSiteContentService } from './agent-site-content.service.js';
 
 /**
  * Agent websites: <handle>.e-resi.com and/or the agent's own domain, serving
@@ -49,6 +50,7 @@ export class AgentSiteService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly cf: CloudflareService,
     private readonly templates: AgentTemplatesService,
+    private readonly content: AgentSiteContentService,
   ) {}
 
   async onModuleInit() {
@@ -363,7 +365,7 @@ export class AgentSiteService implements OnModuleInit {
         specialties: true, serviceAreas: true, phone: true, whatsapp: true, email: true, officeAddress: true,
         socials: true, ratingAverage: true, ratingCount: true, dealsCompleted: true,
         siteTagline: true, siteAccent: true, siteHeroUrl: true, siteHandle: true, siteActivatedAt: true,
-        siteCustomDomain: true, siteDomainStatus: true, siteTemplate: true, siteSections: true, createdAt: true,
+        siteCustomDomain: true, siteDomainStatus: true, siteTemplate: true, siteSections: true, createdAt: true, siteLicenceNo: true, siteFooterNote: true,
       },
     });
     if (!a) throw new NotFoundException('Agent not found');
@@ -397,7 +399,14 @@ export class AgentSiteService implements OnModuleInit {
       // Partnered developments credit the agent through their referral link.
       units: p._count.units, kind, href: kind === 'PARTNER' ? `${href(p)}?ref=${a.id}` : href(p),
     });
-    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, siteTemplate, siteSections, createdAt, ...profile } = a;
+    const { siteHandle, siteActivatedAt, siteCustomDomain, siteDomainStatus, siteTemplate, siteSections, createdAt, siteLicenceNo, siteFooterNote, ...profile } = a;
+    const content = await this.content.forSite(a.id);
+    // No platform reviews yet? Show the average of the agent's own testimonials.
+    const rated = content.testimonials.map((t) => Number((t as { rating?: number }).rating)).filter((n) => n > 0);
+    if (!profile.ratingCount && rated.length) {
+      profile.ratingAverage = Math.round((rated.reduce((x, y) => x + y, 0) / rated.length) * 10) / 10;
+      profile.ratingCount = rated.length;
+    }
     const listings = [...own.map((p) => card(p, 'OWN')), ...partnered.map((p) => card(p, 'PARTNER'))];
     return {
       agent: profile,
@@ -415,6 +424,8 @@ export class AgentSiteService implements OnModuleInit {
         onPlatformSince: createdAt.getFullYear(),
       },
       listings,
+      content,
+      legal: { licenceNo: siteLicenceNo, footerNote: siteFooterNote },
     };
   }
 
