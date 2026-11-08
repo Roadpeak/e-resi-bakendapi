@@ -123,6 +123,7 @@ export class UnitsService {
             neighborhood: true, county: true, heroImageUrl: true, currency: true,
             hasCinematicTour: true, has3DTour: true, hasVRTour: true,
             developer: { select: { companyName: true, logoUrl: true } },
+            listedByAgentId: true,
             media: { orderBy: { order: 'asc' } },
             cinematicScenes: { orderBy: { order: 'asc' } },
           },

@@ -374,15 +374,41 @@ export class AgentsService {
       },
     });
 
+    // Developments the agent listed in their own right come first: they are
+    // the agent's, not a partner's. No developer account sits behind them, so
+    // the card shows the developer name the agent entered.
+    const own = await this.prisma.property.findMany({
+      where: { listedByAgentId: agentId, status: { in: ['ACTIVE', 'OFF_PLAN'] } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, slug: true, name: true, tagline: true, heroImageUrl: true,
+        city: true, neighborhood: true, category: true, status: true,
+        priceFrom: true, priceTo: true, currency: true,
+        has3DTour: true, hasVRTour: true, hasCinematicTour: true,
+        createdAt: true, developerName: true,
+        _count: { select: { units: true } },
+      },
+    });
+    const ownCards = own.map(({ createdAt, developerName, ...p }) => ({
+      ...p,
+      developer: { id: null, companyName: developerName ?? 'Independent developer', logoUrl: null },
+      assignedAt: createdAt,
+      kind: 'SALE' as const,
+      own: true,
+    }));
+
     // A property can reach the same agent through two partnerships in odd
     // migration states — one card each per kind is what the visitor should see.
-    const seen = new Set<string>();
-    return assignments
-      .filter((a) => {
-        const key = `${a.property.id}:${a.kind}`;
-        return !seen.has(key) && seen.add(key);
-      })
-      .map((a) => ({ ...a.property, assignedAt: a.assignedAt, kind: a.kind }));
+    const seen = new Set<string>(ownCards.map((p) => `${p.id}:SALE`));
+    return [
+      ...ownCards,
+      ...assignments
+        .filter((a) => {
+          const key = `${a.property.id}:${a.kind}`;
+          return !seen.has(key) && seen.add(key);
+        })
+        .map((a) => ({ ...a.property, assignedAt: a.assignedAt, kind: a.kind, own: false })),
+    ];
   }
 
   /**
