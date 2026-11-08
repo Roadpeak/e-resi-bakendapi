@@ -70,7 +70,7 @@ export class ProductionTiersController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: set or upgrade production tier for a property' })
   setTier(
@@ -81,7 +81,7 @@ export class ProductionTiersController {
   }
 
   @Post('properties/:slug/services')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Developer: order additional production services for a development '
@@ -96,7 +96,7 @@ export class ProductionTiersController {
   }
 
   @Get('properties/:slug/services')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: production orders for one of your developments' })
   propertyOrders(

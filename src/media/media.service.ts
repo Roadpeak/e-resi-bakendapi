@@ -1,3 +1,4 @@
+import { canManageProperty, ownerUserId } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { MediaType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -41,10 +42,10 @@ export class MediaService {
   ) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -83,7 +84,7 @@ export class MediaService {
     const isOwner = listing.ownerId === userId;
     const isManagingAgent = listing.managingAgent?.userId === userId;
     const developerMayManage =
-      listing.developer.userId === userId &&
+      ownerUserId(listing) === userId &&
       (listing.ownerId === null || listing.managerKind === 'DEVELOPER');
     if (userRole !== UserRole.ADMIN && !isOwner && !isManagingAgent && !developerMayManage) {
       throw new ForbiddenException('You do not manage this rent listing');
@@ -122,14 +123,14 @@ export class MediaService {
     const asset = await this.prisma.mediaAsset.findUnique({
       where: { id },
       include: {
-        property: { include: { developer: true } },
+        property: { include: { developer: true, listedByAgent: true } },
         rentListing: { include: { developer: true } },
       },
     });
     if (!asset) throw new NotFoundException('Media asset not found');
 
-    const ownerOfProperty = asset.property?.developer.userId === userId;
-    const ownerOfListing = asset.rentListing?.developer.userId === userId;
+    const ownerOfProperty = ownerUserId(asset.property) === userId;
+    const ownerOfListing = ownerUserId(asset.rentListing) === userId;
 
     if (userRole !== UserRole.ADMIN && !ownerOfProperty && !ownerOfListing) {
       throw new ForbiddenException('You do not own this media asset');
@@ -148,10 +149,10 @@ export class MediaService {
   async reorder(propertySlug: string, userId: string, userRole: UserRole, orderedIds: string[]) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 

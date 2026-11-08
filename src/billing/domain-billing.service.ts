@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Invoice } from '@prisma/client';
@@ -104,7 +105,7 @@ export class DomainBillingService implements OnModuleInit {
       where: { id: propertyId },
       select: {
         id: true, name: true, domainBillingMode: true, domainInvoiceId: true,
-        domainPaidAt: true, domainPaidThrough: true, developer: { select: { userId: true } },
+        domainPaidAt: true, domainPaidThrough: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
       },
     });
     if (p.domainInvoiceId) await this.invoices.cancel(p.domainInvoiceId);
@@ -134,7 +135,7 @@ export class DomainBillingService implements OnModuleInit {
     }
 
     const invoice = await this.invoices.create({
-      userId: p.developer.userId,
+      userId: ownerUserId(p)!,
       kind: 'DOMAIN',
       domainItem: 'CUSTOM_DOMAIN',
       propertyId: p.id,
@@ -178,7 +179,7 @@ export class DomainBillingService implements OnModuleInit {
       where: { id: propertyId },
       select: {
         id: true, name: true, subdomain: true, subdomainActivatedAt: true, subdomainInvoiceId: true,
-        developer: { select: { userId: true } },
+        developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
       },
     });
     if (!p.subdomain) throw new BadRequestException('Choose an address first');
@@ -201,7 +202,7 @@ export class DomainBillingService implements OnModuleInit {
     }
 
     const invoice = await this.invoices.create({
-      userId: p.developer.userId,
+      userId: ownerUserId(p)!,
       kind: 'DOMAIN',
       domainItem: 'SUBDOMAIN',
       propertyId: p.id,
@@ -278,7 +279,7 @@ export class DomainBillingService implements OnModuleInit {
       },
       select: {
         id: true, name: true, customDomain: true, domainFee: true, domainPaidThrough: true,
-        developer: { select: { userId: true } },
+        developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
       },
       take: 200,
     });
@@ -290,7 +291,7 @@ export class DomainBillingService implements OnModuleInit {
           continue;
         }
         const invoice = await this.invoices.create({
-          userId: p.developer.userId,
+          userId: ownerUserId(p)!,
           kind: 'DOMAIN',
           domainItem: 'CUSTOM_DOMAIN',
           propertyId: p.id,
@@ -318,12 +319,12 @@ export class DomainBillingService implements OnModuleInit {
         domainStatus: { in: ['ACTIVE', 'PENDING'] },
         domainPaidThrough: { lt: new Date(now.getTime() - day(grace)) },
       },
-      select: { id: true, name: true, customDomain: true, developer: { select: { userId: true } } },
+      select: { id: true, name: true, customDomain: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
       take: 200,
     });
     for (const p of lapsed) {
       await this.prisma.property.update({ where: { id: p.id }, data: { domainStatus: 'SUSPENDED' } });
-      void this.events.customDomainSuspended(p.developer.userId, p.name, p.customDomain!, p.id);
+      void this.events.customDomainSuspended(ownerUserId(p)!, p.name, p.customDomain!, p.id);
     }
   }
 }

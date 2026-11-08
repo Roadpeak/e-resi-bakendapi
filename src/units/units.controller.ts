@@ -29,7 +29,7 @@ export class UnitsController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: add unit to property' })
   create(
@@ -41,7 +41,7 @@ export class UnitsController {
   }
 
   @Post('bulk')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: import many units at once (all or nothing)' })
   bulkCreate(
@@ -53,7 +53,7 @@ export class UnitsController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: update a unit' })
   update(
@@ -65,7 +65,7 @@ export class UnitsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: delete a unit' })
   remove(
@@ -94,7 +94,7 @@ export class UnitsPortfolioController {
   }
 
   @Get(':id/manage')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Developer: one unit's full state — owner, deals, rentals, media" })
   manage(@Param('id') id: string, @CurrentUser() user: { id: string }) {
@@ -102,7 +102,7 @@ export class UnitsPortfolioController {
   }
 
   @Post(':id/media')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Developer: attach a photo or video to this specific unit" })
   addMedia(
@@ -114,7 +114,7 @@ export class UnitsPortfolioController {
   }
 
   @Delete(':id/media/:mediaId')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove a unit photo or video' })
   removeMedia(

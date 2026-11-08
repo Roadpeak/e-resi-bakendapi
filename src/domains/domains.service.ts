@@ -1,3 +1,4 @@
+import { ownerUserId, ownerName } from '../properties/property-owner.js';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -125,7 +126,7 @@ export class DomainsService implements OnApplicationBootstrap {
       const p = await this.prisma.property.findUnique({
         where: { id: propertyId }, select: { name: true, developer: { select: { companyName: true } } },
       });
-      if (p) void this.events.customDomainFailed(p.name, p.developer.companyName, domain, propertyId, message);
+      if (p) void this.events.customDomainFailed(p.name, ownerName(p), domain, propertyId, message);
     }
   }
 
@@ -167,7 +168,7 @@ export class DomainsService implements OnApplicationBootstrap {
       where: { id: propertyId },
       select: {
         id: true, slug: true, name: true, customDomain: true, domainProvider: true, domainExternalId: true,
-        domainStatus: true, domainCheckedAt: true, developer: { select: { userId: true } },
+        domainStatus: true, domainCheckedAt: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
       },
     });
     if (!p?.customDomain || !this.cf.enabled) return;
@@ -204,7 +205,7 @@ export class DomainsService implements OnApplicationBootstrap {
           ...(active && { domainStatus: 'ACTIVE', domainVerifiedAt: new Date(), domainError: null }),
         },
       });
-      if (active) void this.events.customDomainLive(p.developer.userId, p.name, p.customDomain, p.id, p.slug);
+      if (active) void this.events.customDomainLive(ownerUserId(p)!, p.name, p.customDomain, p.id, p.slug);
     } catch (e) {
       // A zone deleted on Cloudflare's side (unactivated zones expire) is
       // reconnected next time rather than polled forever.

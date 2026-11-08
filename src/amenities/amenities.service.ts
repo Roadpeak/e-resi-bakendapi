@@ -1,3 +1,4 @@
+import { canManageProperty } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AmenityType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -10,10 +11,10 @@ export class AmenitiesService {
   private async assertOwner(propertySlug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return property;
@@ -60,10 +61,10 @@ export class AmenitiesService {
   async remove(id: string, userId: string, userRole: UserRole) {
     const amenity = await this.prisma.amenity.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!amenity) throw new NotFoundException('Amenity not found');
-    if (userRole !== UserRole.ADMIN && amenity.property.developer.userId !== userId) {
+    if (!canManageProperty(amenity.property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     await this.prisma.amenity.delete({ where: { id } });

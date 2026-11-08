@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import {
   BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
@@ -59,11 +60,13 @@ export class ChatService {
       }
       const property = await this.prisma.property.findUnique({
         where: { slug: opts.propertySlug },
-        include: { developer: true },
+        include: { developer: true, listedByAgent: true },
       });
       if (!property) throw new NotFoundException('Property not found');
 
-      const agent = await this.prisma.agentProfile.findFirst({
+      // An agent-owned listing has no partnership to route through: the
+      // conversation simply goes to the listing agent (its owner).
+      const agent = !property.developerId ? null : await this.prisma.agentProfile.findFirst({
         where: {
           id: opts.agentId,
           kybStatus: 'APPROVED',
@@ -73,7 +76,7 @@ export class ChatService {
           // property's chats.
           partnerships: {
             some: {
-              developerId: property.developerId,
+              developerId: property.developerId ?? undefined,
               status: 'ACTIVE',
               assignments: { some: { propertyId: property.id, isActive: true } },
             },
@@ -88,7 +91,7 @@ export class ChatService {
         agentId = agent.id;
         subject = `${property.name} — ${agent.displayName}`;
       } else {
-        counterpartyId = property.developer.userId;
+        counterpartyId = ownerUserId(property)!;
         subject = property.name;
       }
     } else if (opts.agentId) {
@@ -113,10 +116,10 @@ export class ChatService {
       }
       const property = await this.prisma.property.findUnique({
         where: { slug: opts.propertySlug },
-        include: { developer: true },
+        include: { developer: true, listedByAgent: true },
       });
       if (!property) throw new NotFoundException('Property not found');
-      counterpartyId = property.developer.userId;
+      counterpartyId = ownerUserId(property)!;
       propertyId = property.id;
       subject = property.name;
     } else if (opts.rentListingSlug) {
@@ -141,7 +144,7 @@ export class ChatService {
       } else if (listing.managerKind === 'OWNER' && listing.owner) {
         counterpartyId = listing.owner.id;
       } else {
-        counterpartyId = listing.developer.userId;
+        counterpartyId = ownerUserId(listing)!;
       }
       if (counterpartyId === userId) {
         throw new BadRequestException('You cannot start a conversation with yourself');
@@ -328,7 +331,7 @@ export class ChatService {
       include: {
         initiator: true,
         counterparty: true,
-        property: { select: { id: true, name: true, developerId: true, developer: { select: { userId: true } } } },
+        property: { select: { id: true, name: true, developerId: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } },
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
@@ -354,7 +357,9 @@ export class ChatService {
       select: { id: true },
     });
 
-    if (agentProfile) {
+    // On the agent's OWN listing it is captured as a lead (below), not a deal.
+    const ownListing = ownerUserId(conversation.property) === userId;
+    if (agentProfile && !ownListing && conversation.property.developerId) {
       const partnership = await this.prisma.agentPartnership.findUnique({
         where: {
           developerId_agentId: {
@@ -384,7 +389,7 @@ export class ChatService {
       return { kind: 'deal' as const, id: deal.id };
     }
 
-    if (conversation.property.developer.userId !== userId) {
+    if (ownerUserId(conversation.property) !== userId) {
       throw new BadRequestException('Only the developer or a partnered agent can capture this lead');
     }
 

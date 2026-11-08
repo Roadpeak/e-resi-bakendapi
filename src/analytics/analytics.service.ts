@@ -1,3 +1,4 @@
+import { canManageProperty, ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AnalyticsEventType, Prisma, UserRole } from '@prisma/client';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
@@ -66,7 +67,7 @@ export class AnalyticsService {
     try {
       const [viewer, property] = await Promise.all([
         this.prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, phone: true, role: true } }),
-        this.prisma.property.findUnique({ where: { id: propertyId }, select: { name: true, developer: { select: { userId: true } } } }),
+        this.prisma.property.findUnique({ where: { id: propertyId }, select: { name: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } }),
       ]);
       // Only customers are leads: developers and admins previewing a page are not.
       if (!viewer || !['BUYER', 'INVESTOR', 'TENANT'].includes(viewer.role)) return;
@@ -107,11 +108,11 @@ export class AnalyticsService {
   ) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true, units: { select: { id: true, name: true } } },
+      include: { developer: true, listedByAgent: true, units: { select: { id: true, name: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
 
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -766,12 +767,16 @@ export class AnalyticsService {
     }
     const property = await this.prisma.property.findUnique({
       where: { id: dto.propertyId },
-      select: { id: true, name: true, developerId: true, developer: { select: { userId: true } } },
+      select: { id: true, name: true, developerId: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
     const clientName = [viewer.firstName, viewer.lastName].filter(Boolean).join(' ') || viewer.email;
 
-    if (who.agentUserId) {
+    // An agent capturing a viewer of a developer's development opens a deal
+    // under their partnership. On their OWN listing there is no partnership —
+    // they capture it as a lead exactly as a developer would (below).
+    const agentOwnsIt = !!who.agentUserId && ownerUserId(property) === who.agentUserId;
+    if (who.agentUserId && !agentOwnsIt && property.developerId) {
       const agent = await this.prisma.agentProfile.findUnique({
         where: { userId: who.agentUserId },
         select: { id: true },
@@ -797,7 +802,7 @@ export class AnalyticsService {
       return { kind: 'deal' as const, id: deal.id };
     }
 
-    if (property.developer.userId !== who.developerUserId) {
+    if (ownerUserId(property) !== (who.developerUserId ?? who.agentUserId)) {
       throw new ForbiddenException('Not your property');
     }
     const dup = await this.prisma.inquiry.findFirst({

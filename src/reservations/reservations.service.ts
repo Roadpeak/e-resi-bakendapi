@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -244,7 +245,7 @@ export class ReservationsService {
     const reservation = await this.prisma.reservation.findUnique({
       where: { id },
       include: {
-        unit: { include: { property: { include: { developer: true } } } },
+        unit: { include: { property: { include: { developer: true, listedByAgent: true } } } },
         user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
         documents: true,
         payments: { orderBy: { createdAt: 'desc' } },
@@ -253,7 +254,7 @@ export class ReservationsService {
     if (!reservation) throw new NotFoundException('Reservation not found');
 
     const isOwner = reservation.userId === userId;
-    const isDeveloper = reservation.unit.property.developer.userId === userId;
+    const isDeveloper = ownerUserId(reservation.unit.property) === userId;
     const isAdmin = userRole === UserRole.ADMIN;
 
     if (!isOwner && !isDeveloper && !isAdmin) throw new ForbiddenException('Access denied');
@@ -266,7 +267,7 @@ export class ReservationsService {
     const reservation = await this.findOne(id, userId, userRole);
 
     // Only developer or admin can advance stage
-    const isDeveloper = reservation.unit.property.developer.userId === userId;
+    const isDeveloper = ownerUserId(reservation.unit.property) === userId;
     if (!isDeveloper && userRole !== UserRole.ADMIN) throw new ForbiddenException('Only the developer can advance reservation stage');
 
     const stageOrder: ReservationStage[] = [

@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -81,7 +82,7 @@ export class InquiriesService {
         ...(userId && { userId }),
       },
       include: {
-        property: { select: { name: true, developer: { select: { userId: true } } } },
+        property: { select: { name: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } },
         rentListing: { select: { name: true, developer: { select: { userId: true } } } },
       },
     });
@@ -227,7 +228,7 @@ export class InquiriesService {
     const inquiry = await this.prisma.inquiry.findUnique({
       where: { id },
       include: {
-        property: { include: { developer: true } },
+        property: { include: { developer: true, listedByAgent: true } },
         rentListing: { include: { developer: true } },
         replies: { orderBy: { createdAt: 'asc' }, include: { sender: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, role: true } } } },
       },
@@ -235,8 +236,8 @@ export class InquiriesService {
     if (!inquiry) throw new NotFoundException('Inquiry not found');
 
     const isOwner = inquiry.userId === requesterId;
-    const isDeveloperOfProperty = inquiry.property?.developer.userId === requesterId;
-    const isDeveloperOfListing = inquiry.rentListing?.developer.userId === requesterId;
+    const isDeveloperOfProperty = ownerUserId(inquiry.property) === requesterId;
+    const isDeveloperOfListing = ownerUserId(inquiry.rentListing) === requesterId;
     const isAdmin = requesterRole === UserRole.ADMIN;
     // The attributed agent is a party: the lead was routed to them, and a
     // routed lead they cannot open or answer is not routed at all.

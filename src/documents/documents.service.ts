@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -26,10 +27,10 @@ export class DocumentsService {
     if (dto.propertyId) {
       const property = await this.prisma.property.findUnique({
         where: { id: dto.propertyId },
-        select: { developer: { select: { userId: true } } },
+        select: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
       });
       if (!property) throw new NotFoundException('Property not found');
-      if (property.developer.userId !== userId) {
+      if (ownerUserId(property) !== userId) {
         throw new ForbiddenException('You do not own this property');
       }
     }
@@ -38,12 +39,12 @@ export class DocumentsService {
     if (dto.reservationId) {
       const reservation = await this.prisma.reservation.findUnique({
         where: { id: dto.reservationId },
-        include: { unit: { include: { property: { include: { developer: true } } } } },
+        include: { unit: { include: { property: { include: { developer: true, listedByAgent: true } } } } },
       });
       if (!reservation) throw new NotFoundException('Reservation not found');
 
       const isOwner = reservation.userId === userId;
-      const isDeveloper = reservation.unit.property.developer.userId === userId;
+      const isDeveloper = ownerUserId(reservation.unit.property) === userId;
       if (!isOwner && !isDeveloper) throw new ForbiddenException('Access denied to this reservation');
       // The developer sharing into a purchase is what the buyer must hear
       // about; a buyer adding their own paperwork is not news to themselves.
@@ -89,7 +90,7 @@ export class DocumentsService {
       where: { id: dto.parentId },
       include: {
         reservation: {
-          include: { unit: { include: { property: { include: { developer: true } } } } },
+          include: { unit: { include: { property: { include: { developer: true, listedByAgent: true } } } } },
         },
       },
     });
@@ -114,7 +115,7 @@ export class DocumentsService {
     });
 
     await this.events.documentSigned(
-      parent.reservation.unit.property.developer.userId,
+      ownerUserId(parent.reservation.unit.property)!,
       parent.name,
       parent.reservation.unit.name,
       doc.id,
@@ -129,10 +130,10 @@ export class DocumentsService {
   async findForProperty(propertyId: string, userId: string) {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
-      select: { developer: { select: { userId: true } } },
+      select: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (property.developer.userId !== userId) {
+    if (ownerUserId(property) !== userId) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -180,12 +181,12 @@ export class DocumentsService {
   async findForReservation(reservationId: string, userId: string, userRole: UserRole) {
     const reservation = await this.prisma.reservation.findUnique({
       where: { id: reservationId },
-      include: { unit: { include: { property: { include: { developer: true } } } } },
+      include: { unit: { include: { property: { include: { developer: true, listedByAgent: true } } } } },
     });
     if (!reservation) throw new NotFoundException('Reservation not found');
 
     const isOwner = reservation.userId === userId;
-    const isDeveloper = reservation.unit.property.developer.userId === userId;
+    const isDeveloper = ownerUserId(reservation.unit.property) === userId;
     const isAdmin = userRole === UserRole.ADMIN;
     if (!isOwner && !isDeveloper && !isAdmin) throw new ForbiddenException('Access denied');
 

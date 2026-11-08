@@ -24,7 +24,7 @@ export class AmenitiesController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: add a single nearby amenity' })
   create(
@@ -36,7 +36,7 @@ export class AmenitiesController {
   }
 
   @Post('bulk')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: bulk-add amenities (replaces workflow for initial setup)' })
   bulkCreate(
@@ -48,7 +48,7 @@ export class AmenitiesController {
   }
 
   @Delete('all')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove all amenities for a property' })
   removeAll(
@@ -59,7 +59,7 @@ export class AmenitiesController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove a single amenity' })
   remove(

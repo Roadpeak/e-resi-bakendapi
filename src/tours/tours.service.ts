@@ -1,3 +1,4 @@
+import { canManageProperty } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -12,10 +13,10 @@ export class ToursService {
   private async assertOwner(propertySlug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return property;
@@ -75,10 +76,10 @@ export class ToursService {
   async removeCinematicScene(id: string, userId: string, userRole: UserRole) {
     const scene = await this.prisma.cinematicScene.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!scene) throw new NotFoundException('Scene not found');
-    if (userRole !== UserRole.ADMIN && scene.property.developer.userId !== userId) {
+    if (!canManageProperty(scene.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.cinematicScene.delete({ where: { id } });
@@ -102,10 +103,10 @@ export class ToursService {
   async addTourScene(sectionId: string, userId: string, userRole: UserRole, dto: CreateTourSceneDto) {
     const section = await this.prisma.tourSection3D.findUnique({
       where: { id: sectionId },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!section) throw new NotFoundException('Tour section not found');
-    if (userRole !== UserRole.ADMIN && section.property.developer.userId !== userId) {
+    if (!canManageProperty(section.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     return this.prisma.tourScene3D.create({
@@ -135,10 +136,10 @@ export class ToursService {
   async removeTourSection(id: string, userId: string, userRole: UserRole) {
     const section = await this.prisma.tourSection3D.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!section) throw new NotFoundException('Section not found');
-    if (userRole !== UserRole.ADMIN && section.property.developer.userId !== userId) {
+    if (!canManageProperty(section.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourSection3D.delete({ where: { id } });
@@ -150,10 +151,10 @@ export class ToursService {
   async remove3DScene(id: string, userId: string, userRole: UserRole) {
     const scene = await this.prisma.tourScene3D.findUnique({
       where: { id },
-      include: { section: { include: { property: { include: { developer: true } } } } },
+      include: { section: { include: { property: { include: { developer: true, listedByAgent: true } } } } },
     });
     if (!scene) throw new NotFoundException('Scene not found');
-    if (userRole !== UserRole.ADMIN && scene.section.property.developer.userId !== userId) {
+    if (!canManageProperty(scene.section.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourScene3D.delete({ where: { id } });
@@ -195,10 +196,10 @@ export class ToursService {
   async removeVRScene(id: string, userId: string, userRole: UserRole) {
     const scene = await this.prisma.tourSceneVR.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!scene) throw new NotFoundException('VR scene not found');
-    if (userRole !== UserRole.ADMIN && scene.property.developer.userId !== userId) {
+    if (!canManageProperty(scene.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.tourSceneVR.delete({ where: { id } });
@@ -236,10 +237,10 @@ export class ToursService {
   async removeFloorPlan(id: string, userId: string, userRole: UserRole) {
     const plan = await this.prisma.floorPlan.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!plan) throw new NotFoundException('Floor plan not found');
-    if (userRole !== UserRole.ADMIN && plan.property.developer.userId !== userId) {
+    if (!canManageProperty(plan.property, userId, userRole)) {
       throw new ForbiddenException('Access denied');
     }
     /**

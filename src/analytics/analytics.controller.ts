@@ -33,7 +33,7 @@ export class AnalyticsController {
   }
 
   @Get('properties/:slug')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: get analytics for a property' })
   @ApiQuery({ name: 'days', required: false, type: Number })

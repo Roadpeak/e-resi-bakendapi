@@ -519,6 +519,8 @@ model AgentProfile {
   feeRuns             AgentFeeRun[]
   deals               Deal[]
   leads               DeveloperLead[]
+  /// Developments this agent lists as owner (not through a partnership).
+  ownedListings       Property[]       @relation("AgentOwnedListings")
   clientRooms         ClientRoom[]
   mandateRequests     MandateRequest[]
   analyticsEvents     AnalyticsEvent[]
@@ -1033,8 +1035,18 @@ model Property {
   description      String?
   category         PropertyCategory @default(APARTMENT)
   status           PropertyStatus   @default(DRAFT)
-  developerId      String
-  developer        DeveloperProfile @relation(fields: [developerId], references: [id])
+  /// Exactly one owner: a developer, or an agent listing it themselves
+  /// (the developer need not be on e-resi). Enforced by a CHECK constraint.
+  developerId      String?
+  developer        DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Restrict)
+  listedByAgentId  String?
+  listedByAgent    AgentProfile?     @relation("AgentOwnedListings", fields: [listedByAgentId], references: [id], onDelete: Restrict)
+  /// For agent-owned listings: the developer's name as the agent gives it.
+  developerName    String?
+  /// The agent confirmed they are authorised to market this development.
+  marketingAuthorityConfirmed Boolean @default(false)
+  /// Optional mandate / authority letter from the developer.
+  mandateDocUrl    String?
   addressLine      String?
   neighborhood     String?
   city             String           @default("Nairobi")
@@ -1205,6 +1217,7 @@ model Property {
   @@index([status])
   @@index([developerId])
   @@index([city])
+  @@index([listedByAgentId])
   @@index([isFeatured])
 }
 

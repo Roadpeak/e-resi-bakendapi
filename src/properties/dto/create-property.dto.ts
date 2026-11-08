@@ -152,6 +152,26 @@ export class CreatePropertyDto {
   @IsOptional()
   completionDate?: string;
 
+  /** Agent listings: the developer's name as the agent knows it (required for agents). */
+  @ApiPropertyOptional({ example: 'Acme Developers Ltd' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  developerName?: string;
+
+  /** Agent listings: the agent confirms they may market this development (required for agents). */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  marketingAuthorityConfirmed?: boolean;
+
+  /** Agent listings: optional mandate / authority letter from the developer. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  mandateDocUrl?: string;
+
   @ApiPropertyOptional({
     description: 'Full development-creation wizard payload (details, media uploads, selected production services) kept for admin review',
   })

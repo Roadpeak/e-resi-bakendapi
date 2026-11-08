@@ -24,7 +24,7 @@ export class ToursController {
   }
 
   @Post('cinematic')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: add a cinematic scene' })
   addCinematic(
@@ -36,7 +36,7 @@ export class ToursController {
   }
 
   @Delete('cinematic/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove a cinematic scene' })
   removeCinematic(
@@ -155,7 +155,7 @@ export class ToursController {
   }
 
   @Post('floor-plans')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: add a floor plan' })
   addFloorPlan(
@@ -167,7 +167,7 @@ export class ToursController {
   }
 
   @Delete('floor-plans/:id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove a floor plan' })
   removeFloorPlan(

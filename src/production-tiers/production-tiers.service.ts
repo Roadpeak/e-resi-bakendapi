@@ -1,3 +1,4 @@
+import { canManageProperty, ownerUserId } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductionTierType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -79,10 +80,10 @@ export class ProductionTiersService {
   async setTier(dto: SetProductionTierDto, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug: dto.propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -115,7 +116,7 @@ export class ProductionTiersService {
     if (isNewOrder && amount > 0) {
       const label = dto.tier.replace(/_/g, ' ').toLowerCase();
       await this.invoices.invoiceProduction({
-        userId: property.developer.userId,
+        userId: ownerUserId(property)!,
         propertyId: property.id,
         propertyName: property.name,
         lines: [{

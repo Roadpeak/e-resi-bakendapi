@@ -1,3 +1,4 @@
+import { canManageProperty } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -363,10 +364,10 @@ export class TrafficService {
   async propertyTraffic(slug: string, userId: string, role: string, daysParam: number) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
-      select: { id: true, slug: true, name: true, customDomain: true, subdomain: true, developer: { select: { userId: true } } },
+      select: { id: true, slug: true, name: true, customDomain: true, subdomain: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (role !== 'ADMIN' && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, role)) {
       throw new ForbiddenException('You do not own this property');
     }
 

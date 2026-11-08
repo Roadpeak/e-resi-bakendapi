@@ -1,3 +1,4 @@
+import { canManageProperty, ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -11,10 +12,10 @@ export class UnitsService {
   private async assertPropertyOwner(propertySlug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return property;
@@ -160,9 +161,9 @@ export class UnitsService {
   }
 
   async update(id: string, userId: string, userRole: UserRole, dto: UpdateUnitDto) {
-    const unit = await this.prisma.unit.findUnique({ where: { id }, include: { property: { include: { developer: true } } } });
+    const unit = await this.prisma.unit.findUnique({ where: { id }, include: { property: { include: { developer: true, listedByAgent: true } } } });
     if (!unit) throw new NotFoundException('Unit not found');
-    if (userRole !== UserRole.ADMIN && unit.property.developer.userId !== userId) {
+    if (!canManageProperty(unit.property, userId, userRole)) {
       throw new ForbiddenException('You do not own this unit');
     }
 
@@ -221,9 +222,9 @@ export class UnitsService {
   }
 
   async remove(id: string, userId: string, userRole: UserRole) {
-    const unit = await this.prisma.unit.findUnique({ where: { id }, include: { property: { include: { developer: true } } } });
+    const unit = await this.prisma.unit.findUnique({ where: { id }, include: { property: { include: { developer: true, listedByAgent: true } } } });
     if (!unit) throw new NotFoundException('Unit not found');
-    if (userRole !== UserRole.ADMIN && unit.property.developer.userId !== userId) {
+    if (!canManageProperty(unit.property, userId, userRole)) {
       throw new ForbiddenException('You do not own this unit');
     }
     await this.prisma.unit.delete({ where: { id } });
@@ -307,7 +308,7 @@ export class UnitsService {
         property: {
           select: {
             id: true, slug: true, name: true, heroImageUrl: true, city: true,
-            developerId: true, developer: { select: { userId: true } },
+            developerId: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
           },
         },
         ownership: {
@@ -349,7 +350,7 @@ export class UnitsService {
         media: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
       },
     });
-    if (!unit || unit.property.developer.userId !== userId) {
+    if (!unit || ownerUserId(unit.property) !== userId) {
       throw new NotFoundException('Unit not found');
     }
     return unit;
@@ -363,9 +364,9 @@ export class UnitsService {
   ) {
     const unit = await this.prisma.unit.findUnique({
       where: { id: unitId },
-      select: { id: true, property: { select: { developer: { select: { userId: true } } } } },
+      select: { id: true, property: { select: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } } },
     });
-    if (!unit || unit.property.developer.userId !== userId) {
+    if (!unit || ownerUserId(unit.property) !== userId) {
       throw new NotFoundException('Unit not found');
     }
     return this.prisma.mediaAsset.create({
@@ -383,9 +384,9 @@ export class UnitsService {
   async removeMedia(unitId: string, mediaId: string, userId: string) {
     const media = await this.prisma.mediaAsset.findFirst({
       where: { id: mediaId, unitId },
-      select: { id: true, unit: { select: { property: { select: { developer: { select: { userId: true } } } } } } },
+      select: { id: true, unit: { select: { property: { select: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } } } } },
     });
-    if (!media || media.unit?.property.developer.userId !== userId) {
+    if (!media || ownerUserId(media.unit?.property) !== userId) {
       throw new NotFoundException('Media not found');
     }
     await this.prisma.mediaAsset.delete({ where: { id: mediaId } });

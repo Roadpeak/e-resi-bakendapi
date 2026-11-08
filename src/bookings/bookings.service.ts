@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BookingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -178,7 +179,7 @@ export class BookingsService {
   async updateStatus(id: string, userId: string, userRole: UserRole, status: BookingStatus, meetingUrl?: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!booking) throw new NotFoundException('Booking not found');
     // The attributed agent runs their own viewings — confirming and
@@ -192,7 +193,7 @@ export class BookingsService {
       : false;
     if (
       userRole !== UserRole.ADMIN &&
-      booking.property.developer.userId !== userId &&
+      ownerUserId(booking.property) !== userId &&
       !isAttributedAgent
     ) {
       throw new ForbiddenException('You do not own this property');
@@ -272,12 +273,12 @@ export class BookingsService {
   async cancel(id: string, userId: string, userRole: UserRole) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
     const isOwner = booking.userId === userId;
-    const isDeveloper = booking.property.developer.userId === userId;
+    const isDeveloper = ownerUserId(booking.property) === userId;
     const isAdmin = userRole === UserRole.ADMIN;
 
     if (!isOwner && !isDeveloper && !isAdmin) throw new ForbiddenException('Access denied');

@@ -177,6 +177,12 @@ export class OwnershipsService {
 
     const unit = ownership.unit;
     const property = unit.property;
+    // Rentals are run by (or delegated to) the development's developer; an
+    // agent-listed development has none on e-resi, so it can't host them yet.
+    if (!property.developerId) {
+      throw new BadRequestException('Rental listings are not available for agent-listed developments yet');
+    }
+    const developerId = property.developerId;
     const name = dto.name?.trim() || `${unit.name} — ${property.name}`;
     const slug = await uniqueSlug(this.prisma, slugify(name));
 
@@ -185,7 +191,7 @@ export class OwnershipsService {
         slug,
         name,
         propertyId: property.id,
-        developerId: property.developerId,
+        developerId,
         ownerId: userId,
         unitOwnershipId: ownership.id,
         managerKind: dto.manage === 'DEVELOPER' ? RentManagerKind.DEVELOPER : RentManagerKind.OWNER,
@@ -226,7 +232,7 @@ export class OwnershipsService {
     if (dto.manage === 'DEVELOPER') {
       // The developer just inherited a listing to run — they should hear so.
       const dev = await this.prisma.developerProfile.findUnique({
-        where: { id: property.developerId },
+        where: { id: developerId },
         select: { userId: true },
       });
       if (dev) await this.events.ownerListingDelegated(dev.userId, name);

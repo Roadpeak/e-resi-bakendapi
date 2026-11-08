@@ -48,7 +48,7 @@ export class MediaController {
 
   @Post('upload')
   @ApiBearerAuth()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   // Fallback path only — clients presign and upload straight to Cloudinary,
   // which is what makes multi-gigabyte videos possible. This route buffers the
   // whole file in memory, so its ceiling stays modest on purpose: raising it
@@ -102,7 +102,7 @@ export class MediaController {
   }
 
   @Post('properties/:slug')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: attach a media record to a property' })
   addToProperty(
@@ -114,7 +114,7 @@ export class MediaController {
   }
 
   @Patch('properties/:slug/reorder')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: reorder media assets for a property' })
   reorder(
@@ -143,7 +143,7 @@ export class MediaController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiOperation({ summary: 'Developer: delete a media asset' })
   remove(
     @Param('id') id: string,

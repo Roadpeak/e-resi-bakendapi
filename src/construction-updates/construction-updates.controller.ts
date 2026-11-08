@@ -25,7 +25,7 @@ export class ConstructionUpdatesController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: post a construction update' })
   create(
@@ -37,7 +37,7 @@ export class ConstructionUpdatesController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: edit a construction update' })
   update(
@@ -49,7 +49,7 @@ export class ConstructionUpdatesController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: delete a construction update' })
   remove(

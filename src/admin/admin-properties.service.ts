@@ -1,3 +1,4 @@
+import { ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyStatus } from '@prisma/client';
 import { clearDeleteBlockers } from '../properties/delete-blockers.js';
@@ -55,6 +56,12 @@ export class AdminPropertiesService {
           reviewedAt: true,
           createdAt: true,
           developer: { select: { id: true, companyName: true } },
+          // Agent listings: who listed it, the developer they named, and the
+          // authority they confirmed — what a reviewer needs to approve it.
+          listedByAgent: { select: { id: true, displayName: true, kind: true, kybStatus: true } },
+          developerName: true,
+          marketingAuthorityConfirmed: true,
+          mandateDocUrl: true,
           _count: { select: { units: true, media: true, inquiries: true } },
         },
       }),
@@ -84,7 +91,7 @@ export class AdminPropertiesService {
   ) {
     const before = await this.prisma.property.findUnique({
       where: { slug },
-      include: { developer: { select: { userId: true } } },
+      include: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!before) throw new NotFoundException('Property not found');
 
@@ -100,7 +107,7 @@ export class AdminPropertiesService {
 
     // The developer is waiting on this decision — tell them either way, and
     // carry the reason when it is a rejection.
-    const owner = before.developer.userId;
+    const owner = ownerUserId(before)!;
     if (decision === 'APPROVE') {
       await this.events.propertyApproved(owner, { id: after.id, name: after.name, slug: after.slug });
     } else {
@@ -196,7 +203,8 @@ export class AdminPropertiesService {
 
     const after = await this.prisma.property.update({
       where: { slug },
-      data: { developerId },
+      // One owner only: moving to a developer ends any agent ownership.
+      data: { developerId, listedByAgentId: null },
       include: { developer: { select: { companyName: true } } },
     });
     return { before, after };

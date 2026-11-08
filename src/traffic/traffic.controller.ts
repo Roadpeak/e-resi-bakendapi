@@ -20,7 +20,7 @@ export class TrafficController {
   }
 
   @Get('properties/:slug')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Owner: visitors to one development across every address it is served on' })
   propertyTraffic(

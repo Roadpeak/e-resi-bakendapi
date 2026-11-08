@@ -1,3 +1,4 @@
+import { canManageProperty, ownerName } from './property-owner.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -109,9 +110,20 @@ export class PropertiesService {
 
   // ─── Create ───────────────────────────────────────────────────────────────
 
-  async create(userId: string, dto: CreatePropertyDto) {
-    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!developer) throw new ForbiddenException('Developer profile required');
+  /**
+   * Create a development. A developer creates it as owner; an agent can now
+   * list one themselves (the developer need not be on e-resi) — they give
+   * the developer's name and confirm they may market it. Either way it
+   * starts as a draft awaiting review.
+   */
+  async create(userId: string, dto: CreatePropertyDto, role?: UserRole | string) {
+    const owner = await this.resolveListingOwner(userId, role);
+    if (owner.kind === 'AGENT') {
+      if (!dto.developerName?.trim()) throw new BadRequestException("Enter the developer's name");
+      if (dto.marketingAuthorityConfirmed !== true) {
+        throw new BadRequestException('Confirm you are authorised to market this development');
+      }
+    }
 
     const slug = await uniqueSlug(this.prisma, slugify(dto.name));
     // Every development gets a working <slug>.e-resi.com address from the
@@ -128,7 +140,14 @@ export class PropertiesService {
         tagline: dto.tagline,
         description: dto.description,
         category: dto.category,
-        developerId: developer.id,
+        ...(owner.kind === 'DEVELOPER'
+          ? { developerId: owner.id }
+          : {
+              listedByAgentId: owner.id,
+              developerName: dto.developerName!.trim(),
+              marketingAuthorityConfirmed: true,
+              mandateDocUrl: dto.mandateDocUrl?.trim() || null,
+            }),
         neighborhood: dto.neighborhood,
         city: dto.city ?? 'Nairobi',
         county: dto.county,
@@ -157,7 +176,7 @@ export class PropertiesService {
     //
     // The property is saved by this point, so notifying is follow-up work: it
     // runs detached and its failure is logged rather than returned.
-    void this.notifyAdminsOfSubmission(created.id, created.name, developer.companyName);
+    void this.notifyAdminsOfSubmission(created.id, created.name, owner.kind === 'AGENT' ? `${owner.name} (agent listing)` : owner.name);
     // Same reasoning for the developer's own receipt: detached, never throws
     // (toUser swallows its failures), so slow mail can't fail the create.
     void this.events.propertyInReview(userId, { id: created.id, name: created.name, slug: created.slug });
@@ -272,6 +291,13 @@ export class PropertiesService {
       where: { slug },
       include: {
         developer: true,
+        // Public details only: the listing agent's private fields stay private.
+        listedByAgent: {
+          select: {
+            id: true, kind: true, displayName: true, logoUrl: true, photoUrl: true,
+            phone: true, whatsapp: true, email: true, kybStatus: true,
+          },
+        },
         units: { orderBy: { price: 'asc' } },
         floorPlans: true,
         amenities: true,
@@ -287,17 +313,41 @@ export class PropertiesService {
     if (!property || property.status === PropertyStatus.ARCHIVED) {
       throw new NotFoundException('Property not found');
     }
+    // Agent-owned: present the developer the agent named, so every template
+    // keeps its "developed by" line; the agent rides along as listedByAgent
+    // for the "marketed by" attribution.
+    if (!property.developer && property.listedByAgent) {
+      return {
+        ...property,
+        developer: {
+          id: null, userId: null, companyName: property.developerName ?? 'Independent developer',
+          logoUrl: null, description: null, establishedYear: null, completedProjects: 0, website: null,
+        },
+      };
+    }
     return property;
+  }
+
+  /** Who is listing: the developer (or their staff) or an agent listing in their own right. */
+  private async resolveListingOwner(userId: string, role?: UserRole | string):
+    Promise<{ kind: 'DEVELOPER' | 'AGENT'; id: string; name: string }> {
+    if (role === UserRole.AGENT || role === 'AGENT') {
+      const agent = await this.prisma.agentProfile.findUnique({ where: { userId }, select: { id: true, displayName: true } });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      return { kind: 'AGENT', id: agent.id, name: agent.displayName };
+    }
+    const developer = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true, companyName: true } });
+    if (!developer) throw new ForbiddenException('Developer profile required');
+    return { kind: 'DEVELOPER', id: developer.id, name: developer.companyName };
   }
 
   // ─── Developer: my properties ─────────────────────────────────────────────
 
-  async findMyProperties(userId: string, query: QueryPropertiesDto) {
-    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!developer) throw new ForbiddenException('Developer profile required');
+  async findMyProperties(userId: string, query: QueryPropertiesDto, role?: UserRole | string) {
+    const owner = await this.resolveListingOwner(userId, role);
 
     const where: Record<string, unknown> = {
-      developerId: developer.id,
+      ...(owner.kind === 'DEVELOPER' ? { developerId: owner.id } : { listedByAgentId: owner.id }),
       ...(query.status && { status: query.status }),
       ...(query.category && { category: query.category }),
       ...(query.q && {
@@ -373,11 +423,11 @@ export class PropertiesService {
   ) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
 
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -455,7 +505,7 @@ export class PropertiesService {
         await this.domainBilling.requestCustomDomain(property.id, dto.customDomain, { grant: isAdmin });
         if (!isAdmin && !this.domains.automated) {
           void this.events.customDomainRequested(
-            property.name, property.developer.companyName, dto.customDomain, property.id,
+            property.name, ownerName(property), dto.customDomain, property.id,
           );
         }
       }
@@ -472,10 +522,10 @@ export class PropertiesService {
   /** Activate the property's <subdomain>.e-resi.com — invoices it unless free or admin. */
   async activateSubdomain(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
-      where: { slug }, select: { id: true, developer: { select: { userId: true } } },
+      where: { slug }, select: { id: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return this.domainBilling.requestSubdomain(property.id, { grant: userRole === UserRole.ADMIN });
@@ -484,10 +534,10 @@ export class PropertiesService {
   /** "Check now": retry a failed connection or re-ask Cloudflare, then report. */
   async domainCheck(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
-      where: { slug }, select: { id: true, developer: { select: { userId: true } } },
+      where: { slug }, select: { id: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     await this.domains.refresh(property.id);
@@ -503,11 +553,11 @@ export class PropertiesService {
         domainVerifiedAt: true, domainCheckedAt: true,
         domainBillingMode: true, domainFee: true, domainInvoiceId: true, domainPaidThrough: true,
         subdomainActivatedAt: true, subdomainInvoiceId: true,
-        developer: { select: { userId: true } },
+        developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } },
       },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -570,10 +620,10 @@ export class PropertiesService {
 
 
   async update(slug: string, userId: string, userRole: UserRole, dto: UpdatePropertyDto) {
-    const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true } });
+    const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true, listedByAgent: true } });
     if (!property) throw new NotFoundException('Property not found');
 
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -625,10 +675,10 @@ export class PropertiesService {
   // ─── Publish / Unpublish ──────────────────────────────────────────────────
 
   async setStatus(slug: string, userId: string, userRole: UserRole, status: PropertyStatus) {
-    const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true } });
+    const property = await this.prisma.property.findUnique({ where: { slug }, include: { developer: true, listedByAgent: true } });
     if (!property) throw new NotFoundException('Property not found');
 
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -657,13 +707,13 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({
       where: { slug },
       include: {
-        developer: true,
+        developer: true, listedByAgent: true,
         _count: { select: { bookings: true, inquiries: true, rentListings: true } },
       },
     });
     if (!property) throw new NotFoundException('Property not found');
 
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 

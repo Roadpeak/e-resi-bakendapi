@@ -42,7 +42,7 @@ export class PropertiesController {
    * and try to look it up as a property.
    */
   @Get('nearby-suggestions')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Developer: suggest nearby landmarks around a point, for the '
@@ -80,7 +80,7 @@ export class PropertiesController {
   }
 
   @Get(':slug/domain-status')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Owner: whether the custom domain reaches this development yet' })
   domainStatus(
@@ -91,7 +91,7 @@ export class PropertiesController {
   }
 
   @Post(':slug/subdomain/activate')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Owner: activate the e-resi address (invoiced unless free)' })
   activateSubdomain(
@@ -102,7 +102,7 @@ export class PropertiesController {
   }
 
   @Post(':slug/domain-check')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Owner: re-check (or retry) the custom domain connection now' })
   domainCheck(
@@ -120,29 +120,29 @@ export class PropertiesController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: create a new property listing' })
+  @ApiOperation({ summary: 'Developer or agent: create a new property listing' })
   create(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: UserRole },
     @Body() dto: CreatePropertyDto,
   ) {
-    return this.propertiesService.create(user.id, dto);
+    return this.propertiesService.create(user.id, dto, user.role);
   }
 
   @Get('my/listings')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: list own properties' })
+  @ApiOperation({ summary: 'Developer or agent: list own properties' })
   findMyProperties(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: UserRole },
     @Query() query: QueryPropertiesDto,
   ) {
-    return this.propertiesService.findMyProperties(user.id, query);
+    return this.propertiesService.findMyProperties(user.id, query, user.role);
   }
 
   @Patch(':slug')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: update property' })
   update(
@@ -154,7 +154,7 @@ export class PropertiesController {
   }
 
   @Patch(':slug/branding')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: update mini-site branding' })
   updateBranding(
@@ -166,7 +166,7 @@ export class PropertiesController {
   }
 
   @Patch(':slug/status')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: publish, archive, or change property status' })
   setStatus(
@@ -178,7 +178,7 @@ export class PropertiesController {
   }
 
   @Delete(':slug')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: archive (soft delete) a property' })
   archive(
@@ -194,7 +194,7 @@ export class PropertiesController {
    * should never be one query parameter away from a reversible hide.
    */
   @Delete(':slug/permanent')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer/Admin: permanently delete a draft or archived property' })
   remove(

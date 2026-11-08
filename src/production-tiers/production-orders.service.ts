@@ -1,3 +1,4 @@
+import { canManageProperty, ownerUserId, ownerName } from '../properties/property-owner.js';
 import {
   BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, Logger,
   NotFoundException,
@@ -176,10 +177,10 @@ export class ProductionOrdersService {
 
     const property = await this.prisma.property.findUnique({
       where: { slug },
-      include: { developer: { select: { userId: true, companyName: true } } },
+      include: { developer: { select: { userId: true, companyName: true } }, listedByAgent: { select: { userId: true, displayName: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -243,7 +244,7 @@ export class ProductionOrdersService {
 
     await this.events.productionOrdered(
       property.name,
-      property.developer.companyName,
+      ownerName(property),
       created.map((o) => ({ label: o.label, amount: o.amount, currency: o.currency })),
     );
 
@@ -286,10 +287,10 @@ export class ProductionOrdersService {
   async forProperty(slug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug },
-      include: { developer: { select: { userId: true } } },
+      include: { developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return this.prisma.productionOrder.findMany({
@@ -340,7 +341,7 @@ export class ProductionOrdersService {
   ) {
     const before = await this.prisma.productionOrder.findUnique({
       where: { id },
-      include: { property: { select: { name: true, developer: { select: { userId: true } } } } },
+      include: { property: { select: { name: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } } },
     });
     if (!before) throw new NotFoundException('Production order not found');
 
@@ -360,7 +361,7 @@ export class ProductionOrdersService {
 
     // The developer needs to arrange site access, so a booked date is only
     // useful to them if we say so. Only announce genuine transitions.
-    const owner = before.property.developer.userId;
+    const owner = ownerUserId(before.property)!;
 
     // Booking a crew is the point the work is committed, so that is when it
     // gets billed. Guarded on invoiceId so re-scheduling never bills twice,

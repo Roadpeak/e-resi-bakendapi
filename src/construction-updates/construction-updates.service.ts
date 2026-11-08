@@ -1,3 +1,4 @@
+import { canManageProperty } from '../properties/property-owner.js';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -12,10 +13,10 @@ export class ConstructionUpdatesService {
   private async assertOwner(propertySlug: string, userId: string, userRole: UserRole) {
     const property = await this.prisma.property.findUnique({
       where: { slug: propertySlug },
-      include: { developer: true },
+      include: { developer: true, listedByAgent: true },
     });
     if (!property) throw new NotFoundException('Property not found');
-    if (userRole !== UserRole.ADMIN && property.developer.userId !== userId) {
+    if (!canManageProperty(property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
     return property;
@@ -64,10 +65,10 @@ export class ConstructionUpdatesService {
   async update(id: string, userId: string, userRole: UserRole, dto: UpdateConstructionUpdateDto) {
     const update = await this.prisma.constructionUpdate.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!update) throw new NotFoundException('Construction update not found');
-    if (userRole !== UserRole.ADMIN && update.property.developer.userId !== userId) {
+    if (!canManageProperty(update.property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
@@ -86,10 +87,10 @@ export class ConstructionUpdatesService {
   async remove(id: string, userId: string, userRole: UserRole) {
     const update = await this.prisma.constructionUpdate.findUnique({
       where: { id },
-      include: { property: { include: { developer: true } } },
+      include: { property: { include: { developer: true, listedByAgent: true } } },
     });
     if (!update) throw new NotFoundException('Construction update not found');
-    if (userRole !== UserRole.ADMIN && update.property.developer.userId !== userId) {
+    if (!canManageProperty(update.property, userId, userRole)) {
       throw new ForbiddenException('You do not own this property');
     }
 
