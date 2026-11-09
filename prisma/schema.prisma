@@ -267,6 +267,8 @@ enum AnalyticsEventType {
   UNIT_VIEWED
   PROPERTY_SAVED
   SHARE
+  /// A WhatsApp or phone tap on a listing's contact card.
+  CONTACT_CLICK
 }
 
 // ─────────────────────────────────────────────
@@ -1430,6 +1432,8 @@ model RentListing {
   rentUnits          RentUnit[]
   media              MediaAsset[]
   inquiries          Inquiry[]
+  bookings           Booking[]
+  analyticsEvents    AnalyticsEvent[]
 
   conversations Conversation[]
 
@@ -1828,33 +1832,38 @@ model InquiryReply {
 // ─────────────────────────────────────────────
 
 model Booking {
-  id         String        @id @default(cuid())
-  propertyId String
-  property   Property      @relation(fields: [propertyId], references: [id])
-  userId     String?
-  user       User?         @relation(fields: [userId], references: [id])
+  id            String        @id @default(cuid())
+  propertyId    String
+  property      Property      @relation(fields: [propertyId], references: [id])
+  /// Set when the viewing was requested from a rent listing, so it reaches
+  /// whoever runs that letting rather than the building's developer.
+  rentListingId String?
+  rentListing   RentListing?  @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id])
   /// The agent who introduced this buyer, when one did. Set from the ?ref=
   /// on a shared link, or chosen by the developer when logging it manually.
   /// SetNull rather than Cascade: losing an agent must not erase the
   /// developer's booking.
-  agentId    String?
-  agent      AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  name       String
-  email      String
-  phone      String?
-  date       DateTime
-  time       String
-  type       BookingType   @default(PHYSICAL)
-  status     BookingStatus @default(PENDING)
-  message    String?
-  meetingUrl String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  agentId       String?
+  agent         AgentProfile? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  name          String
+  email         String
+  phone         String?
+  date          DateTime
+  time          String
+  type          BookingType   @default(PHYSICAL)
+  status        BookingStatus @default(PENDING)
+  message       String?
+  meetingUrl    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([propertyId])
   @@index([userId])
   @@index([status])
   @@index([date])
+  @@index([rentListingId])
 }
 
 // ─────────────────────────────────────────────
@@ -2057,21 +2066,25 @@ model Notification {
 // ─────────────────────────────────────────────
 
 model AnalyticsEvent {
-  id         String             @id @default(cuid())
-  propertyId String?
-  property   Property?          @relation(fields: [propertyId], references: [id])
-  userId     String?
-  user       User?              @relation(fields: [userId], references: [id])
+  id            String             @id @default(cuid())
+  propertyId    String?
+  property      Property?          @relation(fields: [propertyId], references: [id])
+  /// Events on a rent listing's page. Kept apart from propertyId so a
+  /// rental's visits never inflate the development's own numbers.
+  rentListingId String?
+  rentListing   RentListing?       @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
+  userId        String?
+  user          User?              @relation(fields: [userId], references: [id])
   /// The agent whose shared link brought this visitor, when one did. This is
   /// the raw material of referral analytics: a developer reading "this agent
   /// drove N views of this property" is reading a GROUP BY over this column.
-  agentId    String?
-  agent      AgentProfile?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  type       AnalyticsEventType
-  sessionId  String?
-  source     String?
-  metadata   Json?
-  createdAt  DateTime           @default(now())
+  agentId       String?
+  agent         AgentProfile?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  type          AnalyticsEventType
+  sessionId     String?
+  source        String?
+  metadata      Json?
+  createdAt     DateTime           @default(now())
 
   @@index([propertyId])
   @@index([userId])
@@ -2079,6 +2092,7 @@ model AnalyticsEvent {
   @@index([createdAt])
   /// The referral report's exact access path.
   @@index([agentId, propertyId, type])
+  @@index([rentListingId, type, createdAt])
 }
 
 // ─────────────────────────────────────────────

@@ -18,6 +18,7 @@ export class AnalyticsController {
     @Body() dto: {
       type: AnalyticsEventType;
       propertyId?: string;
+      rentListingId?: string;
       agentId?: string;
       sessionId?: string;
       source?: string;

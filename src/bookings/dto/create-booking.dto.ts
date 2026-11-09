@@ -48,4 +48,10 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   agentId?: string;
+
+  @ApiPropertyOptional({ description: 'Rent listing the viewing was requested from' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  rentListingId?: string;
 }

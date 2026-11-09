@@ -1,3 +1,4 @@
+import { managedRentalsWhere, rentalManager } from '../rent-listings/rental-manager.js';
 import { ownerUserId } from '../properties/property-owner.js';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BookingStatus, UserRole } from '@prisma/client';
@@ -41,10 +42,16 @@ export class BookingsService {
     if (!property) throw new NotFoundException('Property not found');
 
     const agentId = await this.resolveAgent(dto.agentId);
+    // A viewing asked for from a rental belongs to that rental — only when it
+    // really is a rental in this building.
+    const rental = dto.rentListingId
+      ? await this.prisma.rentListing.findFirst({ where: { id: dto.rentListingId, propertyId: property.id }, select: { id: true } })
+      : null;
 
     const booking = await this.prisma.booking.create({
       data: {
         ...(agentId && { agentId }),
+        ...(rental && { rentListingId: rental.id }),
         propertyId: property.id,
         name: dto.name,
         email: dto.email,
@@ -61,8 +68,18 @@ export class BookingsService {
     });
 
     await this.events.newBooking(booking.property.name, dto.name, booking.id);
-    // Tell the developer — a viewing request is an automatic lead for them.
-    if (property.developerId) {
+    const manager = rental ? await rentalManager(this.prisma, rental.id) : null;
+    if (manager) {
+      // A rental viewing goes to whoever runs that letting.
+      await this.events.newLeadForDeveloper(manager.userId, {
+        type: 'GENERAL',
+        title: `Viewing request: ${dto.name}`,
+        body: `${dto.name} asked to view ${manager.name} on ${new Date(dto.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at ${dto.time}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+        resourceId: booking.id,
+        resourceType: 'Booking',
+      }, manager.agent ? '/agent/leads' : undefined);
+    } else if (property.developerId) {
+      // Tell the developer — a viewing request is an automatic lead for them.
       const dev = await this.prisma.developerProfile.findUnique({
         where: { id: property.developerId }, select: { userId: true },
       });
@@ -122,7 +139,11 @@ export class BookingsService {
 
     // Referrals assigned to them, plus everything on developments they own.
     const where = {
-      OR: [{ agentId: agent.id }, { property: { listedByAgentId: agent.id } }],
+      OR: [
+        { agentId: agent.id },
+        { property: { listedByAgentId: agent.id } },
+        { rentListing: managedRentalsWhere({ kind: 'AGENT', id: agent.id }) },
+      ],
       ...(status && { status }),
     };
     const [data, total] = await Promise.all([
@@ -170,8 +191,10 @@ export class BookingsService {
       .findMany({ where: { developerId: developer.id }, select: { id: true } })
       .then((ps) => ps.map((p) => p.id));
 
+    // Viewings of rentals an agent runs are the agent's, not the developer's.
     const where = {
       propertyId: { in: propertyIds },
+      OR: [{ rentListingId: null }, { rentListing: managedRentalsWhere({ kind: 'DEVELOPER', id: developer.id }) }],
       ...(status && { status }),
     };
 

@@ -74,6 +74,18 @@ export class RentListingsController {
     return this.service.findMyListings(user.id, pagination, user.role);
   }
 
+  @Get(':id/stats')
+  @Roles(UserRole.DEVELOPER, UserRole.ADMIN, UserRole.AGENT, UserRole.BUYER, UserRole.INVESTOR, UserRole.TENANT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Manager: visits, contact taps and leads for one rental' })
+  stats(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Query('days') days?: string,
+  ) {
+    return this.service.stats(id, user.id, user.role, days ? Number(days) || 30 : 30);
+  }
+
   @Patch(':id')
   // Wide on purpose: owners (any customer role) and managing agents edit
   // their own listings; the service's management check is the real gate.

@@ -4,10 +4,13 @@ import { AnalyticsEventType, Prisma, UserRole } from '@prisma/client';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DealsService } from '../agents/deals.service.js';
+import { managedRentalsWhere, rentalManager } from '../rent-listings/rental-manager.js';
 
 interface TrackEventDto {
   type: AnalyticsEventType;
   propertyId?: string;
+  /// A rent listing's page. Tracked on its own so rentals have their own numbers.
+  rentListingId?: string;
   /// The referring agent's profile id, when the visit came through a shared
   /// link. Validated against the table before it is stored — this arrives on
   /// a public endpoint, and junk ids would poison the referral report.
@@ -46,10 +49,24 @@ export class AnalyticsService {
         }))
       : false;
 
+    // Public endpoint: only keep a rent listing id that exists.
+    let rentListingId: string | undefined;
+    if (dto.rentListingId && /^[a-z0-9]{20,32}$/i.test(dto.rentListingId)) {
+      const rl = await this.prisma.rentListing.findUnique({ where: { id: dto.rentListingId }, select: { id: true } });
+      rentListingId = rl?.id;
+    }
+    const firstRentView = dto.type === 'PAGE_VIEW' && userId && rentListingId
+      ? !(await this.prisma.analyticsEvent.findFirst({
+          where: { type: 'PAGE_VIEW', userId, rentListingId },
+          select: { id: true },
+        }))
+      : false;
+
     const event = await this.prisma.analyticsEvent.create({
       data: {
         type: dto.type,
         propertyId: dto.propertyId,
+        rentListingId,
         agentId,
         userId,
         sessionId: dto.sessionId,
@@ -59,7 +76,30 @@ export class AnalyticsService {
     });
 
     if (firstView) void this.notifyViewerLead(userId!, dto.propertyId!);
+    if (firstRentView) void this.notifyRentViewerLead(userId!, rentListingId!);
     return event;
+  }
+
+  /** Tell whoever runs a rental that a signed-in tenant opened it — once per person. */
+  private async notifyRentViewerLead(userId: string, rentListingId: string) {
+    try {
+      const [viewer, manager] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, phone: true, role: true } }),
+        rentalManager(this.prisma, rentListingId),
+      ]);
+      if (!viewer || !['BUYER', 'INVESTOR', 'TENANT'].includes(viewer.role)) return;
+      if (!manager || manager.userId === userId) return;
+      const name = `${viewer.firstName} ${viewer.lastName}`.trim() || 'A signed-in tenant';
+      await this.events.newLeadForDeveloper(manager.userId, {
+        type: 'GENERAL',
+        title: `New lead: ${name}`,
+        body: `${name} opened your rental ${manager.name}${viewer.phone ? ` · ${viewer.phone}` : ''}.`,
+        resourceId: `${userId}:${rentListingId}`,
+        resourceType: 'Lead',
+      }, manager.agent ? '/agent/leads' : undefined);
+    } catch {
+      // Never let a notification break tracking.
+    }
   }
 
   /** Tell the developer a signed-in buyer opened their development — once per person per development. */
@@ -342,9 +382,9 @@ export class AnalyticsService {
    */
   private async listingScope(userId: string) {
     const developer = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true } });
-    if (developer) return { prop: { developerId: developer.id }, rent: { developerId: developer.id } as { developerId: string } | null };
+    if (developer) return { prop: { developerId: developer.id }, rent: managedRentalsWhere({ kind: 'DEVELOPER', id: developer.id }) as Prisma.RentListingWhereInput | null };
     const agent = await this.prisma.agentProfile.findUnique({ where: { userId }, select: { id: true } });
-    if (agent) return { prop: { listedByAgentId: agent.id }, rent: null };
+    if (agent) return { prop: { listedByAgentId: agent.id }, rent: managedRentalsWhere({ kind: 'AGENT', id: agent.id }) as Prisma.RentListingWhereInput | null };
     return null;
   }
 
@@ -396,7 +436,11 @@ export class AnalyticsService {
 
     const [events, inquiries, bookings] = await Promise.all([
       this.prisma.analyticsEvent.findMany({
-        where: { ...propertyFilter, createdAt: { gte: since } },
+        // Rental pages count toward the owner's engagement too.
+        where: {
+          OR: scope.rent ? [propertyFilter, { rentListing: scope.rent }] : [propertyFilter],
+          createdAt: { gte: since },
+        },
         select: { type: true, source: true, createdAt: true },
       }),
       this.prisma.inquiry.findMany({

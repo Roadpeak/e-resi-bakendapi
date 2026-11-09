@@ -1,3 +1,4 @@
+import { managedRentalsWhere } from '../rent-listings/rental-manager.js';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AnalyticsService } from '../analytics/analytics.service.js';
@@ -35,6 +36,8 @@ export interface LeadRow {
   siteType?: string;
   /** Website viewing bookings: the slot. */
   slotAt?: Date | null;
+  /** Set when the lead came from a rent listing. */
+  rental?: { id: string; name: string; slug: string };
   createdAt: Date;
 }
 
@@ -94,6 +97,13 @@ export class LeadsService {
       select: { id: true, name: true, slug: true },
     });
     const propertyIds = properties.map((p) => p.id);
+    // Rentals this owner runs — their enquiries and viewings are leads too.
+    const rentals = await this.prisma.rentListing.findMany({
+      where: managedRentalsWhere(owner),
+      select: { id: true, name: true, slug: true },
+    });
+    const rentIds = rentals.map((r) => r.id);
+    const rentById = new Map(rentals.map((r) => [r.id, r]));
     const prop = { select: { id: true, name: true, slug: true } } as const;
     const agent = { select: { id: true, displayName: true } } as const;
 
@@ -101,16 +111,20 @@ export class LeadsService {
       this.prisma.inquiry.findMany({
         // Agents also see the inquiries they referred to other developments.
         where: isAgent
-          ? { OR: [{ propertyId: { in: propertyIds } }, { agentId: owner.id }] }
-          : { propertyId: { in: propertyIds } },
+          ? { OR: [{ propertyId: { in: propertyIds } }, { agentId: owner.id }, { rentListingId: { in: rentIds } }] }
+          : { OR: [{ propertyId: { in: propertyIds } }, { rentListingId: { in: rentIds } }] },
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
       }),
       this.prisma.booking.findMany({
-        where: isAgent
-          ? { OR: [{ propertyId: { in: propertyIds } }, { agentId: owner.id }] }
-          : { propertyId: { in: propertyIds } },
+        where: {
+          OR: isAgent
+            ? [{ propertyId: { in: propertyIds } }, { agentId: owner.id }, { rentListingId: { in: rentIds } }]
+            : [{ propertyId: { in: propertyIds } }, { rentListingId: { in: rentIds } }],
+          // A viewing of a rental someone else runs is theirs, not this owner's.
+          AND: [{ OR: [{ rentListingId: null }, { rentListingId: { in: rentIds } }] }],
+        },
         include: { property: prop, agent },
         orderBy: { createdAt: 'desc' },
         take: TAKE,
@@ -149,16 +163,31 @@ export class LeadsService {
       isAgent ? !(propertyId && own.has(propertyId)) : !!agentId;
 
     const rows: LeadRow[] = [
-      ...inquiries.map((i): LeadRow => ({
-        id: i.id, kind: 'INQUIRY', channel: viaAgent(i.agentId, i.propertyId) ? 'AGENT' : 'AUTOMATIC',
-        sourceLabel: viaAgent(i.agentId, i.propertyId) ? (isAgent ? 'Your referral · inquiry' : 'Agent referral · inquiry') : 'Website inquiry',
-        name: i.name, email: i.email, phone: i.phone ?? null,
-        property: i.property, agent: i.agent, status: i.status,
-        interest: i.interestedUnit ?? null, message: i.message, budget: null, addedBy: null, createdAt: i.createdAt,
-      })),
+      ...inquiries.map((i): LeadRow => {
+        const rental = i.rentListingId ? rentById.get(i.rentListingId) : undefined;
+        if (rental) {
+          return {
+            id: i.id, kind: 'INQUIRY', channel: 'AUTOMATIC', sourceLabel: 'Rental enquiry',
+            name: i.name, email: i.email, phone: i.phone ?? null,
+            property: i.property, agent: i.agent, status: i.status,
+            interest: i.interestedUnit ?? rental.name, message: i.message, budget: null, addedBy: null,
+            rental, createdAt: i.createdAt,
+          };
+        }
+        return {
+          id: i.id, kind: 'INQUIRY', channel: viaAgent(i.agentId, i.propertyId) ? 'AGENT' : 'AUTOMATIC',
+          sourceLabel: viaAgent(i.agentId, i.propertyId) ? (isAgent ? 'Your referral · inquiry' : 'Agent referral · inquiry') : 'Website inquiry',
+          name: i.name, email: i.email, phone: i.phone ?? null,
+          property: i.property, agent: i.agent, status: i.status,
+          interest: i.interestedUnit ?? null, message: i.message, budget: null, addedBy: null, createdAt: i.createdAt,
+        };
+      }),
       ...bookings.map((b): LeadRow => ({
-        id: b.id, kind: 'BOOKING', channel: viaAgent(b.agentId, b.propertyId) ? 'AGENT' : 'AUTOMATIC',
-        sourceLabel: `${viaAgent(b.agentId, b.propertyId) ? (isAgent ? 'Your referral · ' : 'Agent referral · ') : ''}${b.type === 'VIRTUAL' ? 'Virtual tour request' : 'Viewing request'}`,
+        id: b.id, kind: 'BOOKING', channel: b.rentListingId ? 'AUTOMATIC' : viaAgent(b.agentId, b.propertyId) ? 'AGENT' : 'AUTOMATIC',
+        ...(b.rentListingId && rentById.get(b.rentListingId) ? { rental: rentById.get(b.rentListingId) } : {}),
+        sourceLabel: b.rentListingId
+          ? `Rental ${b.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} request`
+          : `${viaAgent(b.agentId, b.propertyId) ? (isAgent ? 'Your referral · ' : 'Agent referral · ') : ''}${b.type === 'VIRTUAL' ? 'Virtual tour request' : 'Viewing request'}`,
         name: b.name, email: b.email, phone: b.phone ?? null,
         property: b.property, agent: b.agent, status: b.status,
         interest: null, message: b.message ?? null, budget: null, addedBy: null, createdAt: b.createdAt,
