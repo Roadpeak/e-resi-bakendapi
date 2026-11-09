@@ -3,6 +3,7 @@ import { PropertyCategory, RentListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { slugify, uniqueSlug } from './slug.util.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
+import { areasMatch } from '../neighborhoods/neighborhoods.service.js';
 import type { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import type { UpdateRentListingDto } from './dto/update-rent-listing.dto.js';
 import type { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
@@ -111,9 +112,33 @@ export class RentListingsService {
 
   // ─── Public: list ──────────────────────────────────────────────────────────
 
-  async findAll(pagination: PaginationDto, city?: string, q?: string, category?: PropertyCategory) {
+  /**
+   * The typed neighbourhood spellings that belong to an area guide —
+   * "Kilimani ward" and "Kilimani" both count for kilimani-nairobi.
+   * Null when the guide does not exist.
+   */
+  private async areaSpellings(areaSlug: string): Promise<string[] | null> {
+    const guide = await this.prisma.neighborhood.findUnique({ where: { slug: areaSlug }, select: { name: true } });
+    if (!guide) return null;
+    const rows = await this.prisma.rentListing.findMany({
+      where: { status: { not: RentListingStatus.ARCHIVED }, neighborhood: { not: null } },
+      distinct: ['neighborhood'],
+      select: { neighborhood: true },
+    });
+    return rows.map((r) => r.neighborhood as string).filter((n) => areasMatch(n, guide.name));
+  }
+
+  async findAll(pagination: PaginationDto, city?: string, q?: string, category?: PropertyCategory, area?: string) {
+    let spellings: string[] | null = null;
+    if (area) {
+      spellings = await this.areaSpellings(area);
+      if (!spellings?.length) {
+        return { data: [], meta: { total: 0, page: pagination.page, limit: pagination.limit, totalPages: 0 } };
+      }
+    }
     const where: Record<string, unknown> = {
       status: { not: RentListingStatus.ARCHIVED },
+      ...(spellings && { neighborhood: { in: spellings } }),
       ...(city && { city: { contains: city, mode: 'insensitive' } }),
       // A rent listing's type comes from the development it belongs to.
       ...(category && { property: { category } }),

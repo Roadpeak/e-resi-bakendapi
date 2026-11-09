@@ -69,6 +69,20 @@ export class NeighborhoodsService {
     return map;
   }
 
+  /** Live rental counts per distinct neighbourhood spelling. */
+  private async rentedAreas(): Promise<Map<string, number>> {
+    const grouped = await this.prisma.rentListing.groupBy({
+      by: ['neighborhood'],
+      where: { status: { not: 'ARCHIVED' } },
+      _count: { _all: true },
+    });
+    const map = new Map<string, number>();
+    for (const g of grouped) {
+      if (g.neighborhood) map.set(g.neighborhood, g._count._all);
+    }
+    return map;
+  }
+
   /** The exact property spellings that belong to this guide. */
   private spellingsFor(guideName: string, areas: Map<string, number>): string[] {
     return [...areas.keys()].filter((area) => areasMatch(area, guideName));
@@ -79,21 +93,26 @@ export class NeighborhoodsService {
   }
 
   async listPublic(city?: string) {
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, rents] = await Promise.all([
       this.prisma.neighborhood.findMany({
         where: city ? { city: { equals: city, mode: 'insensitive' } } : {},
         orderBy: { name: 'asc' },
       }),
       this.listedAreas(),
+      this.rentedAreas(),
     ]);
-    return rows.map((n) => ({ ...n, propertyCount: this.countFor(n.name, counts) }));
+    return rows.map((n) => ({
+      ...n,
+      propertyCount: this.countFor(n.name, counts),
+      rentCount: this.countFor(n.name, rents),
+    }));
   }
 
   async getPublic(slug: string) {
     const n = await this.prisma.neighborhood.findUnique({ where: { slug } });
     if (!n) throw new NotFoundException('Neighbourhood not found');
-    const areas = await this.listedAreas();
-    return { ...n, propertyCount: this.countFor(n.name, areas) };
+    const [areas, rents] = await Promise.all([this.listedAreas(), this.rentedAreas()]);
+    return { ...n, propertyCount: this.countFor(n.name, areas), rentCount: this.countFor(n.name, rents) };
   }
 
   /**

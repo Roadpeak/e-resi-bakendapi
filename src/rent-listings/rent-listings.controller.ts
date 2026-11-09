@@ -17,6 +17,13 @@ class BrowseRentListingsDto extends PaginationDto {
   @MaxLength(80)
   city?: string;
 
+  /// An area guide's slug (e.g. kilimani-nairobi): listings whose typed
+  /// neighbourhood belongs to that area. Drives the /rent/in/<area> pages.
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  area?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -42,7 +49,7 @@ export class RentListingsController {
   @ApiQuery({ name: 'q', required: false })
   @ApiQuery({ name: 'category', enum: PropertyCategory, required: false })
   findAll(@Query() query: BrowseRentListingsDto) {
-    return this.service.findAll(query, query.city, query.q, query.category);
+    return this.service.findAll(query, query.city, query.q, query.category, query.area);
   }
 
   @Public()
