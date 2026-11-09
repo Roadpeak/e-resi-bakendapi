@@ -1,3 +1,4 @@
+import { publicType } from '../units/unit-type-counts.js';
 import { canManageProperty, ownerName } from './property-owner.js';
 import {
   BadRequestException,
@@ -301,6 +302,13 @@ export class PropertiesService {
           },
         },
         units: { orderBy: { price: 'asc' } },
+        unitTypes: {
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+          include: {
+            units: { select: { status: true } },
+            media: { orderBy: { order: 'asc' }, take: 6, select: { id: true, url: true, type: true, title: true, thumbnailUrl: true } },
+          },
+        },
         floorPlans: true,
         amenities: true,
         media: { orderBy: { order: 'asc' } },
@@ -315,6 +323,10 @@ export class PropertiesService {
     if (!property || property.status === PropertyStatus.ARCHIVED) {
       throw new NotFoundException('Property not found');
     }
+    // Hand-kept counts stay private; buyers see what is left of each type.
+    (property as unknown as { unitTypes: unknown[] }).unitTypes = property.unitTypes.map(
+      ({ units, ...t }) => publicType({ ...t, units }),
+    );
     // Agent-owned: present the developer the agent named, so every template
     // keeps its "developed by" line; the agent rides along as listedByAgent
     // for the "marketed by" attribution.

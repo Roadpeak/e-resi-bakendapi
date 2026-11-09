@@ -27,6 +27,7 @@ export class RentListingsService {
       include: {
         developer: true,
         managingAgent: { select: { userId: true } },
+        listedByAgent: { select: { userId: true } },
       },
     });
     if (!listing) throw new NotFoundException('Rent listing not found');
@@ -34,11 +35,15 @@ export class RentListingsService {
 
     const isOwner = listing.ownerId === userId;
     const isManagingAgent = listing.managingAgent?.userId === userId;
-    const isDeveloper = listing.developer.userId === userId;
+    const isListingAgent = listing.listedByAgent?.userId === userId;
+    const isDeveloper = listing.developer?.userId === userId;
+    // An agent-listed rental is the agent's to run; the developer of the
+    // building does not manage it merely because the units are theirs.
     const developerMayManage =
-      isDeveloper && (listing.ownerId === null || listing.managerKind === 'DEVELOPER');
+      isDeveloper && !listing.listedByAgentId
+      && (listing.ownerId === null || listing.managerKind === 'DEVELOPER');
 
-    if (!isOwner && !isManagingAgent && !developerMayManage) {
+    if (!isOwner && !isManagingAgent && !isListingAgent && !developerMayManage) {
       throw new ForbiddenException('You do not manage this rent listing');
     }
     return listing;
@@ -46,13 +51,38 @@ export class RentListingsService {
 
   // ─── Create ───────────────────────────────────────────────────────────────
 
-  async create(userId: string, dto: CreateRentListingDto) {
+  /**
+   * Which developments a user may let: a developer their own; an agent the
+   * developments they list themselves, plus those assigned to them for
+   * letting through an active partnership.
+   */
+  private async lettableProperty(userId: string, userRole: UserRole, propertySlug: string) {
+    const property = await this.prisma.property.findUnique({ where: { slug: propertySlug } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (userRole === UserRole.AGENT) {
+      const agent = await this.prisma.agentProfile.findUnique({ where: { userId } });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      if (property.listedByAgentId === agent.id) return { property, developerId: property.developerId, agentId: agent.id };
+      const assigned = await this.prisma.propertyAssignment.findFirst({
+        where: {
+          propertyId: property.id, kind: 'RENT', isActive: true,
+          partnership: { agentId: agent.id, status: 'ACTIVE' },
+        },
+        select: { id: true },
+      });
+      if (!assigned) throw new ForbiddenException('This development is not yours to let');
+      return { property, developerId: property.developerId, agentId: agent.id };
+    }
+
     const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
     if (!developer) throw new ForbiddenException('Developer profile required');
-
-    const property = await this.prisma.property.findUnique({ where: { slug: dto.propertySlug } });
-    if (!property) throw new NotFoundException('Property not found');
     if (property.developerId !== developer.id) throw new ForbiddenException('Property does not belong to you');
+    return { property, developerId: developer.id, agentId: null as string | null };
+  }
+
+  async create(userId: string, dto: CreateRentListingDto, userRole: UserRole = UserRole.DEVELOPER) {
+    const { property, developerId, agentId } = await this.lettableProperty(userId, userRole, dto.propertySlug);
 
     const slug = await uniqueSlug(this.prisma, slugify(dto.name));
 
@@ -63,7 +93,8 @@ export class RentListingsService {
         tagline: dto.tagline,
         description: dto.description,
         propertyId: property.id,
-        developerId: developer.id,
+        developerId,
+        ...(agentId && { listedByAgentId: agentId, managerKind: 'AGENT' as const, managingAgentId: agentId }),
         furnishing: dto.furnishing ?? 'UNFURNISHED',
         neighborhood: dto.neighborhood,
         city: dto.city ?? property.city,
@@ -106,6 +137,7 @@ export class RentListingsService {
         orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
         include: {
           developer: { select: { companyName: true, logoUrl: true } },
+          listedByAgent: { select: { displayName: true, photoUrl: true } },
           rentUnits: { select: { label: true, pricePerMonth: true, available: true, total: true, bedrooms: true } },
           media: {
             orderBy: { order: 'asc' },
@@ -136,6 +168,7 @@ export class RentListingsService {
       where: { slug },
       include: {
         developer: true,
+        listedByAgent: { select: { id: true, displayName: true, photoUrl: true, phone: true } },
         property: {
           select: {
             id: true, slug: true, name: true, heroImageUrl: true,
@@ -163,19 +196,28 @@ export class RentListingsService {
 
   // ─── Developer: my listings ───────────────────────────────────────────────
 
-  async findMyListings(userId: string, pagination: PaginationDto) {
-    const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
-    if (!developer) throw new ForbiddenException('Developer profile required');
+  async findMyListings(userId: string, pagination: PaginationDto, userRole: UserRole = UserRole.DEVELOPER) {
+    let where: Record<string, unknown>;
+    if (userRole === UserRole.AGENT) {
+      const agent = await this.prisma.agentProfile.findUnique({ where: { userId } });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      // Rentals they listed, and owners' units they were engaged to let.
+      where = { OR: [{ listedByAgentId: agent.id }, { managingAgentId: agent.id }] };
+    } else {
+      const developer = await this.prisma.developerProfile.findUnique({ where: { userId } });
+      if (!developer) throw new ForbiddenException('Developer profile required');
+      where = { developerId: developer.id, listedByAgentId: null };
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.rentListing.findMany({
-        where: { developerId: developer.id },
+        where,
         skip: pagination.skip,
         take: pagination.limit,
         orderBy: { createdAt: 'desc' },
         include: { rentUnits: true, _count: { select: { inquiries: true } } },
       }),
-      this.prisma.rentListing.count({ where: { developerId: developer.id } }),
+      this.prisma.rentListing.count({ where }),
     ]);
 
     return {
@@ -242,14 +284,9 @@ export class RentListingsService {
   }
 
   async removeRentUnit(rentUnitId: string, userId: string, userRole: UserRole) {
-    const unit = await this.prisma.rentUnit.findUnique({
-      where: { id: rentUnitId },
-      include: { rentListing: { include: { developer: true } } },
-    });
+    const unit = await this.prisma.rentUnit.findUnique({ where: { id: rentUnitId }, select: { rentListingId: true } });
     if (!unit) throw new NotFoundException('Rent unit not found');
-    if (userRole !== UserRole.ADMIN && unit.rentListing.developer.userId !== userId) {
-      throw new ForbiddenException('You do not own this rent unit');
-    }
+    await this.assertOwner(unit.rentListingId, userId, userRole);
     await this.prisma.rentUnit.delete({ where: { id: rentUnitId } });
     return { message: 'Rent unit removed' };
   }

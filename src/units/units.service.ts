@@ -1,4 +1,5 @@
 import { canManageProperty, ownerUserId } from '../properties/property-owner.js';
+import { publicType } from './unit-type-counts.js';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -126,6 +127,22 @@ export class UnitsService {
             listedByAgentId: true,
             media: { orderBy: { order: 'asc' } },
             cinematicScenes: { orderBy: { order: 'asc' } },
+            tourSections3D: { orderBy: { order: 'asc' }, include: { scenes: { orderBy: { order: 'asc' } } } },
+            tourScenesVR: { orderBy: { order: 'asc' } },
+            unitFeatures: true,
+            features: true,
+            completionDate: true,
+            brandColor: true,
+            developerName: true,
+            listedByAgent: { select: { displayName: true, logoUrl: true, photoUrl: true } },
+          },
+        },
+        // The unit's own photos and walkthrough, ahead of the building's.
+        media: { orderBy: { order: 'asc' } },
+        unitType: {
+          include: {
+            media: { orderBy: { order: 'asc' } },
+            units: { select: { status: true } },
           },
         },
       },
@@ -158,7 +175,19 @@ export class UnitsService {
       if (matches.length === 1) floorPlan = matches[0];
     }
 
-    return { ...unit, floorPlan };
+    // Other units of the same layout, so a buyer can compare floors.
+    const siblings = await this.prisma.unit.findMany({
+      where: {
+        propertyId: unit.propertyId, id: { not: unit.id },
+        ...(unit.unitTypeId ? { unitTypeId: unit.unitTypeId } : { bedrooms: unit.bedrooms }),
+      },
+      orderBy: [{ floor: 'asc' }, { price: 'asc' }],
+      take: 12,
+      select: { id: true, name: true, floor: true, price: true, status: true, sqm: true, bedrooms: true },
+    });
+
+    const unitType = unit.unitType ? publicType(unit.unitType) : null;
+    return { ...unit, unitType, floorPlan, siblings };
   }
 
   async update(id: string, userId: string, userRole: UserRole, dto: UpdateUnitDto) {

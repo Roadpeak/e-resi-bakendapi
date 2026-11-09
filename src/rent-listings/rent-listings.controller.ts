@@ -53,25 +53,25 @@ export class RentListingsController {
   }
 
   @Post()
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: create rent listing' })
+  @ApiOperation({ summary: 'Developer or agent: create rent listing' })
   create(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: UserRole },
     @Body() dto: CreateRentListingDto,
   ) {
-    return this.service.create(user.id, dto);
+    return this.service.create(user.id, dto, user.role);
   }
 
   @Get('my/listings')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Developer: list own rent listings' })
+  @ApiOperation({ summary: 'Developer or agent: list own rent listings' })
   findMyListings(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: UserRole },
     @Query() pagination: PaginationDto,
   ) {
-    return this.service.findMyListings(user.id, pagination);
+    return this.service.findMyListings(user.id, pagination, user.role);
   }
 
   @Patch(':id')
@@ -101,7 +101,7 @@ export class RentListingsController {
   }
 
   @Post(':id/units')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: add unit type to rent listing' })
   addRentUnit(
@@ -113,7 +113,7 @@ export class RentListingsController {
   }
 
   @Delete(':id/units/:unitId')
-  @Roles(UserRole.DEVELOPER, UserRole.ADMIN)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Developer: remove unit type from rent listing' })
   removeRentUnit(

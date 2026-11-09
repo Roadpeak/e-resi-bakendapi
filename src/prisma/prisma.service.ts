@@ -33,6 +33,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get developerProfile() { return prismaInstance.developerProfile; }
   get property() { return prismaInstance.property; }
   get unit() { return prismaInstance.unit; }
+  get unitType() { return prismaInstance.unitType; }
   get rentListing() { return prismaInstance.rentListing; }
   get rentUnit() { return prismaInstance.rentUnit; }
   get mediaAsset() { return prismaInstance.mediaAsset; }

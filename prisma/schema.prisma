@@ -573,6 +573,8 @@ model AgentProfile {
   mandateRequests       MandateRequest[]
   analyticsEvents       AnalyticsEvent[]
   managedRentListings   RentListing[]         @relation("ManagedRentListings")
+  /// Rentals this agent listed themselves, on their own or an assigned development.
+  listedRentListings    RentListing[]         @relation("AgentListedRentListings")
   lettingEngagements    LettingEngagement[]
 
   @@index([kybStatus])
@@ -1248,6 +1250,7 @@ model Property {
   updatedAt DateTime @updatedAt
 
   units               Unit[]
+  unitTypes           UnitType[]
   agentAssignments    PropertyAssignment[]
   floorPlans          FloorPlan[]
   amenities           Amenity[]
@@ -1305,6 +1308,9 @@ model Unit {
   status      UnitStatus @default(AVAILABLE)
   floorPlanId String?
   features    String[]
+  /// The declared type this unit is one of, when the developer lists types.
+  unitTypeId  String?
+  unitType    UnitType?  @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -1316,6 +1322,50 @@ model Unit {
 
   @@index([propertyId])
   @@index([status])
+  @@index([unitTypeId])
+}
+
+// ─────────────────────────────────────────────
+// UNIT TYPE
+// ─────────────────────────────────────────────
+
+/// A layout a development sells many identical copies of — "3 Bedroom ·
+/// 200 sqft". Listing 300 identical units one by one is busywork; a type is
+/// described once (photos, video, tours) and carries how many are left.
+///
+/// Counts are kept by hand (available / reserved / sold) unless individual
+/// units are linked to the type, in which case they are counted from those
+/// units and the hand-kept numbers are ignored.
+model UnitType {
+  id                String   @id @default(cuid())
+  propertyId        String
+  property          Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  bedrooms          Int      @default(1)
+  bathrooms         Int      @default(1)
+  sqm               Float?
+  sqft              Float?
+  priceFrom         Float?
+  priceTo           Float?
+  features          String[]
+  floorPlanUrl      String?
+  coverImageUrl     String?
+  availableCount    Int      @default(0)
+  reservedCount     Int      @default(0)
+  soldCount         Int      @default(0)
+  /// Which of the development's tours show on this type's page.
+  cinematicSceneIds String[]
+  tourSection3DIds  String[]
+  vrSceneIds        String[]
+  order             Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  units Unit[]
+  media MediaAsset[]
+
+  @@index([propertyId])
 }
 
 // ─────────────────────────────────────────────
@@ -1327,8 +1377,14 @@ model RentListing {
   slug                      String            @unique
   propertyId                String
   property                  Property          @relation(fields: [propertyId], references: [id])
-  developerId               String
-  developer                 DeveloperProfile  @relation(fields: [developerId], references: [id])
+  /// The building's developer. Null only for an agent-listed rental on a
+  /// development whose developer is not on e-resi.
+  developerId               String?
+  developer                 DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Restrict)
+  /// The agent who listed this rental (on their own development, or one
+  /// assigned to them for letting). Management follows this agent.
+  listedByAgentId           String?
+  listedByAgent             AgentProfile?     @relation("AgentListedRentListings", fields: [listedByAgentId], references: [id], onDelete: SetNull)
   name                      String
   tagline                   String?
   description               String?
@@ -1380,6 +1436,7 @@ model RentListing {
   @@index([slug])
   @@index([status])
   @@index([developerId])
+  @@index([listedByAgentId])
   @@index([city])
 }
 
@@ -1449,11 +1506,15 @@ model MediaAsset {
   /// as opposed to the building's shared gallery.
   unitId        String?
   unit          Unit?        @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  /// Media of a unit type — shared by every unit of that layout.
+  unitTypeId    String?
+  unitType      UnitType?    @relation(fields: [unitTypeId], references: [id], onDelete: Cascade)
   createdAt     DateTime     @default(now())
 
   @@index([propertyId])
   @@index([rentListingId])
   @@index([unitId])
+  @@index([unitTypeId])
 }
 
 // ─────────────────────────────────────────────

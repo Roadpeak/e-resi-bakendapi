@@ -83,13 +83,24 @@ export class InquiriesService {
       },
       include: {
         property: { select: { name: true, developer: { select: { userId: true } }, listedByAgent: { select: { userId: true } } } },
-        rentListing: { select: { name: true, developer: { select: { userId: true } } } },
+        rentListing: {
+          select: {
+            name: true, managerKind: true,
+            developer: { select: { userId: true } },
+            managingAgent: { select: { userId: true } },
+          },
+        },
       },
     });
 
     // Tell the developer — this is an automatic lead for them.
     const ownerAgentUserId = inquiry.property?.listedByAgent?.userId;
-    const developerUserId = inquiry.property?.developer?.userId ?? inquiry.rentListing?.developer?.userId ?? ownerAgentUserId;
+    // A rental run by an agent (one they listed, or an owner's unit they were
+    // engaged to let) is the agent's lead, not the building developer's.
+    const rentalAgentUserId = inquiry.rentListing?.managerKind === 'AGENT'
+      ? inquiry.rentListing.managingAgent?.userId
+      : undefined;
+    const developerUserId = rentalAgentUserId ?? inquiry.property?.developer?.userId ?? inquiry.rentListing?.developer?.userId ?? ownerAgentUserId;
     if (developerUserId) {
       const where = inquiry.property?.name ?? inquiry.rentListing?.name ?? 'your listing';
       await this.events.newLeadForDeveloper(developerUserId, {
@@ -136,7 +147,11 @@ export class InquiriesService {
 
     // Referrals assigned to them, plus everything on developments they own.
     const where = {
-      OR: [{ agentId: agent.id }, { property: { listedByAgentId: agent.id } }],
+      OR: [
+        { agentId: agent.id },
+        { property: { listedByAgentId: agent.id } },
+        { rentListing: { managingAgentId: agent.id, managerKind: 'AGENT' as const } },
+      ],
       ...(status && { status }),
     };
     const [data, total] = await Promise.all([
@@ -234,7 +249,7 @@ export class InquiriesService {
       where: { id },
       include: {
         property: { include: { developer: true, listedByAgent: true } },
-        rentListing: { include: { developer: true } },
+        rentListing: { include: { developer: true, managingAgent: { select: { userId: true } } } },
         replies: { orderBy: { createdAt: 'asc' }, include: { sender: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, role: true } } } },
       },
     });
@@ -242,7 +257,8 @@ export class InquiriesService {
 
     const isOwner = inquiry.userId === requesterId;
     const isDeveloperOfProperty = ownerUserId(inquiry.property) === requesterId;
-    const isDeveloperOfListing = ownerUserId(inquiry.rentListing) === requesterId;
+    const isDeveloperOfListing = ownerUserId(inquiry.rentListing) === requesterId
+      || inquiry.rentListing?.managingAgent?.userId === requesterId;
     const isAdmin = requesterRole === UserRole.ADMIN;
     // The attributed agent is a party: the lead was routed to them, and a
     // routed lead they cannot open or answer is not routed at all.

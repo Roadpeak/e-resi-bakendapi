@@ -124,13 +124,15 @@ export class MediaService {
       where: { id },
       include: {
         property: { include: { developer: true, listedByAgent: true } },
-        rentListing: { include: { developer: true } },
+        rentListing: { include: { developer: true, managingAgent: { select: { userId: true } } } },
       },
     });
     if (!asset) throw new NotFoundException('Media asset not found');
 
     const ownerOfProperty = ownerUserId(asset.property) === userId;
-    const ownerOfListing = ownerUserId(asset.rentListing) === userId;
+    const ownerOfListing = ownerUserId(asset.rentListing) === userId
+      || asset.rentListing?.managingAgent?.userId === userId
+      || (!!asset.rentListing && asset.rentListing.ownerId === userId);
 
     if (userRole !== UserRole.ADMIN && !ownerOfProperty && !ownerOfListing) {
       throw new ForbiddenException('You do not own this media asset');
