@@ -169,10 +169,19 @@ export class RentListingsService {
       include: {
         developer: true,
         listedByAgent: { select: { id: true, displayName: true, photoUrl: true, phone: true } },
+        // Who a tenant deals with when an agent runs the letting.
+        managingAgent: { select: { id: true, displayName: true, photoUrl: true, logoUrl: true, phone: true, whatsapp: true } },
         property: {
           select: {
             id: true, slug: true, name: true, heroImageUrl: true,
-            has3DTour: true, hasCinematicTour: true,
+            has3DTour: true, hasCinematicTour: true, hasVRTour: true,
+            latitude: true, longitude: true, neighborhood: true, city: true,
+            features: true, unitFeatures: true, petsAllowed: true, petPolicy: true, leaseTerms: true,
+            // A short film of the building, for the listing's video card.
+            cinematicScenes: {
+              orderBy: { order: 'asc' }, take: 4,
+              select: { id: true, label: true, videoUrl: true, thumbnailUrl: true },
+            },
             // A rental is units inside a building, so the development's
             // photography is what the listing page falls back to when the
             // listing has none of its own. Without this the tenant sees a
@@ -180,7 +189,7 @@ export class RentListingsService {
             media: {
               orderBy: { order: 'asc' },
               take: 12,
-              select: { url: true, title: true },
+              select: { url: true, title: true, type: true },
             },
             amenities: true,
           },
