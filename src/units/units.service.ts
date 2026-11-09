@@ -123,7 +123,7 @@ export class UnitsService {
             id: true, slug: true, name: true, tagline: true, city: true,
             neighborhood: true, county: true, heroImageUrl: true, currency: true,
             hasCinematicTour: true, has3DTour: true, hasVRTour: true,
-            developer: { select: { companyName: true, logoUrl: true } },
+            developer: { select: { id: true, companyName: true, logoUrl: true } },
             listedByAgentId: true,
             media: { orderBy: { order: 'asc' } },
             cinematicScenes: { orderBy: { order: 'asc' } },
@@ -134,7 +134,7 @@ export class UnitsService {
             completionDate: true,
             brandColor: true,
             developerName: true,
-            listedByAgent: { select: { displayName: true, logoUrl: true, photoUrl: true } },
+            listedByAgent: { select: { id: true, displayName: true, logoUrl: true, photoUrl: true } },
           },
         },
         // The unit's own photos and walkthrough, ahead of the building's.

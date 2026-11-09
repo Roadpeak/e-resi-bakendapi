@@ -212,8 +212,8 @@ export class UnitTypesService {
           heroImageUrl: true, currency: true, completionDate: true, category: true,
           hasCinematicTour: true, has3DTour: true, hasVRTour: true, unitFeatures: true, features: true,
           brandColor: true,
-          developer: { select: { companyName: true, logoUrl: true } },
-          listedByAgent: { select: { displayName: true, logoUrl: true, photoUrl: true } },
+          developer: { select: { id: true, companyName: true, logoUrl: true } },
+          listedByAgent: { select: { id: true, displayName: true, logoUrl: true, photoUrl: true } },
           developerName: true,
           media: { orderBy: { order: 'asc' }, select: { id: true, url: true, title: true, type: true } },
           cinematicScenes: {
