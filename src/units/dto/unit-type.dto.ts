@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, MaxLength, Min,
+  ArrayMaxSize, IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Matches, MaxLength, Min,
 } from 'class-validator';
 
 export class UnitTypeDto {
@@ -59,14 +59,20 @@ export class UnitTypeDto {
   @IsString({ each: true })
   features?: string[];
 
+  /** Blank clears it; anything else is a stored upload URL. */
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsString()
+  @MaxLength(1000)
+  @Matches(/^(https?:\/\/\S+)?$/, { message: 'floorPlanUrl must be a link' })
   floorPlanUrl?: string;
 
+  /** Blank clears it; anything else is a stored upload URL. */
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUrl()
+  @IsString()
+  @MaxLength(1000)
+  @Matches(/^(https?:\/\/\S+)?$/, { message: 'coverImageUrl must be a link' })
   coverImageUrl?: string;
 
   @ApiPropertyOptional({ example: 5 })
