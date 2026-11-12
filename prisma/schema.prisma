@@ -329,6 +329,10 @@ model User {
   auditLogs             AuditLog[]            @relation("AuditActor")
   invoices              Invoice[]
   receipts              Receipt[]
+  /// Personal invites this admin created for agents and developers.
+  partnerInvitesCreated PartnerInvite[]       @relation("PartnerInviteCreator")
+  /// The invite this account signed up through, if any.
+  partnerInvite         PartnerInvite?        @relation("PartnerInviteSignup")
 
   @@index([email])
   @@index([role])
@@ -2828,4 +2832,71 @@ model AgentSiteLead {
 
   @@index([agentId, createdAt])
   @@index([agentId, type, slotAt])
+}
+
+// ─────────────────────────────────────────────
+// PARTNER INVITES (personal agent / developer onboarding links)
+// ─────────────────────────────────────────────
+
+enum PartnerInviteKind {
+  AGENT
+  DEVELOPER
+}
+
+enum PartnerInviteStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// A personal invitation to join e-resi, created by the team for one named
+/// agent, agency or developer and shared as a unique link.
+///
+/// Opening the link shows a welcome page addressed to them (their logo, a
+/// message acknowledging their work); signing up through it skips email and
+/// document verification entirely — the team invited them personally, so
+/// the invite is the verification — and activates their free website on the
+/// spot. The record keeps who shared it (`referrer`) and whether it was
+/// opened and converted, so the team can see which outreach lands.
+model PartnerInvite {
+  id     String              @id @default(cuid())
+  /// The part of the link after /invite/. Short, unguessable, URL-safe.
+  code   String              @unique
+  kind   PartnerInviteKind
+  status PartnerInviteStatus @default(ACTIVE)
+
+  /// Agency / company / developer name — or an individual agent's trading name.
+  name        String
+  /// The person the message is addressed to ("Hi Asha,").
+  contactName String?
+  email       String?
+  phone       String?
+  /// Logo or picture shown on the welcome page and copied onto the profile.
+  logoUrl     String?
+  /// The personal note: what we admire about their work and how e-resi helps.
+  message     String
+  /// Agents only — carried onto AgentProfile.kind at signup.
+  agentKind   AgentKind?
+  /// Team member who shares this link, so signups can be counted per person.
+  referrer    String
+  /// Private notes for the team (where we met them, follow-ups…).
+  notes       String?
+
+  createdById String
+  createdBy   User   @relation("PartnerInviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  /// First time the link was opened, and how many times since.
+  openedAt  DateTime?
+  openCount Int       @default(0)
+
+  /// Set once the invitee completes signup; the account it produced.
+  signedUpAt     DateTime?
+  signedUpUser   User?     @relation("PartnerInviteSignup", fields: [signedUpUserId], references: [id], onDelete: SetNull)
+  signedUpUserId String?   @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referrer])
+  @@index([kind, status])
+  @@index([createdAt])
 }

@@ -188,6 +188,17 @@ export class AuthService {
       });
     }
 
+    return this.issueSession(user, res);
+  }
+
+  /**
+   * Start a signed-in session for an already-authenticated user: rotate the
+   * refresh token, set its cookie and return an access token with the shaped
+   * user. Shared by password login and flows that vouch for the person some
+   * other way (a personal partner invite), so every session is minted the
+   * same way.
+   */
+  async issueSession(user: User, res: Response): Promise<{ accessToken: string; user: SafeUser }> {
     const rawRefresh = this.generateToken();
     const hashedRefresh = this.sha256(rawRefresh);
 

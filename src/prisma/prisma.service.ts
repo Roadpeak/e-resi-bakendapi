@@ -95,4 +95,5 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get invoice() { return prismaInstance.invoice; }
   get receipt() { return prismaInstance.receipt; }
   get productionOrder() { return prismaInstance.productionOrder; }
+  get partnerInvite() { return prismaInstance.partnerInvite; }
 }
