@@ -16,6 +16,19 @@ export const STAFF_PAGES = [
   'documents', 'billing', 'profile', 'team',
 ] as const;
 
+/** Agent-portal pages an agency can delegate (keys = /agent/<key>). */
+export const AGENT_STAFF_PAGES = [
+  'listings', 'properties', 'rentals', 'partners', 'deals', 'reservations', 'leads',
+  'inquiries', 'bookings', 'clients', 'mandates', 'lettings', 'messages', 'analytics',
+  'reviews', 'website', 'billing', 'profile', 'team',
+] as const;
+
+export type EmployerKind = 'DEVELOPER' | 'AGENT';
+
+export function pagesFor(kind: EmployerKind): readonly string[] {
+  return kind === 'AGENT' ? AGENT_STAFF_PAGES : STAFF_PAGES;
+}
+
 const INVITE_TTL_DAYS = 7;
 
 /**
@@ -37,17 +50,30 @@ export class StaffService {
     this.appUrl = resolveAppUrl(config);
   }
 
-  private async developerOf(userId: string) {
+  /**
+   * Whose team is being managed: the developer or the agency behind this
+   * login. `where` scopes every staff query to that employer.
+   */
+  private async employerOf(userId: string) {
     const dev = await this.prisma.developerProfile.findUnique({
       where: { userId },
       select: { id: true, companyName: true },
     });
-    if (!dev) throw new ForbiddenException('Developer profile required');
-    return dev;
+    if (dev) {
+      return { kind: 'DEVELOPER' as const, id: dev.id, companyName: dev.companyName, where: { developerId: dev.id } };
+    }
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { userId },
+      select: { id: true, displayName: true },
+    });
+    if (agent) {
+      return { kind: 'AGENT' as const, id: agent.id, companyName: agent.displayName, where: { agentId: agent.id } };
+    }
+    throw new ForbiddenException('Developer or agent profile required');
   }
 
-  private sanitizePages(pages: string[]): string[] {
-    const valid = new Set<string>(STAFF_PAGES);
+  private sanitizePages(kind: EmployerKind, pages: string[]): string[] {
+    const valid = new Set<string>(pagesFor(kind));
     const out = [...new Set(pages.filter((p) => valid.has(p)))];
     if (out.length === 0) {
       throw new BadRequestException('Grant at least one page');
@@ -58,9 +84,9 @@ export class StaffService {
   // ─── Developer: manage the team ───────────────────────────────────────────
 
   async list(userId: string) {
-    const dev = await this.developerOf(userId);
+    const employer = await this.employerOf(userId);
     const staff = await this.prisma.developerStaff.findMany({
-      where: { developerId: dev.id },
+      where: employer.where,
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { firstName: true, lastName: true, lastLoginAt: true, avatarUrl: true } },
@@ -70,9 +96,9 @@ export class StaffService {
   }
 
   async invite(userId: string, dto: { email: string; name?: string; pages: string[] }) {
-    const dev = await this.developerOf(userId);
+    const dev = await this.employerOf(userId);
     const email = dto.email.trim().toLowerCase();
-    const pages = this.sanitizePages(dto.pages);
+    const pages = this.sanitizePages(dev.kind, dto.pages);
 
     // The employer's own login must not become a staff account of itself.
     const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
@@ -80,8 +106,8 @@ export class StaffService {
       throw new BadRequestException('That is your own account email');
     }
 
-    const existing = await this.prisma.developerStaff.findUnique({
-      where: { developerId_email: { developerId: dev.id, email } },
+    const existing = await this.prisma.developerStaff.findFirst({
+      where: { ...dev.where, email },
     });
     if (existing && existing.status === 'ACTIVE') {
       throw new BadRequestException('This person is already on your team');
@@ -97,7 +123,7 @@ export class StaffService {
         })
       : await this.prisma.developerStaff.create({
           data: {
-            developerId: dev.id, email, name: dto.name, pages,
+            ...dev.where, email, name: dto.name, pages,
             inviteToken, inviteExpiresAt,
           },
         });
@@ -105,7 +131,7 @@ export class StaffService {
     const link = `${this.appUrl}/staff-invite?token=${inviteToken}`;
     await this.mail.sendNotice(
       email,
-      `${dev.companyName} invited you to their e-resi dashboard`,
+      `${dev.companyName} invited you to their e-resi ${dev.kind === 'AGENT' ? 'agent portal' : 'dashboard'}`,
       'You have been invited',
       `${dev.companyName} wants you on their team on e-resi. You'll get access to: `
         + `${pages.join(', ')}. Set your password to get started — the link is valid for ${INVITE_TTL_DAYS} days.`,
@@ -117,16 +143,16 @@ export class StaffService {
   }
 
   async update(userId: string, staffId: string, dto: { pages?: string[]; name?: string }) {
-    const dev = await this.developerOf(userId);
+    const dev = await this.employerOf(userId);
     const staff = await this.prisma.developerStaff.findFirst({
-      where: { id: staffId, developerId: dev.id },
+      where: { id: staffId, ...dev.where },
     });
     if (!staff) throw new NotFoundException('Staff member not found');
 
     const updated = await this.prisma.developerStaff.update({
       where: { id: staff.id },
       data: {
-        ...(dto.pages !== undefined && { pages: this.sanitizePages(dto.pages) }),
+        ...(dto.pages !== undefined && { pages: this.sanitizePages(dev.kind, dto.pages) }),
         ...(dto.name !== undefined && { name: dto.name }),
       },
     });
@@ -136,9 +162,9 @@ export class StaffService {
 
   /** Revoking keeps the row (and its activity) as the audit trail. */
   async revoke(userId: string, staffId: string) {
-    const dev = await this.developerOf(userId);
+    const dev = await this.employerOf(userId);
     const staff = await this.prisma.developerStaff.findFirst({
-      where: { id: staffId, developerId: dev.id },
+      where: { id: staffId, ...dev.where },
     });
     if (!staff) throw new NotFoundException('Staff member not found');
 
@@ -154,7 +180,10 @@ export class StaffService {
   async inviteDetails(token: string) {
     const staff = await this.prisma.developerStaff.findUnique({
       where: { inviteToken: token },
-      include: { developer: { select: { companyName: true, logoUrl: true } } },
+      include: {
+        developer: { select: { companyName: true, logoUrl: true } },
+        agent: { select: { displayName: true, logoUrl: true, photoUrl: true } },
+      },
     });
     if (!staff || staff.status !== 'INVITED') {
       throw new NotFoundException('This invitation is no longer valid');
@@ -166,8 +195,9 @@ export class StaffService {
       email: staff.email,
       name: staff.name,
       pages: staff.pages,
-      company: staff.developer.companyName,
-      logoUrl: staff.developer.logoUrl,
+      kind: staff.agentId ? 'AGENT' : 'DEVELOPER',
+      company: staff.developer?.companyName ?? staff.agent?.displayName ?? 'Your team',
+      logoUrl: staff.developer?.logoUrl ?? staff.agent?.logoUrl ?? staff.agent?.photoUrl ?? null,
     };
   }
 
@@ -208,7 +238,9 @@ export class StaffService {
 
     // One person may already have an account (say, as a buyer). Linking the
     // existing account keeps one login per human; a fresh email gets a new
-    // user. Either way the account is DEVELOPER-typed so the dashboard opens.
+    // user. Either way the account takes the employer's role so the right
+    // portal opens.
+    const role = staff.agentId ? 'AGENT' : 'DEVELOPER';
     const hashed = await bcrypt.hash(dto.password, 10);
     let user = await this.prisma.user.findUnique({ where: { email: staff.email } });
     if (user) {
@@ -218,7 +250,7 @@ export class StaffService {
       }
       user = await this.prisma.user.update({
         where: { id: user.id },
-        data: { password: hashed, role: 'DEVELOPER', emailVerified: true, avatarUrl: dto.avatarUrl },
+        data: { password: hashed, role, emailVerified: true, avatarUrl: dto.avatarUrl },
       });
     } else {
       user = await this.prisma.user.create({
@@ -228,7 +260,7 @@ export class StaffService {
           firstName: dto.firstName.trim(),
           lastName: dto.lastName.trim(),
           avatarUrl: dto.avatarUrl,
-          role: 'DEVELOPER',
+          role,
           // The invite email reached them — that IS the verification.
           emailVerified: true,
         },
@@ -264,9 +296,9 @@ export class StaffService {
    * (30), and breadth of areas touched (20) over the last 30 days.
    */
   async activity(userId: string, staffId: string) {
-    const dev = await this.developerOf(userId);
+    const dev = await this.employerOf(userId);
     const staff = await this.prisma.developerStaff.findFirst({
-      where: { id: staffId, developerId: dev.id },
+      where: { id: staffId, ...dev.where },
       include: { user: { select: { firstName: true, lastName: true, lastLoginAt: true } } },
     });
     if (!staff) throw new NotFoundException('Staff member not found');

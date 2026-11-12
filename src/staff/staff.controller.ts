@@ -6,30 +6,30 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
-import { STAFF_PAGES, StaffService } from './staff.service.js';
+import { pagesFor, StaffService } from './staff.service.js';
 
-@ApiTags('Developer staff')
+@ApiTags('Developer & agency staff')
 @ApiBearerAuth()
 @Controller('staff')
 export class StaffController {
   constructor(private readonly service: StaffService) {}
 
   @Get('pages')
-  @Roles(UserRole.DEVELOPER)
-  @ApiOperation({ summary: 'The delegable dashboard pages' })
-  pages() {
-    return { pages: STAFF_PAGES };
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
+  @ApiOperation({ summary: 'The delegable portal pages for this employer' })
+  pages(@CurrentUser() user: { role: UserRole }) {
+    return { pages: pagesFor(user.role === UserRole.AGENT ? 'AGENT' : 'DEVELOPER') };
   }
 
   @Get()
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Developer: list your team' })
   list(@CurrentUser() user: { id: string }) {
     return this.service.list(user.id);
   }
 
   @Post('invite')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Developer: invite a staff member by email with page access' })
   invite(
     @CurrentUser() user: { id: string },
@@ -65,14 +65,14 @@ export class StaffController {
   }
 
   @Get(':id/activity')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Developer: one staff member’s operations log and productivity' })
   activity(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.service.activity(user.id, id);
   }
 
   @Patch(':id')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Developer: change a staff member’s page access' })
   update(
     @CurrentUser() user: { id: string },
@@ -83,7 +83,7 @@ export class StaffController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.DEVELOPER)
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
   @ApiOperation({ summary: 'Developer: revoke a staff member’s access' })
   revoke(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.service.revoke(user.id, id);

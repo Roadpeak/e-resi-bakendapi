@@ -33,13 +33,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // along for /auth/me, the UI, and the activity log.
     const membership = await this.prisma.developerStaff.findUnique({
       where: { userId: user.id },
-      include: { developer: { select: { userId: true } } },
+      include: { developer: { select: { userId: true } }, agent: { select: { userId: true } } },
     });
     if (membership) {
       if (membership.status !== 'ACTIVE') throw new UnauthorizedException('Access revoked');
-      const employer = await this.prisma.user.findUnique({
-        where: { id: membership.developer.userId },
-      });
+      const employerId = membership.developer?.userId ?? membership.agent?.userId;
+      if (!employerId) throw new UnauthorizedException();
+      const employer = await this.prisma.user.findUnique({ where: { id: employerId } });
       if (!employer || !employer.isActive) throw new UnauthorizedException();
       return {
         ...employer,

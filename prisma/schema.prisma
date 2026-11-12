@@ -582,6 +582,8 @@ model AgentProfile {
   /// Rentals this agent listed themselves, on their own or an assigned development.
   listedRentListings    RentListing[]         @relation("AgentListedRentListings")
   lettingEngagements    LettingEngagement[]
+  /// The agency's team members with portal access.
+  staff                 DeveloperStaff[]
 
   @@index([kybStatus])
   @@index([kind])
@@ -1953,30 +1955,36 @@ enum StaffStatus {
   REVOKED
 }
 
-/// A developer's team member: operates the employer's dashboard, limited to
-/// the pages the developer ticked. The staff member is their own User for
-/// login; at request time the API acts as the employer on their behalf.
+/// A developer's or agency's team member: operates the employer's portal,
+/// limited to the pages the employer ticked. The staff member is their own
+/// User for login; at request time the API acts as the employer on their
+/// behalf. Exactly one of developerId / agentId is set.
 model DeveloperStaff {
-  id              String           @id @default(cuid())
-  developerId     String
-  developer       DeveloperProfile @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  id              String            @id @default(cuid())
+  developerId     String?
+  developer       DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  /// Set instead of developerId for an agency's team.
+  agentId         String?
+  agent           AgentProfile?     @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Linked once the invite is accepted.
-  userId          String?          @unique
-  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId          String?           @unique
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   email           String
   name            String?
   /// Dashboard page keys this member may open (e.g. "properties", "units").
   pages           String[]
-  status          StaffStatus      @default(INVITED)
-  inviteToken     String?          @unique
+  status          StaffStatus       @default(INVITED)
+  inviteToken     String?           @unique
   inviteExpiresAt DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   activity StaffActivity[]
 
   @@unique([developerId, email])
+  @@unique([agentId, email])
   @@index([developerId])
+  @@index([agentId])
 }
 
 /// One operation a staff member performed while acting as the developer —
