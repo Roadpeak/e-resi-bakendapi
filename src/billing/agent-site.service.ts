@@ -386,6 +386,44 @@ export class AgentSiteService implements OnModuleInit {
     const seen = new Set(own.map((p) => p.id));
     const partnered = assigned.map((x) => x.property).filter((p) => !seen.has(p.id) && seen.add(p.id));
 
+    // Homes to rent: what this agent listed or manages, while there is
+    // something to let. An agent who only does lettings has a full site
+    // from these alone.
+    const rentRows = await this.prisma.rentListing.findMany({
+      where: {
+        OR: [{ listedByAgentId: a.id }, { managingAgentId: a.id }],
+        status: { in: ['AVAILABLE', 'PARTIALLY_AVAILABLE'] },
+      },
+      orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true, slug: true, name: true, tagline: true, heroImageUrl: true, city: true, neighborhood: true,
+        furnishing: true, status: true, priceFrom: true, priceTo: true, currency: true, availableFrom: true,
+        minLeaseTerm: true, show3DTour: true, showCinematicTour: true, isFeatured: true, tags: true,
+        property: { select: { category: true } },
+        rentUnits: { select: { bedrooms: true, available: true, pricePerMonth: true } },
+      },
+    });
+    const rentals = rentRows.map((r) => {
+      const open = r.rentUnits.filter((u) => u.available > 0);
+      const beds = (open.length ? open : r.rentUnits).map((u) => u.bedrooms);
+      const rents = open.map((u) => u.pricePerMonth).filter((n) => n > 0);
+      return {
+        id: r.id, slug: r.slug, name: r.name, tagline: r.tagline, heroImageUrl: r.heroImageUrl,
+        city: r.city, neighborhood: r.neighborhood, category: r.property.category, status: r.status,
+        furnishing: r.furnishing,
+        // Monthly rent: the listing's own range, else the cheapest open unit.
+        priceFrom: r.priceFrom ?? (rents.length ? Math.min(...rents) : null),
+        priceTo: r.priceTo ?? (rents.length ? Math.max(...rents) : null),
+        currency: r.currency,
+        availableFrom: r.availableFrom, minLeaseTerm: r.minLeaseTerm,
+        has3DTour: r.show3DTour, hasCinematicTour: r.showCinematicTour, isFeatured: r.isFeatured, tags: r.tags,
+        units: open.reduce((n, u) => n + u.available, 0),
+        bedroomsFrom: beds.length ? Math.min(...beds) : null,
+        bedroomsTo: beds.length ? Math.max(...beds) : null,
+        href: `https://e-resi.com/rent/${r.slug}?ref=${a.id}`,
+      };
+    });
+
     // Where each card opens: the development's own domain if it has one.
     const href = (p: (typeof own)[number]) =>
       p.customDomain && p.domainStatus === 'ACTIVE' ? `https://${p.customDomain}`
@@ -420,11 +458,15 @@ export class AgentSiteService implements OnModuleInit {
         own: own.length,
         partnered: partnered.length,
         units: listings.reduce((n, l) => n + l.units, 0),
-        cities: new Set(listings.map((l) => l.city).filter(Boolean)).size,
-        withTours: listings.filter((l) => l.has3DTour || l.hasVRTour || l.hasCinematicTour).length,
+        cities: new Set([...listings.map((l) => l.city), ...rentals.map((r) => r.city)].filter(Boolean)).size,
+        withTours: listings.filter((l) => l.has3DTour || l.hasVRTour || l.hasCinematicTour).length
+          + rentals.filter((r) => r.has3DTour || r.hasCinematicTour).length,
+        rentals: rentals.length,
+        rentUnits: rentals.reduce((n, r) => n + r.units, 0),
         onPlatformSince: createdAt.getFullYear(),
       },
       listings,
+      rentals,
       content,
       legal: { licenceNo: siteLicenceNo, footerNote: siteFooterNote },
       forms: publicForms(readForms(siteForms)),

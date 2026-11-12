@@ -31,7 +31,7 @@ const CATALOGUE: { key: string; name: string; description: string; tier: SiteTem
 
 /** Sections every template understands, in the default order. */
 export const SITE_SECTIONS = [
-  'stats', 'listings', 'services', 'packages', 'process', 'valuation', 'calculator', 'about', 'team', 'sold', 'cases', 'testimonials',
+  'stats', 'listings', 'rentals', 'services', 'packages', 'process', 'valuation', 'calculator', 'about', 'team', 'sold', 'cases', 'testimonials',
   'areas', 'guides', 'awards', 'journal', 'careers', 'faq', 'newsletter', 'contact',
 ] as const;
 export type SiteSectionId = (typeof SITE_SECTIONS)[number];
