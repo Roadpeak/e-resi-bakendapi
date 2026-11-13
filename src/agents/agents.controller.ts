@@ -19,6 +19,7 @@ import { AgentsService } from './agents.service.js';
 import { PartnershipsService } from './partnerships.service.js';
 import { SubmitAgentKycDto } from './dto/submit-agent-kyc.dto.js';
 import { UpdateAgentProfileDto } from './dto/update-agent-profile.dto.js';
+import { RevealContactDto } from './dto/reveal-contact.dto.js';
 
 /**
  * Validation runs over the whole query string with unknown keys forbidden, so
@@ -225,6 +226,19 @@ export class AgentsController {
   })
   listPublicProperties(@Param('id') id: string) {
     return this.agents.listPublicProperties(id);
+  }
+
+  @Public()
+  @Post(':id/reveal-contact')
+  @ApiOperation({
+    summary: 'Public: leave your name and number to see the agent’s phone and WhatsApp; recorded as a lead for the agent',
+  })
+  revealContact(
+    @Param('id') id: string,
+    @Body() dto: RevealContactDto,
+    @CurrentUser() user?: { id: string },
+  ) {
+    return this.agents.revealContact(id, dto, user?.id);
   }
 
   @Public()

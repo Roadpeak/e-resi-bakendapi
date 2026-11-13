@@ -1810,7 +1810,8 @@ model Inquiry {
   userId         String?
   user           User?         @relation(fields: [userId], references: [id])
   name           String
-  email          String
+  /// Optional since contact-reveal leads capture a phone number only.
+  email          String?
   phone          String?
   message        String
   interestedUnit String?

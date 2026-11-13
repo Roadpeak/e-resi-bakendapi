@@ -11,6 +11,7 @@ import { PaginationDto, paginateMeta } from '../common/dto/pagination.dto.js';
 import { PlatformEventsService } from '../notifications/platform-events.service.js';
 import type { SubmitAgentKycDto } from './dto/submit-agent-kyc.dto.js';
 import type { UpdateAgentProfileDto } from './dto/update-agent-profile.dto.js';
+import type { RevealContactDto } from './dto/reveal-contact.dto.js';
 
 /** Fields safe to expose publicly — never KYC documents or review notes. */
 const PUBLIC_AGENT_SELECT = {
@@ -565,6 +566,57 @@ export class AgentsService {
       },
       select: { id: true, ratingAverage: true, ratingCount: true },
     });
+  }
+
+  // ─── Public: reveal contact for a lead ────────────────────────────────────
+
+  /**
+   * An agent's phone number is shown only to someone who leaves theirs. The
+   * exchange is recorded as an inquiry on the agent's leads page, with the
+   * listing they were looking at when one is known.
+   */
+  async revealContact(agentId: string, dto: RevealContactDto, userId?: string) {
+    const agent = await this.prisma.agentProfile.findUnique({
+      where: { id: agentId },
+      select: { id: true, userId: true, displayName: true, phone: true, whatsapp: true, kybStatus: true, isListed: true },
+    });
+    if (!agent || agent.kybStatus !== KybStatus.APPROVED) throw new NotFoundException('Agent not found');
+
+    let context = '';
+    let rentListingId: string | undefined;
+    let propertyId: string | undefined;
+    if (dto.rentListingId) {
+      const l = await this.prisma.rentListing.findUnique({ where: { id: dto.rentListingId }, select: { id: true, name: true } });
+      if (l) { rentListingId = l.id; context = ` about ${l.name}`; }
+    } else if (dto.propertySlug) {
+      const p = await this.prisma.property.findUnique({ where: { slug: dto.propertySlug }, select: { id: true, name: true } });
+      if (p) { propertyId = p.id; context = ` about ${p.name}`; }
+    }
+
+    const phone = dto.phone.trim();
+    const inquiry = await this.prisma.inquiry.create({
+      data: {
+        agentId: agent.id,
+        name: dto.name.trim(),
+        email: dto.email?.trim() || null,
+        phone,
+        message: `Asked to see your phone number${context}. Call or WhatsApp them back on ${phone}.`,
+        ...(rentListingId && { rentListingId }),
+        ...(propertyId && { propertyId }),
+        ...(userId && { userId }),
+      },
+      select: { id: true },
+    });
+
+    await this.events.newLeadForDeveloper(agent.userId, {
+      type: 'INQUIRY_RECEIVED',
+      title: `${dto.name.trim()} wants to call you`,
+      body: `${dto.name.trim()} (${phone}) asked for your number${context}.`,
+      resourceId: inquiry.id,
+      resourceType: 'Inquiry',
+    }, '/agent/leads');
+
+    return { phone: agent.phone, whatsapp: agent.whatsapp };
   }
 
   // ─── Admin: listing control ───────────────────────────────────────────────

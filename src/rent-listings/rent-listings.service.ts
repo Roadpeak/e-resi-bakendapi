@@ -191,7 +191,7 @@ export class RentListingsService {
           developer: { select: { companyName: true, logoUrl: true, phone: true, whatsapp: true } },
           listedByAgent: { select: { displayName: true, photoUrl: true } },
           // Call / WhatsApp buttons on the browse cards reach whoever runs the letting.
-          managingAgent: { select: { phone: true, whatsapp: true } },
+          managingAgent: { select: { id: true, phone: true, whatsapp: true } },
           rentUnits: { select: { label: true, pricePerMonth: true, available: true, total: true, bedrooms: true } },
           media: {
             orderBy: { order: 'asc' },
