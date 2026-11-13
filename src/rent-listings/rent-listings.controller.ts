@@ -8,6 +8,7 @@ import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
+import { UpdateRentUnitDto } from './dto/update-rent-unit.dto.js';
 import { UpdateRentListingDto } from './dto/update-rent-listing.dto.js';
 import { RentListingsService } from './rent-listings.service.js';
 
@@ -129,6 +130,18 @@ export class RentListingsController {
     @Body() dto: CreateRentUnitDto,
   ) {
     return this.service.addRentUnit(id, user.id, user.role, dto);
+  }
+
+  @Patch(':id/units/:unitId')
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT, UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Developer/agent: edit a unit type (rent, availability, size)' })
+  updateRentUnit(
+    @Param('unitId') unitId: string,
+    @CurrentUser() user: { id: string; role: UserRole },
+    @Body() dto: UpdateRentUnitDto,
+  ) {
+    return this.service.updateRentUnit(unitId, user.id, user.role, dto);
   }
 
   @Delete(':id/units/:unitId')

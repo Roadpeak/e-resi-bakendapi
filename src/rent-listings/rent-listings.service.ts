@@ -7,6 +7,7 @@ import { areasMatch } from '../neighborhoods/neighborhoods.service.js';
 import type { CreateRentListingDto } from './dto/create-rent-listing.dto.js';
 import type { UpdateRentListingDto } from './dto/update-rent-listing.dto.js';
 import type { CreateRentUnitDto } from './dto/create-rent-unit.dto.js';
+import type { UpdateRentUnitDto } from './dto/update-rent-unit.dto.js';
 
 @Injectable()
 export class RentListingsService {
@@ -449,6 +450,35 @@ export class RentListingsService {
         showCinematicTour: dto.showCinematicTour ?? false,
         show3DTour: dto.show3DTour ?? false,
         showVRTour: dto.showVRTour ?? false,
+      },
+    });
+  }
+
+  async updateRentUnit(rentUnitId: string, userId: string, userRole: UserRole, dto: UpdateRentUnitDto) {
+    const unit = await this.prisma.rentUnit.findUnique({ where: { id: rentUnitId }, select: { rentListingId: true, total: true } });
+    if (!unit) throw new NotFoundException('Rent unit not found');
+    await this.assertOwner(unit.rentListingId, userId, userRole);
+    const total = dto.total ?? unit.total;
+    if (dto.available !== undefined && dto.available > total) {
+      throw new BadRequestException('Available units cannot exceed the total');
+    }
+    return this.prisma.rentUnit.update({
+      where: { id: rentUnitId },
+      data: {
+        ...(dto.label !== undefined && { label: dto.label }),
+        ...(dto.unitType !== undefined && { unitType: dto.unitType }),
+        ...(dto.floor !== undefined && { floor: dto.floor }),
+        ...(dto.bedrooms !== undefined && { bedrooms: dto.bedrooms }),
+        ...(dto.bathrooms !== undefined && { bathrooms: dto.bathrooms }),
+        ...(dto.sqm !== undefined && { sqm: dto.sqm }),
+        ...(dto.pricePerMonth !== undefined && { pricePerMonth: dto.pricePerMonth }),
+        ...(dto.available !== undefined && { available: dto.available }),
+        ...(dto.total !== undefined && { total: dto.total }),
+        ...(dto.furnishing !== undefined && { furnishing: dto.furnishing }),
+        ...(dto.features !== undefined && { features: dto.features }),
+        ...(dto.showCinematicTour !== undefined && { showCinematicTour: dto.showCinematicTour }),
+        ...(dto.show3DTour !== undefined && { show3DTour: dto.show3DTour }),
+        ...(dto.showVRTour !== undefined && { showVRTour: dto.showVRTour }),
       },
     });
   }
