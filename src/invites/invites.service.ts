@@ -237,6 +237,16 @@ export class InvitesService {
     return inv;
   }
 
+  /**
+   * What a shared link's preview needs (WhatsApp, iMessage, LinkedIn). Does
+   * NOT count an open: link crawlers fetch this, not the invitee. Only
+   * public-facing fields; no email, phone or referrer.
+   */
+  async preview(code: string) {
+    const inv = await this.activeByCode(code);
+    return { kind: inv.kind, name: inv.name, contactName: inv.contactName, logoUrl: inv.logoUrl, agentKind: inv.agentKind };
+  }
+
   /** The welcome page's data. Counts the open; a used invite still renders, read-only. */
   async open(code: string) {
     const inv = await this.activeByCode(code);

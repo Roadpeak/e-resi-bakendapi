@@ -11,6 +11,13 @@ export class InvitesController {
   constructor(private readonly invites: InvitesService) {}
 
   @Public()
+  @Get(':code/preview')
+  @ApiOperation({ summary: 'Public: name and logo for a shared invite link\'s preview (does not count an open)' })
+  preview(@Param('code') code: string) {
+    return this.invites.preview(code);
+  }
+
+  @Public()
   @Get(':code')
   @ApiOperation({ summary: 'Public: the personalised welcome for an invite link (records the open)' })
   open(@Param('code') code: string) {
