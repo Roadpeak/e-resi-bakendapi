@@ -438,6 +438,9 @@ export class AgentsService {
         currency: true,
         heroImageUrl: true,
         createdAt: true,
+        city: true,
+        neighborhood: true,
+        // Null for a standalone rental listed without a development.
         property: { select: { name: true, city: true, neighborhood: true } },
         rentUnits: {
           select: {
