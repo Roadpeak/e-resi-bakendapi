@@ -3,10 +3,11 @@ import { IsDateString, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLen
 import { BookingType } from '@prisma/client';
 
 export class CreateBookingDto {
-  @ApiProperty({ description: 'Property slug to book a viewing for' })
+  @ApiPropertyOptional({ description: 'Property slug to book a viewing for (omit for a standalone rental)' })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  propertySlug: string;
+  propertySlug?: string;
 
   @ApiProperty({ example: 'Jane Doe' })
   @IsString()

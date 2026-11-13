@@ -38,21 +38,32 @@ export class BookingsService {
   }
 
   async create(dto: CreateBookingDto, userId?: string) {
-    const property = await this.prisma.property.findUnique({ where: { slug: dto.propertySlug } });
-    if (!property) throw new NotFoundException('Property not found');
+    if (!dto.propertySlug && !dto.rentListingId) {
+      throw new BadRequestException('Either propertySlug or rentListingId is required');
+    }
+    const property = dto.propertySlug
+      ? await this.prisma.property.findUnique({ where: { slug: dto.propertySlug } })
+      : null;
+    if (dto.propertySlug && !property) throw new NotFoundException('Property not found');
 
     const agentId = await this.resolveAgent(dto.agentId);
     // A viewing asked for from a rental belongs to that rental — only when it
-    // really is a rental in this building.
+    // really is a rental in this building. A standalone rental (no
+    // development) is booked on its own.
     const rental = dto.rentListingId
-      ? await this.prisma.rentListing.findFirst({ where: { id: dto.rentListingId, propertyId: property.id }, select: { id: true } })
+      ? await this.prisma.rentListing.findFirst({
+          where: { id: dto.rentListingId, ...(property && { propertyId: property.id }) },
+          select: { id: true, name: true, propertyId: true },
+        })
       : null;
+    if (!property && !rental) throw new NotFoundException('Rent listing not found');
+    const propertyId = property?.id ?? rental?.propertyId ?? null;
 
     const booking = await this.prisma.booking.create({
       data: {
         ...(agentId && { agentId }),
         ...(rental && { rentListingId: rental.id }),
-        propertyId: property.id,
+        ...(propertyId && { propertyId }),
         name: dto.name,
         email: dto.email,
         phone: dto.phone,
@@ -66,8 +77,9 @@ export class BookingsService {
         property: { select: { slug: true, name: true, heroImageUrl: true } },
       },
     });
+    const placeName = booking.property?.name ?? rental?.name ?? 'your listing';
 
-    await this.events.newBooking(booking.property.name, dto.name, booking.id);
+    await this.events.newBooking(placeName, dto.name, booking.id);
     const manager = rental ? await rentalManager(this.prisma, rental.id) : null;
     if (manager) {
       // A rental viewing goes to whoever runs that letting.
@@ -78,7 +90,7 @@ export class BookingsService {
         resourceId: booking.id,
         resourceType: 'Booking',
       }, manager.agent ? '/agent/leads' : undefined);
-    } else if (property.developerId) {
+    } else if (property?.developerId) {
       // Tell the developer — a viewing request is an automatic lead for them.
       const dev = await this.prisma.developerProfile.findUnique({
         where: { id: property.developerId }, select: { userId: true },
@@ -87,12 +99,12 @@ export class BookingsService {
         await this.events.newLeadForDeveloper(dev.userId, {
           type: 'GENERAL',
           title: `New lead: ${dto.name}`,
-          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${booking.property.name}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${placeName}${dto.phone ? ` · ${dto.phone}` : ''}.`,
           resourceId: booking.id,
           resourceType: 'Booking',
         });
       }
-    } else if (property.listedByAgentId) {
+    } else if (property?.listedByAgentId) {
       // Agent-owned listing: the viewing request is the listing agent's lead.
       const owner = await this.prisma.agentProfile.findUnique({
         where: { id: property.listedByAgentId }, select: { userId: true },
@@ -101,7 +113,7 @@ export class BookingsService {
         await this.events.newLeadForDeveloper(owner.userId, {
           type: 'GENERAL',
           title: `New lead: ${dto.name}`,
-          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${booking.property.name}${dto.phone ? ` · ${dto.phone}` : ''}.`,
+          body: `${dto.name} requested a ${dto.type === 'VIRTUAL' ? 'virtual tour' : 'viewing'} of ${placeName}${dto.phone ? ` · ${dto.phone}` : ''}.`,
           resourceId: booking.id,
           resourceType: 'Booking',
         }, '/agent/leads');
@@ -119,7 +131,7 @@ export class BookingsService {
         await this.events.leadRoutedToAgent(
           agent.userId,
           'booking',
-          booking.property.name,
+          placeName,
           dto.name,
           '/agent/bookings',
         );
@@ -193,8 +205,10 @@ export class BookingsService {
 
     // Viewings of rentals an agent runs are the agent's, not the developer's.
     const where = {
-      propertyId: { in: propertyIds },
-      OR: [{ rentListingId: null }, { rentListing: managedRentalsWhere({ kind: 'DEVELOPER', id: developer.id }) }],
+      OR: [
+        { propertyId: { in: propertyIds }, rentListingId: null },
+        { rentListing: managedRentalsWhere({ kind: 'DEVELOPER', id: developer.id }) },
+      ],
       ...(status && { status }),
     };
 
@@ -220,9 +234,17 @@ export class BookingsService {
   async updateStatus(id: string, userId: string, userRole: UserRole, status: BookingStatus, meetingUrl?: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { include: { developer: true, listedByAgent: true } } },
+      include: {
+        property: { include: { developer: true, listedByAgent: true } },
+        rentListing: { select: { name: true } },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
+    // A rental viewing is run by whoever manages the letting — for a
+    // standalone rental there is no development owner to fall back on.
+    const rentalManagerUserId = booking.rentListingId
+      ? (await rentalManager(this.prisma, booking.rentListingId))?.userId ?? null
+      : null;
     // The attributed agent runs their own viewings — confirming and
     // rescheduling included. The developer keeps the same right: it is
     // still their property, and either of them turning up is a viewing.
@@ -235,6 +257,7 @@ export class BookingsService {
     if (
       userRole !== UserRole.ADMIN &&
       ownerUserId(booking.property) !== userId &&
+      rentalManagerUserId !== userId &&
       !isAttributedAgent
     ) {
       throw new ForbiddenException('You do not own this property');
@@ -262,7 +285,7 @@ export class BookingsService {
     // asked for the viewing never learned it was happening. Detached: the
     // booking is already saved, and a failed notification must not undo it.
     if (status === BookingStatus.CONFIRMED) {
-      void this.notifyConfirmed(updated, booking.property.name);
+      void this.notifyConfirmed(updated, booking.property?.name ?? booking.rentListing?.name ?? 'your listing');
     }
 
     return updated;

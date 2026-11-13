@@ -398,7 +398,7 @@ export class AgentSiteService implements OnModuleInit {
       select: {
         id: true, slug: true, name: true, tagline: true, heroImageUrl: true, city: true, neighborhood: true,
         furnishing: true, status: true, priceFrom: true, priceTo: true, currency: true, availableFrom: true,
-        minLeaseTerm: true, show3DTour: true, showCinematicTour: true, isFeatured: true, tags: true,
+        minLeaseTerm: true, show3DTour: true, showCinematicTour: true, isFeatured: true, tags: true, category: true,
         property: { select: { category: true } },
         rentUnits: { select: { bedrooms: true, available: true, pricePerMonth: true } },
       },
@@ -409,7 +409,7 @@ export class AgentSiteService implements OnModuleInit {
       const rents = open.map((u) => u.pricePerMonth).filter((n) => n > 0);
       return {
         id: r.id, slug: r.slug, name: r.name, tagline: r.tagline, heroImageUrl: r.heroImageUrl,
-        city: r.city, neighborhood: r.neighborhood, category: r.property.category, status: r.status,
+        city: r.city, neighborhood: r.neighborhood, category: r.category ?? r.property?.category ?? null, status: r.status,
         furnishing: r.furnishing,
         // Monthly rent: the listing's own range, else the cheapest open unit.
         priceFrom: r.priceFrom ?? (rents.length ? Math.min(...rents) : null),

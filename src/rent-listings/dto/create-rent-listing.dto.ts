@@ -13,7 +13,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { FurnishingType } from '@prisma/client';
+import { FurnishingType, PropertyCategory } from '@prisma/client';
 
 export class CreateRentListingDto {
   @ApiProperty({ example: 'Westlands Heights — Rentals' })
@@ -33,10 +33,45 @@ export class CreateRentListingDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ description: 'Property slug this rent listing belongs to' })
+  @ApiPropertyOptional({
+    description: 'Property slug this rent listing belongs to. Omit for a '
+      + 'standalone rental — one home listed on its own, without a development.',
+  })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  propertySlug: string;
+  propertySlug?: string;
+
+  @ApiPropertyOptional({ enum: PropertyCategory, description: 'Kind of home (standalone rentals)' })
+  @IsOptional()
+  @IsEnum(PropertyCategory)
+  category?: PropertyCategory;
+
+  @ApiPropertyOptional({ description: 'Show only the area publicly; the exact spot and map stay hidden' })
+  @IsOptional()
+  @IsBoolean()
+  hideExactLocation?: boolean;
+
+  @ApiPropertyOptional({ example: ['Parking', 'Borehole', 'Backup generator'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
+  @ApiPropertyOptional({ example: -1.2635 })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: 36.8034 })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @ApiPropertyOptional({ example: 'Nairobi County' })
+  @IsOptional()
+  @IsString()
+  county?: string;
 
   @ApiPropertyOptional({ enum: FurnishingType })
   @IsOptional()

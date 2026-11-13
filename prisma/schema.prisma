@@ -1383,8 +1383,20 @@ model UnitType {
 model RentListing {
   id                        String            @id @default(cuid())
   slug                      String            @unique
-  propertyId                String
-  property                  Property          @relation(fields: [propertyId], references: [id])
+  /// The development this rental sits in. Null for a standalone listing —
+  /// an agent letting one home with its own photos, BuyRentKenya-style,
+  /// without first creating a development on e-resi.
+  propertyId                String?
+  property                  Property?         @relation(fields: [propertyId], references: [id])
+  /// Standalone listings carry their own kind so /rent/apartments and
+  /// /rent/villas can find them; in-development listings use the property's.
+  category                  PropertyCategory?
+  /// Show only the area publicly; the exact spot and map stay hidden until
+  /// the tenant gets in touch.
+  hideExactLocation         Boolean           @default(false)
+  /// Standalone listings' own feature list (in-development ones use the
+  /// property's features).
+  features                  String[]          @default([])
   /// The building's developer. Null only for an agent-listed rental on a
   /// development whose developer is not on e-resi.
   developerId               String?
@@ -1839,8 +1851,8 @@ model InquiryReply {
 
 model Booking {
   id            String        @id @default(cuid())
-  propertyId    String
-  property      Property      @relation(fields: [propertyId], references: [id])
+  propertyId    String?
+  property      Property?     @relation(fields: [propertyId], references: [id])
   /// Set when the viewing was requested from a rent listing, so it reaches
   /// whoever runs that letting rather than the building's developer.
   rentListingId String?

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PropertyCategory, RentListingStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { slugify, uniqueSlug } from './slug.util.js';
@@ -82,8 +82,27 @@ export class RentListingsService {
     return { property, developerId: developer.id, agentId: null as string | null };
   }
 
+  /**
+   * A standalone rental has no development behind it: the agent (or
+   * developer) listing it is its owner, and it carries its own kind,
+   * photos, features and location.
+   */
+  private async standaloneOwner(userId: string, userRole: UserRole) {
+    if (userRole === UserRole.AGENT) {
+      const agent = await this.prisma.agentProfile.findUnique({ where: { userId }, select: { id: true } });
+      if (!agent) throw new ForbiddenException('Agent profile required');
+      return { developerId: null as string | null, agentId: agent.id as string | null };
+    }
+    const developer = await this.prisma.developerProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (!developer) throw new ForbiddenException('Developer profile required');
+    return { developerId: developer.id as string | null, agentId: null as string | null };
+  }
+
   async create(userId: string, dto: CreateRentListingDto, userRole: UserRole = UserRole.DEVELOPER) {
-    const { property, developerId, agentId } = await this.lettableProperty(userId, userRole, dto.propertySlug);
+    const { property, developerId, agentId } = dto.propertySlug
+      ? await this.lettableProperty(userId, userRole, dto.propertySlug)
+      : { property: null, ...(await this.standaloneOwner(userId, userRole)) };
+    if (!property && !dto.city) throw new BadRequestException('A standalone rental needs a city');
 
     const slug = await uniqueSlug(this.prisma, slugify(dto.name));
 
@@ -93,12 +112,18 @@ export class RentListingsService {
         name: dto.name,
         tagline: dto.tagline,
         description: dto.description,
-        propertyId: property.id,
+        ...(property && { propertyId: property.id }),
         developerId,
         ...(agentId && { listedByAgentId: agentId, managerKind: 'AGENT' as const, managingAgentId: agentId }),
+        ...(!property && { category: dto.category ?? 'APARTMENT' }),
+        hideExactLocation: dto.hideExactLocation ?? !property,
+        features: dto.features ?? [],
+        latitude: dto.latitude ?? property?.latitude,
+        longitude: dto.longitude ?? property?.longitude,
+        county: dto.county ?? property?.county,
         furnishing: dto.furnishing ?? 'UNFURNISHED',
-        neighborhood: dto.neighborhood,
-        city: dto.city ?? property.city,
+        neighborhood: dto.neighborhood ?? property?.neighborhood,
+        city: dto.city ?? property?.city,
         priceFrom: dto.priceFrom,
         ...(dto.currency && { currency: dto.currency.toUpperCase() }),
         priceTo: dto.priceTo,
@@ -140,8 +165,9 @@ export class RentListingsService {
       status: { not: RentListingStatus.ARCHIVED },
       ...(spellings && { neighborhood: { in: spellings } }),
       ...(city && { city: { contains: city, mode: 'insensitive' } }),
-      // A rent listing's type comes from the development it belongs to.
-      ...(category && { property: { category } }),
+      // In-development listings take their kind from the building; standalone
+      // ones carry their own.
+      ...(category && { OR: [{ category }, { property: { category } }] }),
       ...(q && {
         // "search by area, building or listing" — match location too, not just the name
         OR: [
@@ -180,6 +206,7 @@ export class RentListingsService {
     return {
       data: data.map(({ property, ...listing }) => ({
         ...listing,
+        ...(listing.hideExactLocation && { latitude: null, longitude: null }),
         media: listing.media.length > 0 ? listing.media : (property?.media ?? []),
       })),
       meta: { total, page: pagination.page, limit: pagination.limit, totalPages: Math.ceil(total / (pagination.limit ?? 20)) },
@@ -225,6 +252,15 @@ export class RentListingsService {
       },
     });
     if (!listing || listing.status === 'ARCHIVED') throw new NotFoundException('Rent listing not found');
+    if (listing.hideExactLocation) {
+      // Area only: the exact spot is shared once the tenant gets in touch.
+      return {
+        ...listing,
+        latitude: null,
+        longitude: null,
+        ...(listing.property && { property: { ...listing.property, latitude: null, longitude: null } }),
+      };
+    }
     return listing;
   }
 
@@ -372,6 +408,12 @@ export class RentListingsService {
         ...(dto.availableFrom !== undefined && { availableFrom: new Date(dto.availableFrom) }),
         ...(dto.minLeaseTerm !== undefined && { minLeaseTerm: dto.minLeaseTerm }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
+        ...(dto.category !== undefined && { category: dto.category }),
+        ...(dto.hideExactLocation !== undefined && { hideExactLocation: dto.hideExactLocation }),
+        ...(dto.features !== undefined && { features: dto.features }),
+        ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+        ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+        ...(dto.county !== undefined && { county: dto.county }),
       },
     });
   }
