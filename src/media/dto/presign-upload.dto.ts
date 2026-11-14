@@ -23,6 +23,6 @@ export class PresignUploadDto {
 
   @ApiPropertyOptional({ example: 'properties', default: 'properties' })
   @IsOptional()
-  @IsIn(['properties', 'rentals', 'avatars', 'logos', 'documents', 'tours'])
+  @IsIn(['properties', 'rentals', 'avatars', 'logos', 'documents', 'tours', 'reels'])
   folder?: string;
 }

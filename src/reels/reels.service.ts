@@ -355,7 +355,7 @@ export class ReelsService implements OnModuleInit {
         ? { kind: 'DEVELOPER' as const, id: r.developer.id, name: r.developer.companyName, imageUrl: r.developer.logoUrl, href: `/developers/${r.developer.id}` }
         : null;
     return {
-      id: r.id, videoUrl: deliveryUrl(r.videoUrl), thumbnailUrl: r.thumbnailUrl, caption: r.caption, durationSec: r.durationSec,
+      id: r.id, videoUrl: deliveryUrl(r.videoUrl), hlsUrl: hlsUrl(deliveryUrl(r.videoUrl)), thumbnailUrl: r.thumbnailUrl, caption: r.caption, durationSec: r.durationSec,
       trimStartSec: r.videoUrl.includes('res.cloudinary.com') ? null : r.trimStartSec,
       city: r.city, neighborhood: r.neighborhood, status: r.status, removedReason: r.removedReason,
       likeCount: r.likeCount, commentCount: r.commentCount, viewCount: r.viewCount,
@@ -534,6 +534,19 @@ function deliveryUrl(url: string, trimStart = 0): string {
   const so = Math.max(0, Math.round(trimStart * 10) / 10);
   const t = `${so > 0 ? `so_${so},` : ''}du_${REEL_MAX_SECONDS},c_limit,w_1920,h_1920,q_auto:good,vc_auto`;
   return url.replace('/video/upload/', `/video/upload/${t}/`).replace(/\.[a-z0-9]+(\?.*)?$/i, '.mp4');
+}
+
+/**
+ * Adaptive stream for a Cloudinary reel: the same 45-second window, as HLS
+ * with Cloudinary's automatic ladder (several H.264 renditions; the player
+ * switches between them as the connection changes). Null for files that are
+ * not on Cloudinary, which play as plain MP4.
+ */
+function hlsUrl(storedUrl: string): string | null {
+  const m = storedUrl.match(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/)([^/]*du_\d+[^/]*)\/(.+?)(?:\.[a-z0-9]+)?(\?.*)?$/i);
+  if (!m) return null;
+  const so = m[2].match(/(?:^|,)(so_[\d.]+)/)?.[1];
+  return `${m[1]}${so ? `${so},` : ''}du_${REEL_MAX_SECONDS}/sp_auto/${m[3]}.m3u8`;
 }
 
 /** A poster frame from inside the chosen window, uncropped. */

@@ -13,7 +13,15 @@ import { extname, join } from 'path';
  */
 const CHUNKED_UPLOAD_THRESHOLD = 90 * 1024 * 1024;
 
-export type UploadFolder = 'properties' | 'rentals' | 'avatars' | 'logos' | 'documents' | 'tours';
+export type UploadFolder = 'properties' | 'rentals' | 'avatars' | 'logos' | 'documents' | 'tours' | 'reels';
+
+/**
+ * Reels stay on Cloudinary even when other video goes to Spaces: they are
+ * short (45 s, usually well under Cloudinary's 100 MB cap) and need what
+ * only Cloudinary does on delivery — adaptive HLS streaming, H.264 for every
+ * browser, compression, trimming and poster frames.
+ */
+const CLOUDINARY_ONLY: readonly UploadFolder[] = ['reels'];
 
 type CloudinaryResourceType = 'image' | 'video' | 'raw';
 
@@ -141,7 +149,7 @@ export class StorageService {
 
     // Everything that is not an image, when Spaces is configured. See the
     // constructor for why.
-    if (this.spacesEnabled && resourceType !== 'image') {
+    if (this.spacesEnabled && resourceType !== 'image' && !CLOUDINARY_ONLY.includes(folder)) {
       return this.uploadToSpaces(folder, originalName, buffer, mimeType);
     }
 
@@ -412,7 +420,7 @@ export class StorageService {
      * makes the client post to the API instead, which it already handles as
      * the sandbox fallback.
      */
-    if (this.spacesEnabled && resourceType !== 'image') {
+    if (this.spacesEnabled && resourceType !== 'image' && !CLOUDINARY_ONLY.includes(folder)) {
       return { uploadUrl: '', key: '', fileUrl: '', fields: null, resourceType, direct: false };
     }
 
