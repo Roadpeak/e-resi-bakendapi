@@ -180,10 +180,10 @@ export class ReelsService implements OnModuleInit {
       data: {
         ownerUserId: userId,
         ...(o.kind === 'AGENT' ? { agentId: o.id } : { developerId: o.id }),
-        videoUrl: dto.videoUrl,
+        videoUrl: deliveryUrl(dto.videoUrl),
         thumbnailUrl: dto.thumbnailUrl ?? posterFor(dto.videoUrl),
         caption: dto.caption?.trim() || null,
-        durationSec: dto.durationSec,
+        durationSec: dto.durationSec !== undefined ? Math.min(dto.durationSec, REEL_MAX_SECONDS) : undefined,
         ...(link?.deal === 'SALE' && { propertyId: link.id }),
         ...(link?.deal === 'RENT' && { rentListingId: link.id }),
         city: link?.city ?? dto.city?.trim() ?? null,
@@ -353,7 +353,7 @@ export class ReelsService implements OnModuleInit {
         ? { kind: 'DEVELOPER' as const, id: r.developer.id, name: r.developer.companyName, imageUrl: r.developer.logoUrl, href: `/developers/${r.developer.id}` }
         : null;
     return {
-      id: r.id, videoUrl: r.videoUrl, thumbnailUrl: r.thumbnailUrl, caption: r.caption, durationSec: r.durationSec,
+      id: r.id, videoUrl: deliveryUrl(r.videoUrl), thumbnailUrl: r.thumbnailUrl, caption: r.caption, durationSec: r.durationSec,
       city: r.city, neighborhood: r.neighborhood, status: r.status, removedReason: r.removedReason,
       likeCount: r.likeCount, commentCount: r.commentCount, viewCount: r.viewCount,
       createdAt: r.createdAt, likedByMe, link, owner,
@@ -497,10 +497,26 @@ export class ReelsService implements OnModuleInit {
   }
 }
 
+/** Reels play for at most this long; longer uploads are trimmed on delivery. */
+export const REEL_MAX_SECONDS = 45;
+
+/**
+ * Served version of a reel: first 45 seconds, centre-cropped to 9:16,
+ * 1080 wide, Cloudinary's "good" automatic quality and the best codec the
+ * viewer's browser supports, as MP4. Cuts a phone video to well under half
+ * its size with no visible loss. g_auto (smart crop) is not enabled on this
+ * account, so the crop is centred. Already-transformed URLs pass through.
+ */
+const DELIVERY = `du_${REEL_MAX_SECONDS},c_fill,ar_9:16,g_center,w_1080,q_auto:good,vc_auto`;
+function deliveryUrl(url: string): string {
+  if (!url.includes('res.cloudinary.com') || !url.includes('/video/upload/') || url.includes(`du_${REEL_MAX_SECONDS},`)) return url;
+  return url.replace('/video/upload/', `/video/upload/${DELIVERY}/`).replace(/\.[a-z0-9]+(\?.*)?$/i, '.mp4');
+}
+
 /** Cloudinary serves a poster frame for any video at the same path as .jpg. */
 function posterFor(videoUrl: string): string | null {
   if (!videoUrl.includes('res.cloudinary.com') || !videoUrl.includes('/video/upload/')) return null;
-  return videoUrl.replace('/video/upload/', '/video/upload/so_1,w_540,c_fill,ar_9:16/').replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg');
+  return videoUrl.replace('/video/upload/', '/video/upload/so_1,c_fill,ar_9:16,g_center,w_540/').replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg');
 }
 
 /** Stable 0..1 from a string: a per-viewer, per-day shuffle. */
