@@ -13,14 +13,14 @@ import { StorageService } from '../media/storage.service.js';
 export const STAFF_PAGES = [
   'properties', 'units', 'reservations', 'rentals', 'messages', 'partners',
   'deals', 'mandates', 'inquiries', 'leads', 'bookings', 'performance', 'analytics',
-  'documents', 'billing', 'profile', 'team',
+  'documents', 'billing', 'profile', 'team', 'reels',
 ] as const;
 
 /** Agent-portal pages an agency can delegate (keys = /agent/<key>). */
 export const AGENT_STAFF_PAGES = [
   'listings', 'properties', 'rentals', 'partners', 'deals', 'reservations', 'leads',
   'inquiries', 'bookings', 'clients', 'mandates', 'lettings', 'messages', 'analytics',
-  'reviews', 'website', 'billing', 'profile', 'team',
+  'reviews', 'website', 'billing', 'profile', 'team', 'reels',
 ] as const;
 
 export type EmployerKind = 'DEVELOPER' | 'AGENT';

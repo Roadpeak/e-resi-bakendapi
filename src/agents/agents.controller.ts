@@ -6,13 +6,13 @@ import {
   Param,
   Patch,
   Post,
-  Query,
-} from '@nestjs/common';
+  Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AgentKind, AgentSpecialty, KybStatus, UserRole } from '@prisma/client';
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { OptionalJwtGuard } from '../auth/guards/optional-jwt.guard.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { PaginationDto } from '../common/dto/pagination.dto.js';
 import { AgentsService } from './agents.service.js';
@@ -229,6 +229,7 @@ export class AgentsController {
   }
 
   @Public()
+  @UseGuards(OptionalJwtGuard)
   @Post(':id/reveal-contact')
   @ApiOperation({
     summary: 'Public: leave your name and number to see the agent’s phone and WhatsApp; recorded as a lead for the agent',

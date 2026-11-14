@@ -276,17 +276,21 @@ enum AnalyticsEventType {
 // ─────────────────────────────────────────────
 
 model User {
-  id                  String    @id @default(cuid())
-  email               String    @unique
+  id                  String        @id @default(cuid())
+  reels               Reel[]        @relation("ReelOwner")
+  reelLikes           ReelLike[]
+  reelComments        ReelComment[]
+  reelViews           ReelView[]
+  email               String        @unique
   password            String?
-  role                UserRole  @default(BUYER)
+  role                UserRole      @default(BUYER)
   firstName           String
   lastName            String
   phone               String?
   avatarUrl           String?
-  emailVerified       Boolean   @default(false)
-  phoneVerified       Boolean   @default(false)
-  isActive            Boolean   @default(true)
+  emailVerified       Boolean       @default(false)
+  phoneVerified       Boolean       @default(false)
+  isActive            Boolean       @default(true)
   /// Why and when access was withdrawn — a bare boolean loses the reason.
   suspendedAt         DateTime?
   suspendedReason     String?
@@ -297,8 +301,8 @@ model User {
   passwordResetToken  String?
   passwordResetExpiry DateTime?
   lastLoginAt         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   developerProfile      DeveloperProfile?
   agentProfile          AgentProfile?
@@ -391,6 +395,9 @@ model LinkedPaymentMethod {
 
 model DeveloperProfile {
   id                    String           @id @default(cuid())
+  reels                 Reel[]
+  reelsUnlockedAt       DateTime?
+  reelsInvoiceId        String?
   userId                String           @unique
   user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   staff                 DeveloperStaff[]
@@ -455,10 +462,14 @@ model DeveloperProfile {
 /// same public-contact fields, same monthly listing fee, so admin review and
 /// billing work the same way for both and neither needs its own concepts.
 model AgentProfile {
-  id     String    @id @default(cuid())
-  userId String    @unique
-  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind   AgentKind
+  id              String    @id @default(cuid())
+  reels           Reel[]
+  /// Property reels are a paid add-on: set once the unlock is paid (or free).
+  reelsUnlockedAt DateTime?
+  reelsInvoiceId  String?
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            AgentKind
 
   /// Trading name. The company name, or the individual's professional name.
   displayName        String
@@ -1087,6 +1098,7 @@ model MandateRequest {
 
 model Property {
   id                          String            @id @default(cuid())
+  reels                       Reel[]
   slug                        String            @unique
   name                        String
   tagline                     String?
@@ -1382,6 +1394,7 @@ model UnitType {
 
 model RentListing {
   id                        String            @id @default(cuid())
+  reels                     Reel[]
   slug                      String            @unique
   /// The development this rental sits in. Null for a standalone listing —
   /// an agent letting one home with its own photos, BuyRentKenya-style,
@@ -2416,6 +2429,8 @@ enum InvoiceKind {
   AGENT_SITE
   /// One-time unlock of a premium agent-website template.
   AGENT_TEMPLATE
+  /// One-time unlock of property reels for an agent or developer.
+  REELS_UNLOCK
 }
 
 enum InvoiceStatus {
@@ -2920,4 +2935,101 @@ model PartnerInvite {
   @@index([referrer])
   @@index([kind, status])
   @@index([createdAt])
+}
+
+enum ReelStatus {
+  PUBLISHED
+  /// Taken down by its owner; kept, not shown.
+  HIDDEN
+  /// Taken down by an admin; the owner cannot republish it.
+  REMOVED
+}
+
+/// A short vertical property video by an agent or developer, optionally
+/// linked to a property for sale or a rental so viewers can open it.
+model Reel {
+  id            String            @id @default(cuid())
+  ownerUserId   String
+  owner         User              @relation("ReelOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  agentId       String?
+  agent         AgentProfile?     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  developerId   String?
+  developer     DeveloperProfile? @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  videoUrl      String
+  thumbnailUrl  String?
+  caption       String?
+  durationSec   Float?
+  propertyId    String?
+  property      Property?         @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  rentListingId String?
+  rentListing   RentListing?      @relation(fields: [rentListingId], references: [id], onDelete: SetNull)
+  /// Copied from the linked listing (or entered) so the feed can rank by
+  /// place and kind without joining on every request.
+  city          String?
+  neighborhood  String?
+  category      PropertyCategory?
+  /// SALE or RENT, from the linked listing; null when nothing is linked.
+  deal          String?
+  status        ReelStatus        @default(PUBLISHED)
+  removedReason String?
+  likeCount     Int               @default(0)
+  commentCount  Int               @default(0)
+  viewCount     Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  likes    ReelLike[]
+  comments ReelComment[]
+  views    ReelView[]
+
+  @@index([status, createdAt])
+  @@index([agentId])
+  @@index([developerId])
+  @@index([ownerUserId])
+}
+
+model ReelLike {
+  reelId    String
+  reel      Reel     @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([reelId, userId])
+  @@index([userId])
+}
+
+/// A comment, or the reel owner's reply to one (parentId set).
+model ReelComment {
+  id        String        @id @default(cuid())
+  reelId    String
+  reel      Reel          @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    ReelComment?  @relation("ReelCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   ReelComment[] @relation("ReelCommentReplies")
+  body      String
+  hiddenAt  DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([reelId, createdAt])
+}
+
+/// One watch of a reel, by a signed-in user or an anonymous visitor id.
+/// Feeds the recommendation: what someone watches through tells us what
+/// places and kinds of home they care about.
+model ReelView {
+  id        String   @id @default(cuid())
+  reelId    String
+  reel      Reel     @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  visitorId String?
+  watchedMs Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([visitorId, createdAt])
+  @@index([reelId])
 }
