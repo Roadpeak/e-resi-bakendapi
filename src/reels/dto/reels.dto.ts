@@ -6,7 +6,8 @@ export class CreateReelDto {
   @ApiProperty() @IsUrl() videoUrl: string;
   @ApiPropertyOptional() @IsOptional() @IsUrl() thumbnailUrl?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(600) caption?: string;
-  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) @Max(600) durationSec?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) @Max(3600) durationSec?: number;
+  @ApiPropertyOptional({ description: 'Where the 45-second reel starts in the uploaded video, in seconds' }) @IsOptional() @IsNumber() @Min(0) @Max(3600) trimStartSec?: number;
   @ApiPropertyOptional({ description: 'A property for sale the owner can market' }) @IsOptional() @IsString() propertyId?: string;
   @ApiPropertyOptional({ description: 'A rental the owner manages' }) @IsOptional() @IsString() rentListingId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) city?: string;

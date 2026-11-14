@@ -180,8 +180,8 @@ export class ReelsService implements OnModuleInit {
       data: {
         ownerUserId: userId,
         ...(o.kind === 'AGENT' ? { agentId: o.id } : { developerId: o.id }),
-        videoUrl: deliveryUrl(dto.videoUrl),
-        thumbnailUrl: dto.thumbnailUrl ?? posterFor(dto.videoUrl),
+        videoUrl: deliveryUrl(dto.videoUrl, dto.trimStartSec),
+        thumbnailUrl: dto.thumbnailUrl ?? posterFor(dto.videoUrl, dto.trimStartSec),
         caption: dto.caption?.trim() || null,
         durationSec: dto.durationSec !== undefined ? Math.min(dto.durationSec, REEL_MAX_SECONDS) : undefined,
         ...(link?.deal === 'SALE' && { propertyId: link.id }),
@@ -519,22 +519,25 @@ export class ReelsService implements OnModuleInit {
 export const REEL_MAX_SECONDS = 45;
 
 /**
- * Served version of a reel: first 45 seconds, centre-cropped to 9:16,
- * 1080 wide, Cloudinary's "good" automatic quality and the best codec the
- * viewer's browser supports, as MP4. Cuts a phone video to well under half
- * its size with no visible loss. g_auto (smart crop) is not enabled on this
- * account, so the crop is centred. Already-transformed URLs pass through.
+ * Served version of a reel: the 45-second window the owner chose (from
+ * trimStart), never cropped — portrait stays portrait and landscape stays
+ * landscape — capped at 1920px on the long side, Cloudinary's "good"
+ * automatic quality and the best codec the browser supports, as MP4. Cuts a
+ * phone video to well under half its size with no visible loss.
+ * Already-transformed URLs pass through untouched.
  */
-const DELIVERY = `du_${REEL_MAX_SECONDS},c_fill,ar_9:16,g_center,w_1080,q_auto:good,vc_auto`;
-function deliveryUrl(url: string): string {
+function deliveryUrl(url: string, trimStart = 0): string {
   if (!url.includes('res.cloudinary.com') || !url.includes('/video/upload/') || url.includes(`du_${REEL_MAX_SECONDS},`)) return url;
-  return url.replace('/video/upload/', `/video/upload/${DELIVERY}/`).replace(/\.[a-z0-9]+(\?.*)?$/i, '.mp4');
+  const so = Math.max(0, Math.round(trimStart * 10) / 10);
+  const t = `${so > 0 ? `so_${so},` : ''}du_${REEL_MAX_SECONDS},c_limit,w_1920,h_1920,q_auto:good,vc_auto`;
+  return url.replace('/video/upload/', `/video/upload/${t}/`).replace(/\.[a-z0-9]+(\?.*)?$/i, '.mp4');
 }
 
-/** Cloudinary serves a poster frame for any video at the same path as .jpg. */
-function posterFor(videoUrl: string): string | null {
+/** A poster frame from inside the chosen window, uncropped. */
+function posterFor(videoUrl: string, trimStart = 0): string | null {
   if (!videoUrl.includes('res.cloudinary.com') || !videoUrl.includes('/video/upload/')) return null;
-  return videoUrl.replace('/video/upload/', '/video/upload/so_1,c_fill,ar_9:16,g_center,w_540/').replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg');
+  const at = Math.round((trimStart + 1) * 10) / 10;
+  return videoUrl.replace('/video/upload/', `/video/upload/so_${at},c_limit,w_720,h_720/`).replace(/\.[a-z0-9]+(\?.*)?$/i, '.jpg');
 }
 
 /** Stable 0..1 from a string: a per-viewer, per-day shuffle. */
