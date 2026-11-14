@@ -346,7 +346,7 @@ export class UsersService {
         take: pagination.limit ?? 20,
         orderBy: { completedProjects: 'desc' },
         select: {
-          id: true, companyName: true, logoUrl: true, location: true,
+          id: true, companyName: true, logoUrl: true, location: true, updatedAt: true,
           phone: true, whatsapp: true, establishedYear: true, completedProjects: true,
           // The newest live development's hero doubles as the card's cover —
           // a developer is best introduced by what they have actually built.

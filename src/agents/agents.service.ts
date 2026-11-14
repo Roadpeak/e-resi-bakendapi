@@ -36,6 +36,8 @@ const PUBLIC_AGENT_SELECT = {
   dealsCompleted: true,
   closedVolume: true,
   createdAt: true,
+  // The sitemap's lastmod for the profile.
+  updatedAt: true,
 } as const;
 
 /**
