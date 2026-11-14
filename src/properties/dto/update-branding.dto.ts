@@ -298,6 +298,11 @@ export class UpdateBrandingDto {
   })
   customDomain?: string;
 
+  @ApiPropertyOptional({ description: 'Make the custom domain the primary address search engines index (marketplace-first when false)' })
+  @IsOptional()
+  @IsBoolean()
+  seoPrimaryDomain?: boolean;
+
   @ApiPropertyOptional({ example: 'herisresidence', description: 'Free address: <subdomain>.e-resi.com' })
   @IsOptional()
   @IsString()

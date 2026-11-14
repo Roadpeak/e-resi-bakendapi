@@ -498,6 +498,7 @@ export class PropertiesService {
           unitPriceDisplay: pruneUnitPriceDisplay(dto.unitPriceDisplay),
         }),
         ...(dto.ctaLabel !== undefined && { ctaLabel: dto.ctaLabel }),
+        ...(dto.seoPrimaryDomain !== undefined && { seoPrimaryDomain: dto.seoPrimaryDomain }),
         ...(dto.navbarStyle !== undefined && { navbarStyle: dto.navbarStyle }),
         ...(dto.navbarTheme !== undefined && { navbarTheme: dto.navbarTheme }),
         ...(dto.heroOverlay !== undefined && { heroOverlay: dto.heroOverlay as boolean }),

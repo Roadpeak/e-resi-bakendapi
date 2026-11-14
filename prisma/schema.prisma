@@ -1231,6 +1231,10 @@ model Property {
   heroOverlay          Boolean   @default(true)
   /// Vanity host, e.g. "tours.developer.co.ke". Unique because it routes.
   customDomain         String?   @unique
+  /// Search-engine primary address. False (default): e-resi.com/<slug> is
+  /// canonical, marketplace-first. True: the custom domain is, but only
+  /// while that domain is live (domainStatus ACTIVE).
+  seoPrimaryDomain     Boolean   @default(false)
   /// Free e-resi address: "<subdomain>.e-resi.com". Defaults to the slug;
   /// the developer can change it. Unique because it routes.
   subdomain            String?   @unique
