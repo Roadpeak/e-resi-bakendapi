@@ -2959,6 +2959,9 @@ model Reel {
   thumbnailUrl  String?
   caption       String?
   durationSec   Float?
+  /// When the browser could not trim the upload, the player starts here and
+  /// stops 45 seconds later. Null when the stored file is already the reel.
+  trimStartSec  Float?
   propertyId    String?
   property      Property?         @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   rentListingId String?

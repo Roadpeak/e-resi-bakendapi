@@ -184,6 +184,8 @@ export class ReelsService implements OnModuleInit {
         thumbnailUrl: dto.thumbnailUrl ?? posterFor(dto.videoUrl, dto.trimStartSec),
         caption: dto.caption?.trim() || null,
         durationSec: dto.durationSec !== undefined ? Math.min(dto.durationSec, REEL_MAX_SECONDS) : undefined,
+        // Files in Spaces cannot be trimmed on delivery, so the player enforces the window.
+        trimStartSec: dto.trimStartSec ?? null,
         ...(link?.deal === 'SALE' && { propertyId: link.id }),
         ...(link?.deal === 'RENT' && { rentListingId: link.id }),
         city: link?.city ?? dto.city?.trim() ?? null,
@@ -354,6 +356,7 @@ export class ReelsService implements OnModuleInit {
         : null;
     return {
       id: r.id, videoUrl: deliveryUrl(r.videoUrl), thumbnailUrl: r.thumbnailUrl, caption: r.caption, durationSec: r.durationSec,
+      trimStartSec: r.videoUrl.includes('res.cloudinary.com') ? null : r.trimStartSec,
       city: r.city, neighborhood: r.neighborhood, status: r.status, removedReason: r.removedReason,
       likeCount: r.likeCount, commentCount: r.commentCount, viewCount: r.viewCount,
       createdAt: r.createdAt, likedByMe, link, owner,
