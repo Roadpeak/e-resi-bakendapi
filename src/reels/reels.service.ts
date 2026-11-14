@@ -400,20 +400,38 @@ export class ReelsService implements OnModuleInit {
   }
 
   async comments(id: string, viewerUserId?: string | null) {
-    const r = await this.prisma.reel.findUnique({ where: { id }, select: { ownerUserId: true } });
+    const r = await this.prisma.reel.findUnique({
+      where: { id },
+      select: {
+        ownerUserId: true,
+        agent: { select: { displayName: true, photoUrl: true, logoUrl: true } },
+        developer: { select: { companyName: true, logoUrl: true } },
+      },
+    });
     if (!r) throw new NotFoundException('Reel not found');
+    // The owner replies as their business: their agent photo or logo, and
+    // that name, when their own account has no picture.
+    const ownerImage = r.agent?.photoUrl ?? r.agent?.logoUrl ?? r.developer?.logoUrl ?? null;
+    const ownerName = r.agent?.displayName ?? r.developer?.companyName ?? null;
     const user = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } as const;
     const rows = await this.prisma.reelComment.findMany({
       where: { reelId: id, parentId: null, hiddenAt: null },
       orderBy: { createdAt: 'desc' }, take: 200,
       include: { user, replies: { where: { hiddenAt: null }, orderBy: { createdAt: 'asc' }, include: { user } } },
     });
-    const shapeC = (c: { id: string; body: string; createdAt: Date; userId: string; user: { firstName: string; lastName: string; avatarUrl: string | null } }) => ({
+    const shapeC = (c: { id: string; body: string; createdAt: Date; userId: string; user: { firstName: string; lastName: string; avatarUrl: string | null } }) => {
+      const byOwner = c.userId === r.ownerUserId;
+      const personal = [c.user.firstName, c.user.lastName?.[0] ? `${c.user.lastName[0]}.` : ''].filter(Boolean).join(' ');
+      return {
       id: c.id, body: c.body, createdAt: c.createdAt,
-      author: { name: [c.user.firstName, c.user.lastName?.[0] ? `${c.user.lastName[0]}.` : ''].filter(Boolean).join(' '), avatarUrl: c.user.avatarUrl },
-      byOwner: c.userId === r.ownerUserId,
+      author: {
+        name: byOwner && ownerName ? ownerName : personal,
+        avatarUrl: byOwner ? (ownerImage ?? c.user.avatarUrl) : c.user.avatarUrl,
+      },
+      byOwner,
       mine: !!viewerUserId && c.userId === viewerUserId,
-    });
+      };
+    };
     return {
       canReply: !!viewerUserId && viewerUserId === r.ownerUserId,
       items: rows.map((c) => ({ ...shapeC(c), replies: c.replies.map(shapeC) })),
