@@ -264,7 +264,13 @@ export class PropertiesService {
         orderBy,
         include: {
           developer: { select: { companyName: true, logoUrl: true } },
-          _count: { select: { units: true } },
+          // Open rent listings tell a card whether to say Renting as well as (or instead of) Selling.
+          _count: {
+            select: {
+              units: true,
+              rentListings: { where: { status: { in: ['AVAILABLE', 'PARTIALLY_AVAILABLE'] } } },
+            },
+          },
           // Card gallery strips only need a few thumbnails, not the full asset shape.
           media: {
             orderBy: { order: 'asc' },
