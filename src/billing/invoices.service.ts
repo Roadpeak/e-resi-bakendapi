@@ -41,6 +41,21 @@ export class InvoicesService {
     this.paidHooks.set(kind, hook);
   }
 
+  /**
+   * Where an invoice of this kind is viewed and paid, as an app path. Kinds
+   * sold outside the developer and agent portals (custom service requests,
+   * which anyone can place) register one so the email button, the in-app
+   * notification and the card-payment return all land on the right page.
+   */
+  private readonly pathResolvers = new Map<InvoiceKind, (invoice: Invoice) => Promise<string | null>>();
+  onPath(kind: InvoiceKind, resolve: (invoice: Invoice) => Promise<string | null>) {
+    this.pathResolvers.set(kind, resolve);
+  }
+  private async customPath(invoice: Invoice): Promise<string | null> {
+    const resolve = this.pathResolvers.get(invoice.kind);
+    return resolve ? resolve(invoice).catch(() => null) : null;
+  }
+
   /** Withdraw an unpaid invoice, e.g. for a domain the developer removed. */
   async cancel(invoiceId: string) {
     await this.prisma.invoice.updateMany({
@@ -271,10 +286,11 @@ export class InvoicesService {
     const intro = isSubscription
       ? `Your listing fee for the coming period is due on ${fmtDate(invoice.dueAt)}. `
         + 'It will be charged automatically to your default payment method.'
-      : invoice.kind === 'PRODUCTION'
+      : invoice.kind === 'PRODUCTION' || invoice.kind === 'SERVICE_REQUEST'
         ? `Payment for your production order is due by ${fmtDate(invoice.dueAt)}.`
         : `Payment is due by ${fmtDate(invoice.dueAt)}.`;
-    const billingUrl = await this.billingUrl(invoice.userId);
+    const customPath = await this.customPath(invoice);
+    const billingUrl = customPath ? `${this.appUrl}${customPath}` : await this.billingUrl(invoice.userId);
 
     const invoiceDoc: DocumentParams = {
       heading: 'Invoice',
@@ -295,7 +311,7 @@ export class InvoicesService {
       cta: { label: 'View invoice', url: billingUrl },
       footnote: isSubscription
         ? 'No action is needed if your card is up to date. Listing fees stop as soon as a development is taken down.'
-        : invoice.kind === 'PRODUCTION' ? 'Production is scheduled once payment is received.'
+        : invoice.kind === 'PRODUCTION' || invoice.kind === 'SERVICE_REQUEST' ? 'Production is scheduled once payment is received. Pay by card or M-Pesa.'
           : 'What you are paying for is switched on as soon as payment is received.',
     };
     const invoicePdf = await this.pdf.render(invoiceDoc).catch(() => null);
@@ -313,6 +329,7 @@ export class InvoicesService {
       `${invoice.currency} ${invoice.total.toLocaleString()} is due on ${fmtDate(invoice.dueAt)}.`,
       invoice.id,
       'Invoice',
+      customPath ?? undefined,
     );
 
     if (invoice.status === 'DRAFT') {
@@ -680,7 +697,9 @@ export class InvoicesService {
       currency: invoice.currency,
       reference,
       // Agents pay from their own portal and must come back to it.
-      callbackPath: user.role === 'AGENT' ? '/agent/billing' : '/dashboard/billing',
+      // Service requests are paid from their own tracking page.
+      callbackPath: (await this.customPath(invoice))
+        ?? (user.role === 'AGENT' ? '/agent/billing' : '/dashboard/billing'),
       metadata: { userId, invoiceId: invoice.id, purpose: 'invoice_payment' },
     });
     return { paid: false as const, ...checkout };

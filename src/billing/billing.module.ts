@@ -29,6 +29,6 @@ import { DomainsModule } from '../domains/domains.module.js';
     BillingService, PaymentProvidersService, PaystackService,
     ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService, AgentSiteService, AgentTemplatesService, AgentSiteContentService, AgentSiteLeadsService, SupportThrottlerGuard,
   ],
-  exports: [AgentSiteLeadsService, BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
+  exports: [DocumentPdfService, AgentSiteLeadsService, BillingService, PaystackService, ListingFeeService, AgentFeeService, InvoicesService, DomainBillingService, ListingPlanService],
 })
 export class BillingModule {}

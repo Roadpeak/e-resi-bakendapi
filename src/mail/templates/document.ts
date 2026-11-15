@@ -46,6 +46,10 @@ export interface DocumentParams {
   /** Intro sentence under the heading. */
   intro: string;
   cta?: { label: string; url: string };
+  /** A second, quieter button beside the first — e.g. "Request changes" next to "Accept quote". */
+  secondaryCta?: { label: string; url: string };
+  /** Label over the recipient block. Defaults to "Billed to"; a quote is "Prepared for". */
+  billedToLabel?: string;
   /** Small print under the table. */
   footnote?: string;
 }
@@ -127,9 +131,12 @@ export function renderDocument(p: DocumentParams): string {
        </td></tr>`
     : '';
 
+  const secondary = p.secondaryCta
+    ? `&nbsp;&nbsp;<a href="${p.secondaryCta.url}" style="display:inline-block;background:#ffffff;color:${BLUE};border:1px solid ${LINE};font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:500;text-decoration:none;padding:11px 24px;border-radius:24px;">${escapeHtml(p.secondaryCta.label)}</a>`
+    : '';
   const cta = p.cta
     ? `<tr><td style="padding:28px 0 0;">
-         <a href="${p.cta.url}" style="display:inline-block;background:${BLUE};color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:500;text-decoration:none;padding:12px 28px;border-radius:24px;">${escapeHtml(p.cta.label)}</a>
+         <a href="${p.cta.url}" style="display:inline-block;background:${BLUE};color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:500;text-decoration:none;padding:12px 28px;border-radius:24px;">${escapeHtml(p.cta.label)}</a>${secondary}
        </td></tr>`
     : '';
 
@@ -163,7 +170,7 @@ export function renderDocument(p: DocumentParams): string {
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td valign="top" style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:${MUTED};">
-                  <div style="text-transform:uppercase;letter-spacing:0.6px;font-size:11px;">Billed to</div>
+                  <div style="text-transform:uppercase;letter-spacing:0.6px;font-size:11px;">${escapeHtml(p.billedToLabel ?? 'Billed to')}</div>
                   <div style="color:${INK};font-size:14px;padding-top:4px;">${escapeHtml(p.billedToName)}</div>
                   <div style="padding-top:2px;">${escapeHtml(p.billedToEmail)}</div>
                 </td>
@@ -242,7 +249,7 @@ export function renderDocumentText(p: DocumentParams): string {
     '',
     p.intro,
     '',
-    `Billed to: ${p.billedToName} <${p.billedToEmail}>`,
+    `${p.billedToLabel ?? 'Billed to'}: ${p.billedToName} <${p.billedToEmail}>`,
     meta,
     '',
     lines,
@@ -252,6 +259,7 @@ export function renderDocumentText(p: DocumentParams): string {
     `Total: ${money(p.total, p.currency)}`,
     p.callout ? `\n${p.callout.text}` : '',
     p.cta ? `\n${p.cta.label}: ${p.cta.url}` : '',
+    p.secondaryCta ? `${p.secondaryCta.label}: ${p.secondaryCta.url}` : '',
     p.footnote ? `\n${p.footnote}` : '',
   ].filter(Boolean).join('\n');
 }

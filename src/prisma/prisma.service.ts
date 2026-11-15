@@ -100,4 +100,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get reelLike() { return prismaInstance.reelLike; }
   get reelComment() { return prismaInstance.reelComment; }
   get reelView() { return prismaInstance.reelView; }
+  get serviceRequest() { return prismaInstance.serviceRequest; }
+  get serviceRequestEvent() { return prismaInstance.serviceRequestEvent; }
 }

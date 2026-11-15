@@ -209,6 +209,8 @@ enum NotificationType {
   DEAL_UPDATED
   /// A developer opened a property to agents, or answered a mandate request.
   MANDATE_UPDATED
+  /// A custom production request was quoted, accepted, paid or moved on.
+  SERVICE_REQUEST_UPDATED
   GENERAL
 }
 
@@ -276,21 +278,22 @@ enum AnalyticsEventType {
 // ─────────────────────────────────────────────
 
 model User {
-  id                  String        @id @default(cuid())
-  reels               Reel[]        @relation("ReelOwner")
+  id                  String           @id @default(cuid())
+  reels               Reel[]           @relation("ReelOwner")
+  serviceRequests     ServiceRequest[]
   reelLikes           ReelLike[]
   reelComments        ReelComment[]
   reelViews           ReelView[]
-  email               String        @unique
+  email               String           @unique
   password            String?
-  role                UserRole      @default(BUYER)
+  role                UserRole         @default(BUYER)
   firstName           String
   lastName            String
   phone               String?
   avatarUrl           String?
-  emailVerified       Boolean       @default(false)
-  phoneVerified       Boolean       @default(false)
-  isActive            Boolean       @default(true)
+  emailVerified       Boolean          @default(false)
+  phoneVerified       Boolean          @default(false)
+  isActive            Boolean          @default(true)
   /// Why and when access was withdrawn — a bare boolean loses the reason.
   suspendedAt         DateTime?
   suspendedReason     String?
@@ -301,8 +304,8 @@ model User {
   passwordResetToken  String?
   passwordResetExpiry DateTime?
   lastLoginAt         DateTime?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   developerProfile      DeveloperProfile?
   agentProfile          AgentProfile?
@@ -2435,6 +2438,8 @@ enum InvoiceKind {
   AGENT_TEMPLATE
   /// One-time unlock of property reels for an agent or developer.
   REELS_UNLOCK
+  /// Custom production work, billed from an accepted service-request quote.
+  SERVICE_REQUEST
 }
 
 enum InvoiceStatus {
@@ -3039,4 +3044,113 @@ model ReelView {
   @@index([userId, createdAt])
   @@index([visitorId, createdAt])
   @@index([reelId])
+}
+
+// ─────────────────────────────────────────────
+// CUSTOM SERVICE REQUESTS (quote-based production)
+// ─────────────────────────────────────────────
+
+/// Where a custom production request stands. Quote-first: nothing is billed
+/// until the customer accepts a quote, and the invoice follows acceptance.
+enum ServiceRequestStatus {
+  /// Sent by the customer, waiting for a quote.
+  SUBMITTED
+  /// A quote has been sent; the customer can accept it or ask for changes.
+  QUOTED
+  /// The customer asked for the quote to be adjusted.
+  CHANGES_REQUESTED
+  /// Quote accepted; the invoice is out and awaiting payment.
+  ACCEPTED
+  /// Invoice paid; production can be scheduled.
+  PAID
+  IN_PRODUCTION
+  DELIVERED
+  /// e-resi cannot take the job on.
+  DECLINED
+  /// Withdrawn by the customer before acceptance.
+  CANCELLED
+}
+
+/// A request for production work priced by quote rather than from the
+/// catalogue: anyone signed in (developer, agent, investor, buyer, tenant)
+/// describes what they want produced, where and when, and e-resi replies
+/// with a quote. Deliberately not tied to a listed property.
+model ServiceRequest {
+  id     String               @id @default(cuid())
+  /// Human-facing reference, e.g. "SR-2026-000012".
+  number String               @unique
+  status ServiceRequestStatus @default(SUBMITTED)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Who the customer says they are: DEVELOPER, AGENT, INVESTOR, TENANT or OTHER.
+  requesterType String
+  /// Catalogue keys of the services asked for (kept as strings so a request
+  /// survives a service being renamed or retired), plus anything else in words.
+  services      String[]
+  otherService  String?
+  propertyType  PropertyCategory?
+  /// Where the work happens: area and town, plus directions if given.
+  location      String
+  address       String?
+  /// Preferred date, if they have one, and anything about timing.
+  preferredDate DateTime?
+  timing        String?
+  /// Size or scope in their words: "3-bed, 180 m²", "12 units", "2 floors".
+  scope         String?
+  budget        String?
+  details       String
+  contactPhone  String?
+
+  /// The current quote. Re-quoting replaces these and bumps quoteVersion.
+  quoteNumber     String?
+  quoteVersion    Int       @default(0)
+  /// Lines as [{ description, quantity, unitAmount, amount }].
+  quoteLines      Json?
+  quoteSubtotal   Float?
+  quoteTaxPercent Float?
+  quoteTaxAmount  Float?
+  quoteTotal      Float?
+  quoteCurrency   String?
+  quoteNotes      String?
+  quoteValidUntil DateTime?
+  quotedAt        DateTime?
+  quotedById      String?
+
+  /// The customer's answer to the quote.
+  acceptedAt         DateTime?
+  changeRequest      String?
+  changesRequestedAt DateTime?
+
+  /// The invoice raised on acceptance.
+  invoiceId   String?   @unique
+  paidAt      DateTime?
+  deliveredAt DateTime?
+  /// Shown to the customer when declined or delivered.
+  statusNote  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events ServiceRequestEvent[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// The request's timeline, shown on its tracking page.
+model ServiceRequestEvent {
+  id        String         @id @default(cuid())
+  requestId String
+  request   ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  /// SUBMITTED, QUOTED, CHANGES_REQUESTED, ACCEPTED, INVOICED, PAID, IN_PRODUCTION, DELIVERED, DECLINED, CANCELLED
+  kind      String
+  message   String
+  /// CUSTOMER or TEAM
+  actor     String
+  createdAt DateTime       @default(now())
+
+  @@index([requestId, createdAt])
 }

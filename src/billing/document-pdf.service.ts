@@ -38,7 +38,7 @@ export class DocumentPdfService {
       pdf.moveTo(left, y).lineTo(right, y).strokeColor('#e4e4e7').lineWidth(1).stroke();
       y += 14;
 
-      pdf.fontSize(8).font('Helvetica-Bold').fillColor('#8a8a90').text('BILLED TO', left, y);
+      pdf.fontSize(8).font('Helvetica-Bold').fillColor('#8a8a90').text((doc.billedToLabel ?? 'Billed to').toUpperCase(), left, y);
       pdf.fontSize(10).font('Helvetica').fillColor('#111112')
         .text(doc.billedToName, left, y + 12)
         .text(doc.billedToEmail, left, y + 26);

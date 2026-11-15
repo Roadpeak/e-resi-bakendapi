@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
 import { InvitesModule } from './invites/invites.module.js';
 import { ReelsModule } from './reels/reels.module.js';
+import { ServiceRequestsModule } from './service-requests/service-requests.module.js';
 import { TrafficModule } from './traffic/traffic.module.js';
 import { SupportModule } from './support/support.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -42,6 +43,7 @@ import { AppService } from './app.service.js';
     AdminModule,
     InvitesModule,
     ReelsModule,
+    ServiceRequestsModule,
     ConfigModule.forRoot({ isGlobal: true }),
     // Drives recurring listing-fee collection.
     ScheduleModule.forRoot(),
