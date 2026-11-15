@@ -31,6 +31,14 @@ export class TrafficController {
     return this.service.propertyTraffic(slug, user.id, user.role, Number(days) || 30);
   }
 
+  @Get('mine/countries')
+  @Roles(UserRole.DEVELOPER, UserRole.AGENT)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Owner: countries viewing my developments, rentals and website (signed-in vs guest)' })
+  myCountries(@Query('days') days: string | undefined, @CurrentUser() user: { id: string; role: UserRole }) {
+    return this.service.myCountries(user.id, user.role, Number(days) || 30);
+  }
+
   @Public()
   @Post('hit/:id/duration')
   @ApiOperation({ summary: 'Public: time spent on a page, sent when leaving it' })

@@ -357,6 +357,71 @@ export class TrafficService {
   // ─── One development's traffic, for its developer ─────────────────────────
 
   /**
+   * Where the people viewing an owner's listings are, by country: every
+   * development they own, every rental they list or manage and, for an agent,
+   * their own website — each country split into signed-in and guest views.
+   * Visitors stay anonymous; only counts leave this method.
+   */
+  async myCountries(userId: string, role: string, daysParam: number) {
+    const { days, from } = this.since(daysParam);
+    const isAgent = role === 'AGENT';
+
+    const [properties, rentals, agent] = await Promise.all([
+      this.prisma.property.findMany({
+        where: isAgent ? { listedByAgent: { userId } } : { developer: { userId }, listedByAgentId: null },
+        select: { id: true },
+      }),
+      this.prisma.rentListing.findMany({
+        where: isAgent
+          ? { OR: [{ listedByAgent: { userId } }, { managingAgent: { userId } }] }
+          : { developer: { userId }, listedByAgentId: null },
+        select: { slug: true },
+      }),
+      isAgent
+        ? this.prisma.agentProfile.findUnique({ where: { userId }, select: { siteHandle: true, siteActivatedAt: true, siteCustomDomain: true } })
+        : null,
+    ]);
+
+    const ids = properties.map((p) => p.id);
+    const paths = rentals.map((r) => `/rent/${r.slug}`);
+    const hosts: string[] = [];
+    if (agent?.siteHandle && agent.siteActivatedAt) hosts.push(`${agent.siteHandle}.e-resi.com`);
+    if (agent?.siteCustomDomain) hosts.push(agent.siteCustomDomain, `www.${agent.siteCustomDomain}`);
+
+    const empty = { days, totals: { views: 0, visitors: 0, signedViews: 0, guestViews: 0, unknownViews: 0 }, countries: [] as {
+      country: string; views: number; visitors: number; signedViews: number; guestViews: number;
+    }[] };
+    if (!ids.length && !paths.length && !hosts.length) return empty;
+
+    // Prisma.join needs at least one value; an impossible sentinel keeps the SQL valid.
+    const list = (xs: string[]) => Prisma.join(xs.length ? xs : ['__none__']);
+    const mine = Prisma.sql`"createdAt" >= ${from} AND (
+      "propertyId" IN (${list(ids)}) OR "path" IN (${list(paths)}) OR "host" IN (${list(hosts)}))`;
+
+    const [rows, totals] = await Promise.all([
+      this.prisma.$queryRaw<{ country: string; views: bigint; visitors: bigint; signed: bigint; guest: bigint }[]>`
+        SELECT "country", COUNT(*) AS views, COUNT(DISTINCT "visitorId") AS visitors,
+               COUNT(*) FILTER (WHERE "userId" IS NOT NULL) AS signed,
+               COUNT(*) FILTER (WHERE "userId" IS NULL) AS guest
+        FROM "SiteVisit" WHERE ${mine} AND "country" IS NOT NULL
+        GROUP BY "country" ORDER BY views DESC LIMIT 25`,
+      this.prisma.$queryRaw<{ views: bigint; visitors: bigint; signed: bigint; guest: bigint; unknown: bigint }[]>`
+        SELECT COUNT(*) AS views, COUNT(DISTINCT "visitorId") AS visitors,
+               COUNT(*) FILTER (WHERE "userId" IS NOT NULL) AS signed,
+               COUNT(*) FILTER (WHERE "userId" IS NULL) AS guest,
+               COUNT(*) FILTER (WHERE "country" IS NULL) AS unknown
+        FROM "SiteVisit" WHERE ${mine}`,
+    ]);
+    const n = (v: bigint | number | null | undefined) => Number(v ?? 0);
+    const t = totals[0];
+    return {
+      days,
+      totals: { views: n(t?.views), visitors: n(t?.visitors), signedViews: n(t?.signed), guestViews: n(t?.guest), unknownViews: n(t?.unknown) },
+      countries: rows.map((r) => ({ country: r.country, views: n(r.views), visitors: n(r.visitors), signedViews: n(r.signed), guestViews: n(r.guest) })),
+    };
+  }
+
+  /**
    * Everything a developer can learn about who visits one development —
    * from any address it is served on. Visitors stay anonymous to the
    * developer: signed-in visits are counted, never named.
